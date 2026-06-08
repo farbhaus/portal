@@ -1,2 +1,28 @@
 # Initial Briefing
 Briefing.md
+
+# Secrets / env
+deploy/.env
+.env
+
+# Local data / volumes
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / SvelteKit
+node_modules/
+apps/web/.svelte-kit/
+apps/web/build/
+
+# OS / editor
+.DS_Store
+
+# Claude Files
+.claude

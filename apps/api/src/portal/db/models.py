@@ -1,0 +1,194 @@
+"""Full Portal domain schema (SQLAlchemy 2.0 declarative).
+
+The source/destination config columns are JSONB and type-tagged (e.g. {"type": "frameio", ...})
+so phase 2 S3 backends slot in additively without a schema rewrite.
+"""
+
+import uuid
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from portal.db.base import Base, TimestampMixin
+
+
+def _uuid_pk() -> Mapped[uuid.UUID]:
+    return mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+
+
+class User(Base, TimestampMixin):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    frameio_connections: Mapped[list["FrameioConnection"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class FrameioConnection(Base, TimestampMixin):
+    __tablename__ = "frameio_connections"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    adobe_ims_user_id: Mapped[str | None] = mapped_column(String(255))
+    adobe_email: Mapped[str | None] = mapped_column(String(255))
+    access_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    refresh_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # cached workspace/account list
+    workspaces: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    user: Mapped[User] = relationship(back_populates="frameio_connections")
+
+
+class Destination(Base, TimestampMixin):
+    __tablename__ = "destinations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # {"type": "frameio", "account_id", "workspace_id", "project_id", "folder_id"}
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    # Branding
+    logo_url: Mapped[str | None] = mapped_column(Text)
+    accent_color: Mapped[str | None] = mapped_column(String(32))
+    subtitle: Mapped[str | None] = mapped_column(Text)
+
+    upload_links: Mapped[list["UploadLink"]] = relationship(
+        back_populates="destination", cascade="all, delete-orphan"
+    )
+
+
+class UploadLink(Base, TimestampMixin):
+    __tablename__ = "upload_links"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    destination_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("destinations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    max_file_size: Mapped[int | None] = mapped_column(BigInteger)
+    allowed_extensions: Mapped[list[Any] | None] = mapped_column(JSONB)
+    # {"name": bool, "email": bool, "message": bool}
+    uploader_fields_required: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Branding overrides (fall back to destination branding when null)
+    brand_logo_url: Mapped[str | None] = mapped_column(Text)
+    brand_accent_color: Mapped[str | None] = mapped_column(String(32))
+    brand_display_name: Mapped[str | None] = mapped_column(String(255))
+    brand_subtitle: Mapped[str | None] = mapped_column(Text)
+
+    destination: Mapped[Destination] = relationship(back_populates="upload_links")
+    sessions: Mapped[list["UploadSession"]] = relationship(
+        back_populates="upload_link", cascade="all, delete-orphan"
+    )
+
+
+class UploadSession(Base, TimestampMixin):
+    __tablename__ = "upload_sessions"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    upload_link_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("upload_links.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    uploader_name: Mapped[str | None] = mapped_column(String(255))
+    uploader_email: Mapped[str | None] = mapped_column(String(255))
+    uploader_message: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="in_progress", nullable=False)
+    frameio_asset_ids: Mapped[list[Any] | None] = mapped_column(JSONB)
+    total_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    upload_link: Mapped[UploadLink] = relationship(back_populates="sessions")
+
+
+class SyncRule(Base, TimestampMixin):
+    __tablename__ = "sync_rules"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # {"type": "frameio", "account_id", "workspace_id", "project_id", "folder_id"}
+    source_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    destination_path: Mapped[str] = mapped_column(Text, nullable=False)
+    conflict_policy: Mapped[str] = mapped_column(
+        String(32), default="rename_suffix", nullable=False
+    )  # skip | overwrite | rename_suffix
+    path_template: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    webhook_secret: Mapped[str | None] = mapped_column(Text)
+    frameio_webhook_id: Mapped[str | None] = mapped_column(String(255))
+
+    jobs: Mapped[list["SyncJob"]] = relationship(
+        back_populates="sync_rule", cascade="all, delete-orphan"
+    )
+
+
+class SyncJob(Base, TimestampMixin):
+    __tablename__ = "sync_jobs"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    sync_rule_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sync_rules.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    frameio_file_id: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    bytes: Mapped[int | None] = mapped_column(BigInteger)
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    error: Mapped[str | None] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    sync_rule: Mapped[SyncRule] = relationship(back_populates="jobs")
+
+
+class WebhookEvent(Base):
+    __tablename__ = "webhook_events"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    source: Mapped[str] = mapped_column(String(32), default="frameio", nullable=False)
+    event_type: Mapped[str | None] = mapped_column(String(128))
+    raw: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    signature_valid: Mapped[bool | None] = mapped_column(Boolean)
+    processed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(Text)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    action: Mapped[str] = mapped_column(String(128), nullable=False)
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
