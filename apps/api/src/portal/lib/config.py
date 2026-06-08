@@ -32,7 +32,12 @@ class Settings(BaseSettings):
     # Frame.io / Adobe IMS OAuth
     frameio_client_id: str = Field(default="")
     frameio_client_secret: str = Field(default="")
-    frameio_scopes: str = Field(default="openid,email,profile,offline_access,additional_info.roles")
+    # AdobeID is required for Frame.io API access. Adobe auto-adds it during interactive
+    # consent, but NOT on refresh, so it must be requested explicitly or refreshed tokens
+    # get 401'd by the Frame.io API.
+    frameio_scopes: str = Field(
+        default="openid,AdobeID,email,profile,offline_access,additional_info.roles"
+    )
     # Defaults to {base_url}/api/frameio/callback when left blank.
     frameio_redirect_uri: str = Field(default="")
 

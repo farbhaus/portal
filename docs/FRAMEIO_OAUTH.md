@@ -25,17 +25,22 @@ Token-endpoint client authentication is **HTTP Basic**: `Authorization: Basic ba
 ## Scopes
 
 ```
-offline_access,openid,email,profile,additional_info.roles
+openid,AdobeID,email,profile,offline_access,additional_info.roles
 ```
 
+- `AdobeID` — **required for Frame.io API access.** Adobe auto-adds it during interactive
+  consent, so the *first* access token works even without requesting it — but it is **not**
+  added on token refresh. If `AdobeID` is not requested explicitly, every refreshed access
+  token is rejected by the Frame.io API with `401 "Invalid or missing authorization token"`
+  (~1h after connect, when the first token expires). Always request it.
 - `offline_access` — **required** to receive a refresh token. Without it there is no refresh
-  token and the admin would have to re-consent every ~24h.
+  token and the admin would have to re-consent each time the access token expires (~1h).
 - `openid email profile` — identity / profile.
 - `additional_info.roles` — role information.
 
-**Authorization is role-based, not scope-based.** Per the Frame.io docs, what the connected
-user can do is governed by their Frame.io roles/permissions, not by token scopes. So these
-scopes are sufficient for Portal's operations; there is no separate per-operation scope to grant.
+**Beyond `AdobeID`, authorization is role-based, not scope-based.** What the connected user can
+*do* is governed by their Frame.io roles/permissions, not by per-operation scopes. The access
+token (~1h lifetime) is refreshed transparently; the refresh token persists the connection.
 
 ## Flow
 
@@ -44,7 +49,7 @@ scopes are sufficient for Portal's operations; there is no separate per-operatio
    https://ims-na1.adobelogin.com/ims/authorize/v2
      ?client_id={CLIENT_ID}
      &redirect_uri={REDIRECT_URI}
-     &scope=offline_access,openid,email,profile,additional_info.roles
+     &scope=openid,AdobeID,email,profile,offline_access,additional_info.roles
      &response_type=code
      &state={RANDOM}
    ```
@@ -100,7 +105,7 @@ test against the HTTPS domain.
 | ----------------------- | ----------------------------------------------------------------- |
 | `FRAMEIO_CLIENT_ID`     | Adobe Developer Console Web App client id                          |
 | `FRAMEIO_CLIENT_SECRET` | Web App client secret                                              |
-| `FRAMEIO_SCOPES`        | Default `openid,email,profile,offline_access,additional_info.roles`|
+| `FRAMEIO_SCOPES`        | Default `openid,AdobeID,email,profile,offline_access,additional_info.roles` (AdobeID required) |
 | `FRAMEIO_REDIRECT_URI`  | Defaults to `{BASE_URL}/api/frameio/oauth/callback`                      |
 
 ## Errors & rate limits (for later steps)

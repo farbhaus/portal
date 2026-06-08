@@ -14,6 +14,7 @@
       <a href="/" class="text-base font-semibold">Portal</a>
       <nav class="flex items-center gap-3 text-sm text-neutral-500">
         <a href="/" class="hover:text-neutral-900">Dashboard</a>
+        <a href="/destinations" class="hover:text-neutral-900">Destinations</a>
         <a href="/connections" class="hover:text-neutral-900">Connections</a>
       </nav>
     </div>

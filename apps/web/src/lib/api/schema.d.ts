@@ -72,7 +72,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/frameio/connect": {
+    "/api/frameio/oauth/connect": {
         parameters: {
             query?: never;
             header?: never;
@@ -80,7 +80,7 @@ export interface paths {
             cookie?: never;
         };
         /** Connect */
-        get: operations["connect_api_frameio_connect_get"];
+        get: operations["connect_api_frameio_oauth_connect_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -89,7 +89,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/frameio/callback": {
+    "/api/frameio/oauth/callback": {
         parameters: {
             query?: never;
             header?: never;
@@ -97,7 +97,7 @@ export interface paths {
             cookie?: never;
         };
         /** Callback */
-        get: operations["callback_api_frameio_callback_get"];
+        get: operations["callback_api_frameio_oauth_callback_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -140,6 +140,114 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/frameio/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Accounts */
+        get: operations["list_accounts_api_frameio_accounts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/frameio/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Workspaces */
+        get: operations["list_workspaces_api_frameio_workspaces_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/frameio/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Projects */
+        get: operations["list_projects_api_frameio_projects_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/frameio/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Folders
+         * @description Direct child folders of `folder_id` (pass a project's root_folder_id to start).
+         */
+        get: operations["list_folders_api_frameio_folders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/destinations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Destinations */
+        get: operations["list_destinations_api_destinations_get"];
+        put?: never;
+        /** Create Destination */
+        post: operations["create_destination_api_destinations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/destinations/{dest_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Destination */
+        get: operations["get_destination_api_destinations__dest_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Destination */
+        delete: operations["delete_destination_api_destinations__dest_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Destination */
+        patch: operations["update_destination_api_destinations__dest_id__patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -157,6 +265,67 @@ export interface components {
             /** Scopes */
             scopes?: string | null;
         };
+        /** DestinationCreate */
+        DestinationCreate: {
+            /** Display Name */
+            display_name: string;
+            config: components["schemas"]["FrameioConfigIn"];
+            /** Logo Url */
+            logo_url?: string | null;
+            /** Accent Color */
+            accent_color?: string | null;
+            /** Subtitle */
+            subtitle?: string | null;
+        };
+        /** DestinationOut */
+        DestinationOut: {
+            /** Id */
+            id: string;
+            /** Display Name */
+            display_name: string;
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            };
+            /** Logo Url */
+            logo_url: string | null;
+            /** Accent Color */
+            accent_color: string | null;
+            /** Subtitle */
+            subtitle: string | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** DestinationUpdate */
+        DestinationUpdate: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Logo Url */
+            logo_url?: string | null;
+            /** Accent Color */
+            accent_color?: string | null;
+            /** Subtitle */
+            subtitle?: string | null;
+        };
+        /** FrameioConfigIn */
+        FrameioConfigIn: {
+            /**
+             * Type
+             * @default frameio
+             * @constant
+             */
+            type: "frameio";
+            /** Account Id */
+            account_id: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Project Id */
+            project_id: string;
+            /** Folder Id */
+            folder_id: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -171,6 +340,22 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** PickerItemOut */
+        PickerItemOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** ProjectItemOut */
+        ProjectItemOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Root Folder Id */
+            root_folder_id?: string | null;
         };
         /** UserOut */
         UserOut: {
@@ -296,7 +481,7 @@ export interface operations {
             };
         };
     };
-    connect_api_frameio_connect_get: {
+    connect_api_frameio_oauth_connect_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -316,7 +501,7 @@ export interface operations {
             };
         };
     };
-    callback_api_frameio_callback_get: {
+    callback_api_frameio_oauth_callback_get: {
         parameters: {
             query?: {
                 state?: string | null;
@@ -387,6 +572,269 @@ export interface operations {
                     "application/json": {
                         [key: string]: boolean;
                     };
+                };
+            };
+        };
+    };
+    list_accounts_api_frameio_accounts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PickerItemOut"][];
+                };
+            };
+        };
+    };
+    list_workspaces_api_frameio_workspaces_get: {
+        parameters: {
+            query: {
+                account_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PickerItemOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_projects_api_frameio_projects_get: {
+        parameters: {
+            query: {
+                account_id: string;
+                workspace_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectItemOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_folders_api_frameio_folders_get: {
+        parameters: {
+            query: {
+                account_id: string;
+                folder_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PickerItemOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_destinations_api_destinations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationOut"][];
+                };
+            };
+        };
+    };
+    create_destination_api_destinations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DestinationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_destination_api_destinations__dest_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dest_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_destination_api_destinations__dest_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dest_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_destination_api_destinations__dest_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dest_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DestinationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

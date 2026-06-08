@@ -195,6 +195,18 @@ class FrameioClient:
 
         return await self._guard("list_subfolders", run)
 
+    async def get_folder(self, account_id: str, folder_id: str) -> PickerItem:
+        """Resolve a single folder — used to validate a picked destination and get its name."""
+
+        async def run() -> PickerItem:
+            resp = await self._client.folders.show(
+                account_id, folder_id, request_options=_REQ_OPTS
+            )
+            folder = resp.data
+            return PickerItem(id=folder.id, name=getattr(folder, "name", None) or folder.id)
+
+        return await self._guard("get_folder", run)
+
     async def list_files(self, account_id: str, folder_id: str) -> list[FileItem]:
         """Direct child files (not subfolders) of a folder."""
 
