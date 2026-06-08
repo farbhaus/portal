@@ -75,6 +75,12 @@ async def exchange_code(code: str) -> TokenSet:
         except Exception as exc:  # authlib raises various OAuthError subclasses
             log.warning("frameio.oauth.exchange_failed", error=str(exc))
             raise FrameioOAuthError("Token exchange failed") from exc
+    log.info(
+        "frameio.oauth.exchange_ok",
+        granted_scope=token.get("scope"),
+        token_type=token.get("token_type"),
+        has_refresh=bool(token.get("refresh_token")),
+    )
     return _to_token_set(dict(token))
 
 
@@ -96,7 +102,7 @@ async def fetch_identity(access_token: str) -> Identity:
             headers={"Authorization": f"Bearer {access_token}"},
         )
     if resp.status_code != 200:
-        log.warning("frameio.oauth.me_failed", status=resp.status_code)
+        log.warning("frameio.oauth.me_failed", status=resp.status_code, body=resp.text[:500])
         raise FrameioOAuthError("Could not fetch Frame.io identity")
     body = resp.json()
     data = body.get("data", body) if isinstance(body, dict) else {}
