@@ -1,0 +1,9 @@
+# Add this to your HOST's Caddyfile (the reverse proxy that owns ports 80/443 and
+# terminates TLS). It forwards your domain to Portal's internal Caddy on the loopback
+# port set by PORTAL_PORT in .env. Caddy obtains and renews the TLS certificate for you.
+#
+# nginx/Traefik users: do the equivalent — proxy your domain to 127.0.0.1:18080.
+
+portal.example.com {
+	reverse_proxy 127.0.0.1:18080
+}

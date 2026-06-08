@@ -1,0 +1,11 @@
+# Portal's internal Caddy. HTTP only — TLS is terminated by the host's reverse proxy,
+# which forwards a single domain to 127.0.0.1:${PORTAL_PORT}. This Caddy only does
+# internal routing between the API and the SvelteKit frontend.
+:80 {
+	handle /api/* {
+		reverse_proxy portal_api:8000
+	}
+	handle {
+		reverse_proxy portal_web:3000
+	}
+}
