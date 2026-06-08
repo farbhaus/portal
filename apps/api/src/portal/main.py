@@ -7,17 +7,17 @@ from starlette.middleware.sessions import SessionMiddleware
 from portal.lib.config import get_settings
 from portal.lib.errors import install_exception_handlers
 from portal.lib.logging import RequestIdMiddleware, configure_logging, get_logger
-from portal.routes import auth, health
-from portal.seed import seed_admin
+from portal.routes import auth, frameio, health
 
 log = get_logger("main")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Admin seeding and migrations run once in the container entrypoint, not here, so they
+    # don't race across uvicorn workers.
     settings = get_settings()
     configure_logging(settings.log_level)
-    await seed_admin()
     log.info("startup.complete", base_url=settings.base_url)
     yield
 
@@ -48,6 +48,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
+    app.include_router(frameio.router, prefix="/api")
     return app
 
 

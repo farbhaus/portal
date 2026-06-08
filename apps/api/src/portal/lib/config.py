@@ -29,7 +29,19 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = Field(default=True)
     session_cookie_name: str = Field(default="portal_session")
 
+    # Frame.io / Adobe IMS OAuth
+    frameio_client_id: str = Field(default="")
+    frameio_client_secret: str = Field(default="")
+    frameio_scopes: str = Field(default="openid,email,profile,offline_access,additional_info.roles")
+    # Defaults to {base_url}/api/frameio/callback when left blank.
+    frameio_redirect_uri: str = Field(default="")
+
     log_level: str = Field(default="INFO")
+
+    @property
+    def resolved_frameio_redirect_uri(self) -> str:
+        base = self.base_url.rstrip("/")
+        return self.frameio_redirect_uri or f"{base}/api/frameio/oauth/callback"
 
 
 @lru_cache

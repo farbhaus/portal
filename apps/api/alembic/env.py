@@ -1,10 +1,10 @@
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy.pool import NullPool
 
+from alembic import context
 from portal.db.base import Base
 from portal.db.models import *  # noqa: F401,F403  (register all tables on Base.metadata)
 from portal.lib.config import get_settings

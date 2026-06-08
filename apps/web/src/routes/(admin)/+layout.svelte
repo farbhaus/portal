@@ -10,9 +10,12 @@
 
 <div class="flex min-h-full flex-col">
   <header class="flex items-center justify-between border-b border-neutral-200 bg-white px-6 py-3">
-    <div class="flex items-center gap-2">
-      <span class="text-base font-semibold">Portal</span>
-      <span class="text-sm text-neutral-400">admin</span>
+    <div class="flex items-center gap-4">
+      <a href="/" class="text-base font-semibold">Portal</a>
+      <nav class="flex items-center gap-3 text-sm text-neutral-500">
+        <a href="/" class="hover:text-neutral-900">Dashboard</a>
+        <a href="/connections" class="hover:text-neutral-900">Connections</a>
+      </nav>
     </div>
     <div class="flex items-center gap-4 text-sm">
       <span class="text-neutral-500">{data.user.email}</span>

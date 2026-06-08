@@ -3,8 +3,10 @@ set -e
 
 case "$1" in
   api)
-    # Apply migrations before serving. The admin user is seeded on app startup (lifespan).
+    # Apply migrations and seed the admin once, before workers spawn (avoids a multi-worker
+    # seed race on the unique admin email).
     alembic upgrade head
+    python -m portal.seed
     exec uvicorn portal.main:app --host 0.0.0.0 --port 8000 --workers "${UVICORN_WORKERS:-1}"
     ;;
   worker)

@@ -23,3 +23,18 @@ async def seed_admin() -> None:
         db.add(admin)
         await db.commit()
         log.info("seed.admin_created", email=settings.admin_email)
+
+
+def main() -> None:
+    """One-shot entrypoint: run admin seeding once before the API workers start."""
+    import asyncio
+
+    from portal.lib.config import get_settings
+    from portal.lib.logging import configure_logging
+
+    configure_logging(get_settings().log_level)
+    asyncio.run(seed_admin())
+
+
+if __name__ == "__main__":
+    main()

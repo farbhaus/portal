@@ -14,6 +14,10 @@
   <div>
     <h1 class="text-2xl font-semibold">Dashboard</h1>
     <p class="text-sm text-neutral-500">Signed in as {data.user.email}</p>
+    <p class="mt-1 text-sm text-neutral-500">
+      Start by connecting Frame.io on the
+      <a href="/connections" class="font-medium text-neutral-900 underline">Connections</a> page.
+    </p>
   </div>
 
   <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

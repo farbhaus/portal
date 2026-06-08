@@ -18,6 +18,8 @@ dependencies = [
     "redis>=5.2",
     "arq>=0.26",
     "python-multipart>=0.0.20",
+    "authlib>=1.4",
+    "httpx>=0.28",
 ]
 
 [dependency-groups]
@@ -39,6 +41,8 @@ packages = ["src/portal"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Alembic autogenerates these; don't lint generated migration files.
+extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
@@ -51,7 +55,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["arq.*"]
+module = ["arq.*", "authlib.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
