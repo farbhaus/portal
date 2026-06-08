@@ -8,7 +8,7 @@ from portal.frameio.client import close_frameio_client
 from portal.lib.config import get_settings
 from portal.lib.errors import install_exception_handlers
 from portal.lib.logging import RequestIdMiddleware, configure_logging, get_logger
-from portal.routes import auth, destinations, frameio, health
+from portal.routes import auth, destinations, frameio, health, public, upload_links
 
 log = get_logger("main")
 
@@ -52,6 +52,8 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/api")
     app.include_router(frameio.router, prefix="/api")
     app.include_router(destinations.router, prefix="/api")
+    app.include_router(upload_links.router, prefix="/api")
+    app.include_router(public.router, prefix="/api")
     return app
 
 
