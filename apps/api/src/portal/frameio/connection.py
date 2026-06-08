@@ -36,6 +36,14 @@ async def get_connection(db: AsyncSession, user_id: uuid.UUID) -> FrameioConnect
     return result.scalar_one_or_none()
 
 
+async def get_primary_connection(db: AsyncSession) -> FrameioConnection | None:
+    """The single connection used for API access (v1 has one admin / one connection)."""
+    result = await db.execute(
+        select(FrameioConnection).order_by(FrameioConnection.created_at).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def upsert_connection(
     db: AsyncSession,
     user_id: uuid.UUID,

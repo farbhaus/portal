@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
+from portal.frameio.client import close_frameio_client
 from portal.lib.config import get_settings
 from portal.lib.errors import install_exception_handlers
 from portal.lib.logging import RequestIdMiddleware, configure_logging, get_logger
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings.log_level)
     log.info("startup.complete", base_url=settings.base_url)
     yield
+    await close_frameio_client()
 
 
 def create_app() -> FastAPI:

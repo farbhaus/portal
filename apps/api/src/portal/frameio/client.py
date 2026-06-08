@@ -1,0 +1,258 @@
+"""Portal's wrapper around the official `frameio` V4 Python SDK.
+
+All Frame.io API access flows through here (briefing: "one Frame.io client module"). The
+wrapper is:
+
+- auth-aware  — supplies a fresh access token per request via `async_token`, so Step 2's
+  refresh-on-expiry logic stays the single source of truth (the SDK awaits the callback on
+  every request: frameio.core.client_wrapper).
+- retry/rate-limit-aware — the SDK retries with backoff and honors 429 Retry-After; we set
+  `max_retries` and log `x-ratelimit-remaining` from every response.
+- logged — an httpx response event hook logs method, url, status, duration and rate-limit
+  headers for every underlying API call (NFR: log every Frame.io call).
+
+Higher-level features (uploads, downloads, webhooks) build on this via the StorageBackend in
+`portal.storage`. This module additionally exposes the account-structure *pickers*
+(accounts / workspaces / projects / folders) used to configure destinations.
+"""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+
+import httpx
+from frameio import AsyncFrameio
+
+from portal.db.session import get_sessionmaker
+from portal.frameio import connection as conn_svc
+from portal.frameio.oauth import FrameioOAuthError
+from portal.lib.logging import get_logger
+
+log = get_logger("frameio.client")
+
+# Total attempts the SDK makes per call before giving up (covers transient 429/5xx).
+MAX_RETRIES = 4
+_REQ_OPTS = {"max_retries": MAX_RETRIES}
+PICKER_PAGE_SIZE = 100
+# Safety cap so a pathological account can't make a picker call iterate forever.
+PICKER_MAX_ITEMS = 1000
+_HTTP_TIMEOUT = 30.0
+
+
+class FrameioError(Exception):
+    """A Frame.io API call failed."""
+
+
+class FrameioNotConnected(FrameioError):
+    """No usable Frame.io connection (not connected, or token refresh failed)."""
+
+
+@dataclass(frozen=True)
+class PickerItem:
+    id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class ProjectItem:
+    id: str
+    name: str
+    # Entry point for the folder picker — browse a project's tree from here.
+    root_folder_id: str | None
+
+
+@dataclass(frozen=True)
+class FileItem:
+    id: str
+    name: str
+    file_size: int | None
+    media_type: str | None
+
+
+async def _provide_token() -> str:
+    """Return a valid bearer token for the primary connection, refreshing if needed."""
+    async with get_sessionmaker()() as db:
+        conn = await conn_svc.get_primary_connection(db)
+        if conn is None:
+            raise FrameioNotConnected("Frame.io is not connected")
+        try:
+            return await conn_svc.get_valid_access_token(db, conn)
+        except FrameioOAuthError as exc:
+            raise FrameioNotConnected(str(exc)) from exc
+
+
+async def _on_request(request: httpx.Request) -> None:
+    request.extensions["portal_start"] = time.monotonic()
+
+
+async def _on_response(response: httpx.Response) -> None:
+    start = response.request.extensions.get("portal_start")
+    duration_ms = round((time.monotonic() - start) * 1000) if start else None
+    log.info(
+        "frameio.api.call",
+        method=response.request.method,
+        url=str(response.request.url),
+        status=response.status_code,
+        duration_ms=duration_ms,
+        ratelimit_remaining=response.headers.get("x-ratelimit-remaining"),
+    )
+
+
+class FrameioClient:
+    """Async wrapper holding one SDK client and its httpx transport."""
+
+    def __init__(self) -> None:
+        self._httpx = httpx.AsyncClient(
+            timeout=_HTTP_TIMEOUT,
+            event_hooks={"request": [_on_request], "response": [_on_response]},
+        )
+        self._client = AsyncFrameio(
+            token="",  # unused: async_token supplies the bearer per request
+            async_token=_provide_token,
+            httpx_client=self._httpx,
+        )
+
+    async def aclose(self) -> None:
+        await self._httpx.aclose()
+
+    @property
+    def sdk(self) -> AsyncFrameio:
+        """Underlying SDK client, for features beyond the pickers (uploads, files, webhooks)."""
+        return self._client
+
+    # ── pickers ───────────────────────────────────────────────────────────────
+
+    async def list_accounts(self) -> list[PickerItem]:
+        async def run() -> list[PickerItem]:
+            pager = await self._client.accounts.index(
+                page_size=PICKER_PAGE_SIZE, request_options=_REQ_OPTS
+            )
+            items: list[PickerItem] = []
+            async for acct in pager:
+                items.append(PickerItem(id=acct.id, name=acct.display_name or acct.id))
+                if len(items) >= PICKER_MAX_ITEMS:
+                    break
+            return items
+
+        return await self._guard("list_accounts", run)
+
+    async def list_workspaces(self, account_id: str) -> list[PickerItem]:
+        async def run() -> list[PickerItem]:
+            pager = await self._client.workspaces.index(
+                account_id, page_size=PICKER_PAGE_SIZE, request_options=_REQ_OPTS
+            )
+            items: list[PickerItem] = []
+            async for ws in pager:
+                items.append(PickerItem(id=ws.id, name=ws.name or ws.id))
+                if len(items) >= PICKER_MAX_ITEMS:
+                    break
+            return items
+
+        return await self._guard("list_workspaces", run)
+
+    async def list_projects(self, account_id: str, workspace_id: str) -> list[ProjectItem]:
+        async def run() -> list[ProjectItem]:
+            pager = await self._client.projects.index(
+                account_id, workspace_id, page_size=PICKER_PAGE_SIZE, request_options=_REQ_OPTS
+            )
+            items: list[ProjectItem] = []
+            async for proj in pager:
+                items.append(
+                    ProjectItem(
+                        id=proj.id,
+                        name=proj.name or proj.id,
+                        root_folder_id=getattr(proj, "root_folder_id", None),
+                    )
+                )
+                if len(items) >= PICKER_MAX_ITEMS:
+                    break
+            return items
+
+        return await self._guard("list_projects", run)
+
+    async def list_subfolders(self, account_id: str, folder_id: str) -> list[PickerItem]:
+        """Direct child folders of `folder_id` (start from a project's root_folder_id)."""
+
+        async def run() -> list[PickerItem]:
+            items: list[PickerItem] = []
+            after: str | None = None
+            while True:
+                resp = await self._client.folders.list(
+                    account_id,
+                    folder_id,
+                    page_size=PICKER_PAGE_SIZE,
+                    after=after,
+                    request_options=_REQ_OPTS,
+                )
+                for folder in resp.data or []:
+                    items.append(PickerItem(id=folder.id, name=folder.name or folder.id))
+                after = resp.links.next if resp.links else None
+                if not after or len(items) >= PICKER_MAX_ITEMS:
+                    break
+            return items
+
+        return await self._guard("list_subfolders", run)
+
+    async def list_files(self, account_id: str, folder_id: str) -> list[FileItem]:
+        """Direct child files (not subfolders) of a folder."""
+
+        async def run() -> list[FileItem]:
+            items: list[FileItem] = []
+            after: str | None = None
+            while True:
+                resp = await self._client.folders.index(
+                    account_id,
+                    folder_id,
+                    type="file",
+                    page_size=PICKER_PAGE_SIZE,
+                    after=after,
+                    request_options=_REQ_OPTS,
+                )
+                for asset in resp.data or []:
+                    items.append(
+                        FileItem(
+                            id=asset.id,
+                            name=getattr(asset, "name", None) or asset.id,
+                            file_size=getattr(asset, "file_size", None),
+                            media_type=getattr(asset, "media_type", None),
+                        )
+                    )
+                after = resp.links.next if resp.links else None
+                if not after or len(items) >= PICKER_MAX_ITEMS:
+                    break
+            return items
+
+        return await self._guard("list_files", run)
+
+    # ── internals ───────────────────────────────────────────────────────────────
+
+    async def _guard[T](self, op: str, run: Callable[[], Awaitable[T]]) -> T:
+        try:
+            return await run()
+        except FrameioNotConnected:
+            raise
+        except Exception as exc:
+            log.warning(
+                "frameio.client.error", op=op, error=str(exc), error_type=type(exc).__name__
+            )
+            raise FrameioError(f"Frame.io API call failed: {op}") from exc
+
+
+_singleton: FrameioClient | None = None
+
+
+def get_frameio_client() -> FrameioClient:
+    """Process-wide shared client (one httpx transport per worker)."""
+    global _singleton
+    if _singleton is None:
+        _singleton = FrameioClient()
+    return _singleton
+
+
+async def close_frameio_client() -> None:
+    global _singleton
+    if _singleton is not None:
+        await _singleton.aclose()
+        _singleton = None

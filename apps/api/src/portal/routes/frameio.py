@@ -1,6 +1,6 @@
 import secrets
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,11 @@ from portal.db.models import AuditLog, User
 from portal.db.session import get_session
 from portal.frameio import connection as conn_svc
 from portal.frameio import oauth
+from portal.frameio.client import (
+    FrameioError,
+    FrameioNotConnected,
+    get_frameio_client,
+)
 from portal.lib.config import get_settings
 from portal.lib.logging import get_logger
 
@@ -92,3 +97,68 @@ async def disconnect(
         db.add(AuditLog(user_id=user.id, action="frameio.disconnected"))
         await db.commit()
     return {"ok": True}
+
+
+# ── pickers (configure destinations by browsing the Frame.io account tree) ─────
+
+
+class PickerItemOut(BaseModel):
+    id: str
+    name: str
+
+
+class ProjectItemOut(BaseModel):
+    id: str
+    name: str
+    root_folder_id: str | None = None
+
+
+def _picker_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, FrameioNotConnected):
+        return HTTPException(status_code=409, detail="Frame.io is not connected")
+    return HTTPException(status_code=502, detail="Frame.io request failed")
+
+
+@router.get("/accounts", response_model=list[PickerItemOut])
+async def list_accounts(_: User = Depends(require_admin)) -> list[PickerItemOut]:
+    try:
+        items = await get_frameio_client().list_accounts()
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+    return [PickerItemOut(id=i.id, name=i.name) for i in items]
+
+
+@router.get("/workspaces", response_model=list[PickerItemOut])
+async def list_workspaces(
+    account_id: str, _: User = Depends(require_admin)
+) -> list[PickerItemOut]:
+    try:
+        items = await get_frameio_client().list_workspaces(account_id)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+    return [PickerItemOut(id=i.id, name=i.name) for i in items]
+
+
+@router.get("/projects", response_model=list[ProjectItemOut])
+async def list_projects(
+    account_id: str, workspace_id: str, _: User = Depends(require_admin)
+) -> list[ProjectItemOut]:
+    try:
+        items = await get_frameio_client().list_projects(account_id, workspace_id)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+    return [
+        ProjectItemOut(id=i.id, name=i.name, root_folder_id=i.root_folder_id) for i in items
+    ]
+
+
+@router.get("/folders", response_model=list[PickerItemOut])
+async def list_folders(
+    account_id: str, folder_id: str, _: User = Depends(require_admin)
+) -> list[PickerItemOut]:
+    """Direct child folders of `folder_id` (pass a project's root_folder_id to start)."""
+    try:
+        items = await get_frameio_client().list_subfolders(account_id, folder_id)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+    return [PickerItemOut(id=i.id, name=i.name) for i in items]

@@ -1,0 +1,270 @@
+import types
+from datetime import UTC, datetime, timedelta
+
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient
+from sqlalchemy import delete, select
+
+from portal.db.models import FrameioConnection, User
+from portal.db.session import get_sessionmaker
+from portal.frameio.client import (
+    FileItem,
+    FrameioClient,
+    FrameioError,
+    FrameioNotConnected,
+    PickerItem,
+    ProjectItem,
+    _provide_token,
+)
+from portal.lib.config import get_settings
+from portal.lib.crypto import TokenCipher
+from portal.routes import frameio as frameio_routes
+from portal.storage.base import DestinationConfig, RemoteFile, StorageBackend
+from portal.storage.frameio_backend import FrameioStorageBackend
+
+CREDS = {"email": "admin@example.com", "password": "test-password"}
+
+
+def ns(**kw: object) -> types.SimpleNamespace:
+    return types.SimpleNamespace(**kw)
+
+
+# ── fake SDK ──────────────────────────────────────────────────────────────────
+
+
+class _Pager:
+    def __init__(self, items: list[object]) -> None:
+        self._items = items
+
+    def __aiter__(self) -> "_Pager":
+        self._it = iter(self._items)
+        return self
+
+    async def __anext__(self) -> object:
+        try:
+            return next(self._it)
+        except StopIteration:
+            raise StopAsyncIteration from None
+
+
+class _IndexResource:
+    def __init__(self, items: list[object]) -> None:
+        self._items = items
+
+    async def index(self, *args: object, **kwargs: object) -> _Pager:
+        return _Pager(self._items)
+
+
+class _FoldersResource:
+    """Serves paginated `list` (subfolders) and `index` (assets) responses.
+
+    `pages` is a list of (data, next_cursor); `after` is the index of the page to return.
+    """
+
+    def __init__(self, list_pages: list[tuple], index_pages: list[tuple]) -> None:
+        self._list_pages = list_pages
+        self._index_pages = index_pages
+
+    async def list(
+        self, account_id: str, folder_id: str, *, after: str | None = None, **kwargs: object
+    ) -> object:
+        data, nxt = self._list_pages[0 if after is None else int(after)]
+        return ns(data=data, links=ns(next=nxt))
+
+    async def index(
+        self, account_id: str, folder_id: str, *, after: str | None = None, **kwargs: object
+    ) -> object:
+        data, nxt = self._index_pages[0 if after is None else int(after)]
+        return ns(data=data, links=ns(next=nxt))
+
+
+def _fake_sdk() -> types.SimpleNamespace:
+    return ns(
+        accounts=_IndexResource([ns(id="a1", display_name="Acct One")]),
+        workspaces=_IndexResource([ns(id="w1", name="Workspace")]),
+        projects=_IndexResource([ns(id="p1", name="Project", root_folder_id="rf1")]),
+        folders=_FoldersResource(
+            list_pages=[
+                ([ns(id="f1", name="F1"), ns(id="f2", name="F2")], "1"),
+                ([ns(id="f3", name="F3")], None),
+            ],
+            index_pages=[
+                ([ns(id="x1", name="clip.mov", file_size=123, media_type="video")], None),
+            ],
+        ),
+    )
+
+
+@pytest_asyncio.fixture
+async def fake_client():
+    c = FrameioClient()
+    c._client = _fake_sdk()  # type: ignore[assignment]
+    yield c
+    await c.aclose()
+
+
+# ── client: picker mapping & pagination ───────────────────────────────────────
+
+
+async def test_list_accounts(fake_client: FrameioClient) -> None:
+    assert await fake_client.list_accounts() == [PickerItem(id="a1", name="Acct One")]
+
+
+async def test_list_workspaces(fake_client: FrameioClient) -> None:
+    assert await fake_client.list_workspaces("a1") == [PickerItem(id="w1", name="Workspace")]
+
+
+async def test_list_projects_includes_root_folder(fake_client: FrameioClient) -> None:
+    assert await fake_client.list_projects("a1", "w1") == [
+        ProjectItem(id="p1", name="Project", root_folder_id="rf1")
+    ]
+
+
+async def test_list_subfolders_paginates(fake_client: FrameioClient) -> None:
+    items = await fake_client.list_subfolders("a1", "rf1")
+    assert [i.id for i in items] == ["f1", "f2", "f3"]
+
+
+async def test_list_files(fake_client: FrameioClient) -> None:
+    assert await fake_client.list_files("a1", "rf1") == [
+        FileItem(id="x1", name="clip.mov", file_size=123, media_type="video")
+    ]
+
+
+async def test_error_translation() -> None:
+    class _Boom:
+        async def index(self, *a: object, **k: object) -> object:
+            raise RuntimeError("boom")
+
+    c = FrameioClient()
+    c._client = ns(accounts=_Boom())  # type: ignore[assignment]
+    with pytest.raises(FrameioError):
+        await c.list_accounts()
+    await c.aclose()
+
+
+# ── storage interface contract ────────────────────────────────────────────────
+
+
+def test_frameio_backend_is_storage_backend() -> None:
+    assert issubclass(FrameioStorageBackend, StorageBackend)
+    assert FrameioStorageBackend.backend_type == "frameio"
+
+
+async def test_backend_list_files(fake_client: FrameioClient) -> None:
+    backend = FrameioStorageBackend(client=fake_client)
+    dest = DestinationConfig(type="frameio", data={"account_id": "a1", "folder_id": "rf1"})
+    assert await backend.list_files_in_destination(dest) == [
+        RemoteFile(id="x1", name="clip.mov", size=123, media_type="video")
+    ]
+
+
+async def test_backend_missing_config_raises(fake_client: FrameioClient) -> None:
+    backend = FrameioStorageBackend(client=fake_client)
+    dest = DestinationConfig(type="frameio", data={})
+    with pytest.raises(KeyError):
+        await backend.list_files_in_destination(dest)
+
+
+async def test_backend_upload_not_implemented_until_step6(fake_client: FrameioClient) -> None:
+    backend = FrameioStorageBackend(client=fake_client)
+    dest = DestinationConfig(type="frameio", data={"account_id": "a1", "folder_id": "rf1"})
+    with pytest.raises(NotImplementedError):
+        await backend.create_upload_session(dest, filename="x.mov", size=1)
+
+
+# ── picker routes ─────────────────────────────────────────────────────────────
+
+
+class _StubClient:
+    async def list_accounts(self) -> list[PickerItem]:
+        return [PickerItem(id="a1", name="Acct One")]
+
+    async def list_workspaces(self, account_id: str) -> list[PickerItem]:
+        return [PickerItem(id="w1", name="Workspace")]
+
+    async def list_projects(self, account_id: str, workspace_id: str) -> list[ProjectItem]:
+        return [ProjectItem(id="p1", name="Project", root_folder_id="rf1")]
+
+    async def list_subfolders(self, account_id: str, folder_id: str) -> list[PickerItem]:
+        return [PickerItem(id="f1", name="F1")]
+
+
+async def _login(client: AsyncClient) -> None:
+    assert (await client.post("/api/auth/login", json=CREDS)).status_code == 200
+
+
+async def test_accounts_route(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    resp = await client.get("/api/frameio/accounts")
+    assert resp.status_code == 200
+    assert resp.json() == [{"id": "a1", "name": "Acct One"}]
+
+
+async def test_projects_route_includes_root_folder(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    resp = await client.get(
+        "/api/frameio/projects", params={"account_id": "a1", "workspace_id": "w1"}
+    )
+    assert resp.status_code == 200
+    assert resp.json() == [{"id": "p1", "name": "Project", "root_folder_id": "rf1"}]
+
+
+async def test_picker_route_not_connected_returns_409(client: AsyncClient, monkeypatch) -> None:
+    class _NC:
+        async def list_accounts(self) -> list[PickerItem]:
+            raise FrameioNotConnected("nope")
+
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _NC())
+    assert (await client.get("/api/frameio/accounts")).status_code == 409
+
+
+async def test_picker_route_upstream_failure_returns_502(client: AsyncClient, monkeypatch) -> None:
+    class _Err:
+        async def list_accounts(self) -> list[PickerItem]:
+            raise FrameioError("boom")
+
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _Err())
+    assert (await client.get("/api/frameio/accounts")).status_code == 502
+
+
+async def test_picker_route_requires_auth(client: AsyncClient) -> None:
+    assert (await client.get("/api/frameio/accounts")).status_code == 401
+
+
+# ── token provider ────────────────────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture
+async def _clear_connections() -> None:
+    async with get_sessionmaker()() as db:
+        await db.execute(delete(FrameioConnection))
+        await db.commit()
+
+
+async def test_provide_token_no_connection(_clear_connections: None) -> None:
+    with pytest.raises(FrameioNotConnected):
+        await _provide_token()
+
+
+async def test_provide_token_returns_valid_token(_clear_connections: None) -> None:
+    cipher = TokenCipher(get_settings().token_encryption_key)
+    async with get_sessionmaker()() as db:
+        user = (await db.execute(select(User))).scalars().first()
+        assert user is not None
+        db.add(
+            FrameioConnection(
+                user_id=user.id,
+                access_token_encrypted=cipher.encrypt("the-access"),
+                refresh_token_encrypted=cipher.encrypt("the-refresh"),
+                token_expires_at=datetime.now(UTC) + timedelta(hours=2),
+            )
+        )
+        await db.commit()
+
+    assert await _provide_token() == "the-access"

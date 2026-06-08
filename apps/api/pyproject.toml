@@ -20,6 +20,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "authlib>=1.4",
     "httpx>=0.28",
+    "frameio>=1.2,<2",
 ]
 
 [dependency-groups]
