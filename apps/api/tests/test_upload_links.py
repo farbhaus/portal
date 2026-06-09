@@ -357,6 +357,35 @@ async def test_request_file_rejects_bad_ext_and_size(client: AsyncClient, monkey
     assert too_big.status_code == 400
 
 
+async def test_completion_schedules_email(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    _use_upload_stub(monkeypatch)
+    calls: list[dict] = []
+
+    async def capture(**kwargs: object) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(public_routes, "send_upload_completion", capture)
+    link = await _make_link(client, brand_display_name="DIT Drop")
+    token = link["token"]
+    sid = (
+        await client.post(f"/api/public/links/{token}/sessions", json={"name": "DIT"})
+    ).json()["session_id"]
+    await client.post(
+        f"/api/public/links/{token}/sessions/{sid}/files",
+        json={"path": "A-CAM/clip.mov", "size": 1000},
+    )
+    await client.post(
+        f"/api/public/links/{token}/sessions/{sid}/complete", json={"total_bytes": 1000}
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["link_name"] == "DIT Drop"
+    assert calls[0]["total_bytes"] == 1000
+    assert calls[0]["files"][0].name == "A-CAM/clip.mov"
+    assert calls[0]["files"][0].size == 1000
+
+
 async def test_complete_file_pending(client: AsyncClient, monkeypatch) -> None:
     await _login(client)
     _use_upload_stub(monkeypatch, UploadStatus(complete=False, failed=False))

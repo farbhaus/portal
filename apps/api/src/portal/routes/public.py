@@ -9,7 +9,7 @@ land in build step 6; this is the token-resolution and password-gate core.
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,7 @@ from portal.db.session import get_session
 from portal.frameio.client import FrameioError, FrameioNotConnected, get_frameio_client
 from portal.lib.errors import NotFoundError
 from portal.lib.logging import get_logger
+from portal.notify.email import UploadedFile, send_upload_completion
 from portal.storage.base import DestinationConfig, UploadNotReady
 from portal.storage.base import UploadSession as StorageUploadSession
 from portal.storage.frameio_backend import FrameioStorageBackend
@@ -230,7 +231,10 @@ async def request_file_upload(
         log.warning("public.upload.create_failed", error=str(exc))
         raise HTTPException(status_code=502, detail="Could not start the upload") from exc
 
-    session.frameio_asset_ids = (session.frameio_asset_ids or []) + [upload.backend_data["file_id"]]
+    # Store per-file metadata (not just ids) so the completion email can list names + sizes
+    # without extra Frame.io calls.
+    entry = {"file_id": upload.backend_data["file_id"], "name": body.path, "size": body.size}
+    session.frameio_asset_ids = (session.frameio_asset_ids or []) + [entry]
     await db.commit()
 
     return FileResult(
@@ -274,14 +278,36 @@ async def complete_session(
     token: str,
     session_id: str,
     body: CompleteSessionRequest,
+    background: BackgroundTasks,
     db: AsyncSession = Depends(get_session),
 ) -> PasswordVerifyResult:
     link = await _get_link(db, token)
     session = await _load_session(db, link, session_id)
+    now = datetime.now(UTC)
     session.status = "completed"
-    session.completed_at = datetime.now(UTC)
+    session.completed_at = now
     session.total_bytes = body.total_bytes
+
+    # Snapshot everything the notification needs BEFORE commit (attributes expire on commit).
+    entries = session.frameio_asset_ids or []
+    files = [UploadedFile(name=str(e.get("name", "")), size=e.get("size")) for e in entries]
+    total_bytes = body.total_bytes or sum(f.size or 0 for f in files)
+    started_at = session.started_at
+    duration = (now - started_at).total_seconds() if started_at else 0.0
+    link_name = link.brand_display_name or link.destination.display_name
+    uploader = (session.uploader_name, session.uploader_email, session.uploader_message)
+
     await db.commit()
-    # Email notification on completion lands in build step 7.
     log.info("public.upload.session_completed", session_id=session_id)
+
+    background.add_task(
+        send_upload_completion,
+        link_name=link_name,
+        uploader_name=uploader[0],
+        uploader_email=uploader[1],
+        uploader_message=uploader[2],
+        files=files,
+        total_bytes=total_bytes,
+        duration_seconds=duration,
+    )
     return PasswordVerifyResult(ok=True)

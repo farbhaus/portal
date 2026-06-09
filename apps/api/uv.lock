@@ -6,6 +6,15 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "aiosmtplib"
+version = "5.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/ba/34f2fef90d13e21ae3f1b360da98d825c40832bb232613513be92457ff65/aiosmtplib-5.1.1.tar.gz", hash = "sha256:d9a35e9d170bc1a9f66e2fdfe7fd212f7eebb8c1581c621f79395d0bcaba7a68", size = 68123 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/56/97/d1030d897e96c79cf0682ff93c11a2118085b3af4c27993675eda9e55da3/aiosmtplib-5.1.1-py3-none-any.whl", hash = "sha256:9d384f0c3d8906f745c1cf6819f073145bb2de8b10407905f5e2ee3389bfe6c7", size = 27937 },
+]
+
+[[package]]
 name = "alembic"
 version = "1.18.4"
 source = { registry = "https://pypi.org/simple" }
@@ -878,6 +887,7 @@ name = "portal"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiosmtplib" },
     { name = "alembic" },
     { name = "arq" },
     { name = "asyncpg" },
@@ -908,6 +918,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiosmtplib", specifier = ">=3.0" },
     { name = "alembic", specifier = ">=1.14" },
     { name = "arq", specifier = ">=0.26" },
     { name = "asyncpg", specifier = ">=0.30" },

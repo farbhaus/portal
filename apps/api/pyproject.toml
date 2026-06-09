@@ -21,6 +21,7 @@ dependencies = [
     "authlib>=1.4",
     "httpx>=0.28",
     "frameio>=1.2,<2",
+    "aiosmtplib>=3.0",
 ]
 
 [dependency-groups]

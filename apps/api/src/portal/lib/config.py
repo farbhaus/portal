@@ -41,12 +41,32 @@ class Settings(BaseSettings):
     # Defaults to {base_url}/api/frameio/callback when left blank.
     frameio_redirect_uri: str = Field(default="")
 
+    # Email (SMTP) — notifications on upload completion (and download links in step 9).
+    smtp_host: str = Field(default="")
+    smtp_port: int = Field(default=587)
+    smtp_username: str = Field(default="")
+    smtp_password: str = Field(default="")
+    smtp_from: str = Field(default="")
+    # Implicit TLS (usually port 465). When false, STARTTLS is used if smtp_starttls is set.
+    smtp_use_tls: bool = Field(default=False)
+    smtp_starttls: bool = Field(default=True)
+    # Where notifications are sent; falls back to admin_email when blank.
+    notify_email: str = Field(default="")
+
     log_level: str = Field(default="INFO")
 
     @property
     def resolved_frameio_redirect_uri(self) -> str:
         base = self.base_url.rstrip("/")
         return self.frameio_redirect_uri or f"{base}/api/frameio/oauth/callback"
+
+    @property
+    def email_configured(self) -> bool:
+        return bool(self.smtp_host and self.smtp_from)
+
+    @property
+    def resolved_notify_email(self) -> str:
+        return self.notify_email or self.admin_email
 
 
 @lru_cache
