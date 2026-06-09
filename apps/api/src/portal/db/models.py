@@ -192,3 +192,69 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class DownloadLink(Base, TimestampMixin):
+    __tablename__ = "download_links"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    # {"type":"file","account_id","file_id"} |
+    # {"type":"folder","account_id","folder_id","recursive":bool} |
+    # {"type":"selection","account_id","file_ids":[...]}
+    source: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    # Total downloads allowed across all files in the link (null = unlimited).
+    max_downloads: Mapped[int | None] = mapped_column(Integer)
+    downloads_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # {"name": bool, "email": bool}
+    viewer_fields_required: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    allow_preview: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Branding (self-contained; no destination to fall back to)
+    brand_logo_url: Mapped[str | None] = mapped_column(Text)
+    brand_accent_color: Mapped[str | None] = mapped_column(String(32))
+    brand_display_name: Mapped[str | None] = mapped_column(String(255))
+    brand_subtitle: Mapped[str | None] = mapped_column(Text)
+
+    sessions: Mapped[list["DownloadSession"]] = relationship(
+        back_populates="download_link", cascade="all, delete-orphan"
+    )
+
+
+class DownloadSession(Base, TimestampMixin):
+    __tablename__ = "download_sessions"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    download_link_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("download_links.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    viewer_name: Mapped[str | None] = mapped_column(String(255))
+    viewer_email: Mapped[str | None] = mapped_column(String(255))
+    ip: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    download_link: Mapped[DownloadLink] = relationship(back_populates="sessions")
+    events: Mapped[list["DownloadEvent"]] = relationship(
+        back_populates="download_session", cascade="all, delete-orphan"
+    )
+
+
+class DownloadEvent(Base):
+    __tablename__ = "download_events"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    download_session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("download_sessions.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    frameio_file_id: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    file_name: Mapped[str | None] = mapped_column(String(512))
+    completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    bytes_served: Mapped[int | None] = mapped_column(BigInteger)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    download_session: Mapped[DownloadSession] = relationship(back_populates="events")

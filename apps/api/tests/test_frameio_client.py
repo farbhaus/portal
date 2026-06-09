@@ -234,8 +234,9 @@ async def test_backend_complete_upload_states() -> None:
 async def test_backend_remaining_methods_deferred(fake_client: FrameioClient) -> None:
     backend = FrameioStorageBackend(client=fake_client)
     dest = DestinationConfig(type="frameio", data={"account_id": "a1", "folder_id": "rf1"})
+    # delete_object (phase 2) and subscribe_to_changes (step 10/webhooks) are still stubs.
     with pytest.raises(NotImplementedError):
-        await backend.get_download_url(dest, "file-1")
+        await backend.delete_object(dest, "file-1")
     with pytest.raises(NotImplementedError):
         await backend.subscribe_to_changes(dest, callback_url="https://x")
 

@@ -95,6 +95,16 @@ class UploadStatus:
     failed: bool
 
 
+@dataclass(frozen=True)
+class DownloadFile:
+    id: str
+    name: str
+    file_size: int | None
+    media_type: str | None
+    download_url: str | None
+    thumbnail_url: str | None
+
+
 async def _provide_token() -> str:
     """Return a valid bearer token for the primary connection, refreshing if needed."""
     async with get_sessionmaker()() as db:
@@ -334,6 +344,68 @@ class FrameioClient:
                 return current
 
         return await self._guard("ensure_folder_path", run)
+
+    # ── downloads (Media Links: short-lived signed S3 URLs) ───────────────────────
+
+    async def get_download_url(self, account_id: str, file_id: str) -> str:
+        """Mint a short-lived signed download URL for a file (Media Links 'original')."""
+
+        async def run() -> str:
+            resp = await self._client.files.show(
+                account_id, file_id, include="media_links.original", request_options=_REQ_OPTS
+            )
+            links = getattr(resp.data, "media_links", None)
+            original = getattr(links, "original", None) if links else None
+            url = getattr(original, "download_url", None) if original else None
+            if not url:
+                raise FrameioError(f"No download URL available for file {file_id}")
+            return str(url)
+
+        return await self._guard("get_download_url", run)
+
+    async def get_file(self, account_id: str, file_id: str) -> DownloadFile:
+        """File metadata + (best-effort) thumbnail for the recipient listing."""
+
+        async def run() -> DownloadFile:
+            resp = await self._client.files.show(
+                account_id,
+                file_id,
+                include="media_links.thumbnail",
+                request_options=_REQ_OPTS,
+            )
+            f = resp.data
+            links = getattr(f, "media_links", None)
+            thumbnail = getattr(links, "thumbnail", None) if links else None
+            thumb = getattr(thumbnail, "download_url", None) if thumbnail else None
+            return DownloadFile(
+                id=f.id,
+                name=getattr(f, "name", None) or f.id,
+                file_size=getattr(f, "file_size", None),
+                media_type=getattr(f, "media_type", None),
+                download_url=None,
+                thumbnail_url=thumb,
+            )
+
+        return await self._guard("get_file", run)
+
+    async def list_files_recursive(self, account_id: str, folder_id: str) -> list[FileItem]:
+        """All files under a folder, descending into subfolders (capped)."""
+
+        async def run() -> list[FileItem]:
+            collected: list[FileItem] = []
+            stack = [folder_id]
+            seen: set[str] = set()
+            while stack and len(collected) < PICKER_MAX_ITEMS:
+                current = stack.pop()
+                if current in seen:
+                    continue
+                seen.add(current)
+                collected.extend(await self.list_files(account_id, current))
+                subfolders = await self.list_subfolders(account_id, current)
+                stack.extend(sf.id for sf in subfolders if sf.id not in seen)
+            return collected[:PICKER_MAX_ITEMS]
+
+        return await self._guard("list_files_recursive", run)
 
     # ── internals ───────────────────────────────────────────────────────────────
 

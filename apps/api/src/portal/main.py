@@ -11,9 +11,11 @@ from portal.lib.logging import RequestIdMiddleware, configure_logging, get_logge
 from portal.routes import (
     auth,
     destinations,
+    download_links,
     frameio,
     health,
     public,
+    public_downloads,
     upload_links,
 )
 from portal.routes import (
@@ -64,6 +66,8 @@ def create_app() -> FastAPI:
     app.include_router(destinations.router, prefix="/api")
     app.include_router(upload_links.router, prefix="/api")
     app.include_router(public.router, prefix="/api")
+    app.include_router(download_links.router, prefix="/api")
+    app.include_router(public_downloads.router, prefix="/api")
     app.include_router(settings_routes.router, prefix="/api")
     return app
 

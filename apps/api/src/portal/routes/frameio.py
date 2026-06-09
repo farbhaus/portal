@@ -162,3 +162,25 @@ async def list_folders(
     except FrameioError as exc:
         raise _picker_error(exc) from exc
     return [PickerItemOut(id=i.id, name=i.name) for i in items]
+
+
+class FileItemOut(BaseModel):
+    id: str
+    name: str
+    file_size: int | None = None
+    media_type: str | None = None
+
+
+@router.get("/files", response_model=list[FileItemOut])
+async def list_files(
+    account_id: str, folder_id: str, _: User = Depends(require_admin)
+) -> list[FileItemOut]:
+    """Direct child files of `folder_id` (for download-link source selection)."""
+    try:
+        items = await get_frameio_client().list_files(account_id, folder_id)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+    return [
+        FileItemOut(id=i.id, name=i.name, file_size=i.file_size, media_type=i.media_type)
+        for i in items
+    ]

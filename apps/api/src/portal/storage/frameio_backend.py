@@ -120,7 +120,10 @@ class FrameioStorageBackend(StorageBackend):
     async def get_download_url(
         self, destination: DestinationConfig, file_id: str
     ) -> DownloadURL:
-        raise NotImplementedError("Download URLs are implemented in build step 9 (sync engine)")
+        account_id = destination.require("account_id")
+        url = await self._client.get_download_url(account_id, file_id)
+        # Frame.io's Media Links are short-lived; we don't get an explicit expiry back.
+        return DownloadURL(url=url, expires_at=None)
 
     async def delete_object(self, destination: DestinationConfig, file_id: str) -> None:
         raise NotImplementedError("Deletion lands with the phase 2 transit-and-delete lifecycle")

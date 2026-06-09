@@ -9,7 +9,7 @@ import secrets
 from datetime import UTC, datetime
 from typing import Literal
 
-from portal.db.models import Destination, UploadLink
+from portal.db.models import Destination, DownloadLink, UploadLink
 
 # Media-focused default extensions offered as a preset when an admin creates a link
 # (post-production camera/audio/image formats). An empty/None allowed_extensions means
@@ -41,7 +41,7 @@ def normalize_extensions(extensions: list[str] | None) -> list[str] | None:
     return list(seen) or None
 
 
-def link_state(link: UploadLink, now: datetime | None = None) -> LinkState:
+def link_state(link: UploadLink | DownloadLink, now: datetime | None = None) -> LinkState:
     now = now or datetime.now(UTC)
     if link.revoked_at is not None:
         return "revoked"
