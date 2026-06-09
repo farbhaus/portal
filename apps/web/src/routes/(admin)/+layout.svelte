@@ -16,6 +16,7 @@
         <a href="/" class="hover:text-neutral-900">Dashboard</a>
         <a href="/destinations" class="hover:text-neutral-900">Destinations</a>
         <a href="/upload-links" class="hover:text-neutral-900">Upload links</a>
+        <a href="/download-links" class="hover:text-neutral-900">Download links</a>
         <a href="/connections" class="hover:text-neutral-900">Connections</a>
         <a href="/settings" class="hover:text-neutral-900">Settings</a>
       </nav>

@@ -211,6 +211,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/frameio/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Files
+         * @description Direct child files of `folder_id` (for download-link source selection).
+         */
+        get: operations["list_files_api_frameio_files_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/destinations": {
         parameters: {
             query?: never;
@@ -421,6 +441,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/download-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Links */
+        get: operations["list_links_api_download_links_get"];
+        put?: never;
+        /** Create Link */
+        post: operations["create_link_api_download_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/download-links/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Link */
+        get: operations["get_link_api_download_links__link_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Link */
+        delete: operations["delete_link_api_download_links__link_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Link */
+        patch: operations["update_link_api_download_links__link_id__patch"];
+        trace?: never;
+    };
+    "/api/download-links/{link_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Link */
+        post: operations["revoke_link_api_download_links__link_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/downloads/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resolve Link */
+        get: operations["resolve_link_api_public_downloads__token__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/downloads/{token}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Session */
+        post: operations["start_session_api_public_downloads__token__sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/downloads/{token}/sessions/{session_id}/files/{file_id}/url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Get Download Url */
+        post: operations["get_download_url_api_public_downloads__token__sessions__session_id__files__file_id__url_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/email": {
         parameters: {
             query?: never;
@@ -537,6 +662,126 @@ export interface components {
             /** Subtitle */
             subtitle?: string | null;
         };
+        /** DownloadLinkCreate */
+        DownloadLinkCreate: {
+            /** Source */
+            source: {
+                [key: string]: unknown;
+            };
+            /** Expires At */
+            expires_at?: string | null;
+            /** Password */
+            password?: string | null;
+            /** Max Downloads */
+            max_downloads?: number | null;
+            /**
+             * @default {
+             *       "name": false,
+             *       "email": false
+             *     }
+             */
+            viewer_fields_required: components["schemas"]["ViewerFields"];
+            /**
+             * Allow Preview
+             * @default true
+             */
+            allow_preview: boolean;
+            /** Brand Logo Url */
+            brand_logo_url?: string | null;
+            /** Brand Accent Color */
+            brand_accent_color?: string | null;
+            /** Brand Display Name */
+            brand_display_name?: string | null;
+            /** Brand Subtitle */
+            brand_subtitle?: string | null;
+        };
+        /** DownloadLinkOut */
+        DownloadLinkOut: {
+            /** Id */
+            id: string;
+            /** Token */
+            token: string;
+            /** Public Url */
+            public_url: string;
+            /** State */
+            state: string;
+            /** Source */
+            source: {
+                [key: string]: unknown;
+            };
+            /** Expires At */
+            expires_at: string | null;
+            /** Password Protected */
+            password_protected: boolean;
+            /** Max Downloads */
+            max_downloads: number | null;
+            /** Downloads Count */
+            downloads_count: number;
+            /** Viewer Fields Required */
+            viewer_fields_required: {
+                [key: string]: boolean;
+            };
+            /** Allow Preview */
+            allow_preview: boolean;
+            /** Brand Logo Url */
+            brand_logo_url: string | null;
+            /** Brand Accent Color */
+            brand_accent_color: string | null;
+            /** Brand Display Name */
+            brand_display_name: string | null;
+            /** Brand Subtitle */
+            brand_subtitle: string | null;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Created At */
+            created_at: string;
+        };
+        /** DownloadLinkUpdate */
+        DownloadLinkUpdate: {
+            /** Expires At */
+            expires_at?: string | null;
+            /** Password */
+            password?: string | null;
+            /** Max Downloads */
+            max_downloads?: number | null;
+            viewer_fields_required?: components["schemas"]["ViewerFields"] | null;
+            /** Allow Preview */
+            allow_preview?: boolean | null;
+            /** Brand Logo Url */
+            brand_logo_url?: string | null;
+            /** Brand Accent Color */
+            brand_accent_color?: string | null;
+            /** Brand Display Name */
+            brand_display_name?: string | null;
+            /** Brand Subtitle */
+            brand_subtitle?: string | null;
+        };
+        /** DownloadPageOut */
+        DownloadPageOut: {
+            /** State */
+            state: string;
+            /** Display Name */
+            display_name: string;
+            /** Subtitle */
+            subtitle: string | null;
+            /** Logo Url */
+            logo_url: string | null;
+            /** Accent Color */
+            accent_color: string | null;
+            /** Password Required */
+            password_required: boolean;
+            /** Viewer Fields Required */
+            viewer_fields_required: {
+                [key: string]: boolean;
+            };
+            /** Allow Preview */
+            allow_preview: boolean;
+        };
+        /** DownloadUrlResult */
+        DownloadUrlResult: {
+            /** Url */
+            url: string;
+        };
         /** EmailStatus */
         EmailStatus: {
             /** Configured */
@@ -547,6 +792,30 @@ export interface components {
             smtp_from: string | null;
             /** Notify Email */
             notify_email: string;
+        };
+        /** FileItemOut */
+        FileItemOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** File Size */
+            file_size?: number | null;
+            /** Media Type */
+            media_type?: string | null;
+        };
+        /** FileOut */
+        FileOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Size */
+            size: number | null;
+            /** Media Type */
+            media_type: string | null;
+            /** Thumbnail Url */
+            thumbnail_url: string | null;
         };
         /** FileRequest */
         FileRequest: {
@@ -646,22 +915,6 @@ export interface components {
             uploader_fields_required: {
                 [key: string]: boolean;
             };
-        };
-        /** StartSessionRequest */
-        StartSessionRequest: {
-            /** Name */
-            name?: string | null;
-            /** Email */
-            email?: string | null;
-            /** Message */
-            message?: string | null;
-            /** Password */
-            password?: string | null;
-        };
-        /** StartSessionResult */
-        StartSessionResult: {
-            /** Session Id */
-            session_id: string;
         };
         /** UploadLinkCreate */
         UploadLinkCreate: {
@@ -791,6 +1044,51 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** ViewerFields */
+        ViewerFields: {
+            /**
+             * Name
+             * @default false
+             */
+            name: boolean;
+            /**
+             * Email
+             * @default false
+             */
+            email: boolean;
+        };
+        /** StartSessionRequest */
+        portal__routes__public__StartSessionRequest: {
+            /** Name */
+            name?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Message */
+            message?: string | null;
+            /** Password */
+            password?: string | null;
+        };
+        /** StartSessionResult */
+        portal__routes__public__StartSessionResult: {
+            /** Session Id */
+            session_id: string;
+        };
+        /** StartSessionRequest */
+        portal__routes__public_downloads__StartSessionRequest: {
+            /** Name */
+            name?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Password */
+            password?: string | null;
+        };
+        /** StartSessionResult */
+        portal__routes__public_downloads__StartSessionResult: {
+            /** Session Id */
+            session_id: string;
+            /** Files */
+            files: components["schemas"]["FileOut"][];
         };
     };
     responses: never;
@@ -1093,6 +1391,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PickerItemOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_files_api_frameio_files_get: {
+        parameters: {
+            query: {
+                account_id: string;
+                folder_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileItemOut"][];
                 };
             };
             /** @description Validation Error */
@@ -1530,7 +1860,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StartSessionRequest"];
+                "application/json": components["schemas"]["portal__routes__public__StartSessionRequest"];
             };
         };
         responses: {
@@ -1540,7 +1870,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StartSessionResult"];
+                    "application/json": components["schemas"]["portal__routes__public__StartSessionResult"];
                 };
             };
             /** @description Validation Error */
@@ -1646,6 +1976,284 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PasswordVerifyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_links_api_download_links_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadLinkOut"][];
+                };
+            };
+        };
+    };
+    create_link_api_download_links_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DownloadLinkCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadLinkOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_link_api_download_links__link_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadLinkOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_link_api_download_links__link_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_link_api_download_links__link_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DownloadLinkUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadLinkOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_link_api_download_links__link_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadLinkOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_link_api_public_downloads__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadPageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_session_api_public_downloads__token__sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["portal__routes__public_downloads__StartSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["portal__routes__public_downloads__StartSessionResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_download_url_api_public_downloads__token__sessions__session_id__files__file_id__url_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+                session_id: string;
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadUrlResult"];
                 };
             };
             /** @description Validation Error */
