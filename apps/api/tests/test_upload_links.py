@@ -6,6 +6,8 @@ from sqlalchemy import delete
 
 from portal.db.models import Destination, UploadLink
 from portal.db.session import get_sessionmaker
+from portal.frameio.client import ChunkUrl, UploadStatus, UploadTarget
+from portal.routes import public as public_routes
 from portal.uploads.links import (
     generate_token,
     link_state,
@@ -231,3 +233,140 @@ async def test_verify_password_open_link_ok(client: AsyncClient) -> None:
         f"/api/public/links/{link['token']}/verify-password", json={"password": ""}
     )
     assert resp.json()["ok"] is True
+
+
+# ── public uploader session flow ──────────────────────────────────────────────
+
+
+class _StubUploadClient:
+    def __init__(self, status: UploadStatus | None = None) -> None:
+        self._status = status or UploadStatus(complete=True, failed=False)
+
+    async def ensure_folder_path(self, account_id: str, root: str, parts: list[str]) -> str:
+        return "leaf"
+
+    async def create_local_upload(
+        self, account_id: str, folder_id: str, *, name: str, file_size: int
+    ) -> UploadTarget:
+        return UploadTarget(
+            file_id="file-1",
+            media_type="video/quicktime",
+            chunks=[ChunkUrl(size=file_size, url="https://s3/part1")],
+        )
+
+    async def get_upload_status(self, account_id: str, file_id: str) -> UploadStatus:
+        return self._status
+
+
+def _use_upload_stub(monkeypatch, status: UploadStatus | None = None) -> None:
+    monkeypatch.setattr(public_routes, "get_frameio_client", lambda: _StubUploadClient(status))
+
+
+async def _make_link(client: AsyncClient, **kw: object) -> dict:
+    dest_id = await _make_destination()
+    return (await client.post("/api/upload-links", json={"destination_id": dest_id, **kw})).json()
+
+
+async def test_full_upload_session_flow(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    _use_upload_stub(monkeypatch)
+    link = await _make_link(client, allowed_extensions=["mov"])
+    token = link["token"]
+
+    # start a session
+    started = await client.post(
+        f"/api/public/links/{token}/sessions", json={"name": "DIT Berlin"}
+    )
+    assert started.status_code == 200
+    sid = started.json()["session_id"]
+
+    # request a file upload (with a subfolder path)
+    fr = await client.post(
+        f"/api/public/links/{token}/sessions/{sid}/files",
+        json={"path": "A-CAM/clip.mov", "size": 1000},
+    )
+    assert fr.status_code == 200
+    body = fr.json()
+    assert body["file_id"] == "file-1"
+    assert body["chunks"] == [{"part": 1, "size": 1000, "url": "https://s3/part1"}]
+    assert body["headers"]["x-amz-acl"] == "private"
+    assert body["headers"]["Content-Type"] == "video/quicktime"
+
+    # mark file complete
+    cf = await client.post(
+        f"/api/public/links/{token}/sessions/{sid}/files/{body['file_id']}/complete"
+    )
+    assert cf.json() == {"complete": True, "failed": False}
+
+    # complete session
+    cs = await client.post(
+        f"/api/public/links/{token}/sessions/{sid}/complete", json={"total_bytes": 1000}
+    )
+    assert cs.json()["ok"] is True
+
+
+async def test_start_session_password_required(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    _use_upload_stub(monkeypatch)
+    link = await _make_link(client, password="sekret")
+    token = link["token"]
+    assert (
+        await client.post(f"/api/public/links/{token}/sessions", json={"password": "wrong"})
+    ).status_code == 403
+    assert (
+        await client.post(f"/api/public/links/{token}/sessions", json={"password": "sekret"})
+    ).status_code == 200
+
+
+async def test_start_session_missing_required_field(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    _use_upload_stub(monkeypatch)
+    link = await _make_link(client, uploader_fields_required={"email": True})
+    resp = await client.post(f"/api/public/links/{link['token']}/sessions", json={"name": "x"})
+    assert resp.status_code == 422
+
+
+async def test_start_session_expired_link_410(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    _use_upload_stub(monkeypatch)
+    link = await _make_link(client)
+    async with get_sessionmaker()() as db:
+        row = await db.get(UploadLink, __import__("uuid").UUID(link["id"]))
+        assert row is not None
+        row.expires_at = datetime.now(UTC) - timedelta(hours=1)
+        await db.commit()
+    assert (
+        await client.post(f"/api/public/links/{link['token']}/sessions", json={})
+    ).status_code == 410
+
+
+async def test_request_file_rejects_bad_ext_and_size(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    _use_upload_stub(monkeypatch)
+    link = await _make_link(client, allowed_extensions=["mov"], max_file_size=500)
+    token = link["token"]
+    sid = (await client.post(f"/api/public/links/{token}/sessions", json={})).json()["session_id"]
+
+    bad_ext = await client.post(
+        f"/api/public/links/{token}/sessions/{sid}/files", json={"path": "notes.txt", "size": 10}
+    )
+    assert bad_ext.status_code == 400
+    too_big = await client.post(
+        f"/api/public/links/{token}/sessions/{sid}/files", json={"path": "clip.mov", "size": 999}
+    )
+    assert too_big.status_code == 400
+
+
+async def test_complete_file_pending(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    _use_upload_stub(monkeypatch, UploadStatus(complete=False, failed=False))
+    link = await _make_link(client)
+    token = link["token"]
+    sid = (await client.post(f"/api/public/links/{token}/sessions", json={})).json()["session_id"]
+    fr = await client.post(
+        f"/api/public/links/{token}/sessions/{sid}/files", json={"path": "clip.mov", "size": 10}
+    )
+    cf = await client.post(
+        f"/api/public/links/{token}/sessions/{sid}/files/{fr.json()['file_id']}/complete"
+    )
+    assert cf.json() == {"complete": False, "failed": False}

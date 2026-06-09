@@ -60,18 +60,32 @@ class UploadSession:
 
 
 @dataclass(frozen=True)
+class UploadChunk:
+    """One direct-to-storage PUT target. `part` is 1-based; the client slices the file into
+    consecutive `size`-byte ranges in order."""
+
+    part: int
+    size: int
+    url: str
+
+
+@dataclass(frozen=True)
 class UploadCredentials:
     """How the uploader's browser sends bytes directly to the backend.
 
-    `urls` are the (possibly multipart) PUT/POST targets; `headers` any required request
-    headers; `expires_at` when they go stale. The shape is intentionally generic so Frame.io
-    upload URLs and S3 presigned multipart URLs both fit.
+    `chunks` are the ordered PUT targets (Frame.io presigned S3 URLs now, S3 presigned
+    multipart part URLs later); `headers` the request headers each PUT must send verbatim;
+    `expires_at` when they go stale.
     """
 
     upload_session_id: str
-    urls: list[str]
+    chunks: list[UploadChunk]
     headers: dict[str, str] = field(default_factory=dict)
     expires_at: datetime | None = None
+
+
+class UploadNotReady(Exception):
+    """complete_upload() called before the backend finished assembling the file."""
 
 
 @dataclass(frozen=True)

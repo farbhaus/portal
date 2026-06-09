@@ -9,18 +9,21 @@ from sqlalchemy import delete, select
 from portal.db.models import FrameioConnection, User
 from portal.db.session import get_sessionmaker
 from portal.frameio.client import (
+    ChunkUrl,
     FileItem,
     FrameioClient,
     FrameioError,
     FrameioNotConnected,
     PickerItem,
     ProjectItem,
+    UploadStatus,
+    UploadTarget,
     _provide_token,
 )
 from portal.lib.config import get_settings
 from portal.lib.crypto import TokenCipher
 from portal.routes import frameio as frameio_routes
-from portal.storage.base import DestinationConfig, RemoteFile, StorageBackend
+from portal.storage.base import DestinationConfig, RemoteFile, StorageBackend, UploadNotReady
 from portal.storage.frameio_backend import FrameioStorageBackend
 
 CREDS = {"email": "admin@example.com", "password": "test-password"}
@@ -167,11 +170,74 @@ async def test_backend_missing_config_raises(fake_client: FrameioClient) -> None
         await backend.list_files_in_destination(dest)
 
 
-async def test_backend_upload_not_implemented_until_step6(fake_client: FrameioClient) -> None:
+class _StubUploadClient:
+    """Stub FrameioClient for backend upload tests (no real SDK/network)."""
+
+    def __init__(self, status: UploadStatus | None = None) -> None:
+        self._status = status or UploadStatus(complete=True, failed=False)
+        self.ensured: list[tuple[str, list[str]]] = []
+
+    async def ensure_folder_path(self, account_id: str, root: str, parts: list[str]) -> str:
+        self.ensured.append((root, parts))
+        return "leaf-folder"
+
+    async def create_local_upload(
+        self, account_id: str, folder_id: str, *, name: str, file_size: int
+    ) -> UploadTarget:
+        return UploadTarget(
+            file_id="file-1",
+            media_type="video/quicktime",
+            chunks=[ChunkUrl(size=5, url="https://s3/part1"), ChunkUrl(size=3, url="https://s3/part2")],
+        )
+
+    async def get_upload_status(self, account_id: str, file_id: str) -> UploadStatus:
+        return self._status
+
+
+async def test_backend_create_upload_session_and_credentials() -> None:
+    stub = _StubUploadClient()
+    backend = FrameioStorageBackend(client=stub)  # type: ignore[arg-type]
+    dest = DestinationConfig(type="frameio", data={"account_id": "a1", "folder_id": "root"})
+
+    session = await backend.create_upload_session(dest, filename="A-CAM/clip.mov", size=8)
+    # Subfolder path mirrored into Frame.io.
+    assert stub.ensured == [("root", ["A-CAM"])]
+    assert session.backend_data["file_id"] == "file-1"
+
+    creds = await backend.get_upload_credentials(session)
+    assert [c.part for c in creds.chunks] == [1, 2]
+    assert [c.url for c in creds.chunks] == ["https://s3/part1", "https://s3/part2"]
+    # Both signed headers present.
+    assert creds.headers == {"x-amz-acl": "private", "Content-Type": "video/quicktime"}
+
+
+async def test_backend_complete_upload_states() -> None:
+    dest = DestinationConfig(type="frameio", data={"account_id": "a1", "folder_id": "root"})
+    from portal.storage.base import UploadSession as StorageSession
+
+    sess = StorageSession(
+        id="file-1", destination=dest, filename="x", size=1, backend_data={"file_id": "file-1"}
+    )
+
+    ready = FrameioStorageBackend(client=_StubUploadClient(UploadStatus(True, False)))  # type: ignore[arg-type]
+    assert (await ready.complete_upload(sess)).id == "file-1"
+
+    pending = FrameioStorageBackend(client=_StubUploadClient(UploadStatus(False, False)))  # type: ignore[arg-type]
+    with pytest.raises(UploadNotReady):
+        await pending.complete_upload(sess)
+
+    failed = FrameioStorageBackend(client=_StubUploadClient(UploadStatus(False, True)))  # type: ignore[arg-type]
+    with pytest.raises(FrameioError):
+        await failed.complete_upload(sess)
+
+
+async def test_backend_remaining_methods_deferred(fake_client: FrameioClient) -> None:
     backend = FrameioStorageBackend(client=fake_client)
     dest = DestinationConfig(type="frameio", data={"account_id": "a1", "folder_id": "rf1"})
     with pytest.raises(NotImplementedError):
-        await backend.create_upload_session(dest, filename="x.mov", size=1)
+        await backend.get_download_url(dest, "file-1")
+    with pytest.raises(NotImplementedError):
+        await backend.subscribe_to_changes(dest, callback_url="https://x")
 
 
 # ── picker routes ─────────────────────────────────────────────────────────────

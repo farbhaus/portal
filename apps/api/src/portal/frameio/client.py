@@ -18,12 +18,17 @@ Higher-level features (uploads, downloads, webhooks) build on this via the Stora
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 import httpx
-from frameio import AsyncFrameio
+from frameio import (
+    AsyncFrameio,
+    FileCreateLocalUploadParamsData,
+    FolderCreateParamsData,
+)
 
 from portal.db.session import get_sessionmaker
 from portal.frameio import connection as conn_svc
@@ -71,6 +76,25 @@ class FileItem:
     media_type: str | None
 
 
+@dataclass(frozen=True)
+class ChunkUrl:
+    size: int
+    url: str
+
+
+@dataclass(frozen=True)
+class UploadTarget:
+    file_id: str
+    media_type: str | None
+    chunks: list[ChunkUrl]
+
+
+@dataclass(frozen=True)
+class UploadStatus:
+    complete: bool
+    failed: bool
+
+
 async def _provide_token() -> str:
     """Return a valid bearer token for the primary connection, refreshing if needed."""
     async with get_sessionmaker()() as db:
@@ -113,6 +137,11 @@ class FrameioClient:
             async_token=_provide_token,
             httpx_client=self._httpx,
         )
+        # Cache of (parent_folder_id, child_name) -> child_folder_id so repeated uploads into
+        # the same dropped subfolder don't re-list/re-create it. A lock serializes creation to
+        # avoid duplicate folders within a worker.
+        self._folder_cache: dict[tuple[str, str], str] = {}
+        self._folder_lock = asyncio.Lock()
 
     async def aclose(self) -> None:
         await self._httpx.aclose()
@@ -237,6 +266,74 @@ class FrameioClient:
             return items
 
         return await self._guard("list_files", run)
+
+    # ── uploads (see docs: presigned S3 chunk PUTs) ───────────────────────────────
+
+    async def create_local_upload(
+        self, account_id: str, folder_id: str, *, name: str, file_size: int
+    ) -> UploadTarget:
+        """Create a file placeholder and get presigned S3 chunk-upload URLs."""
+
+        async def run() -> UploadTarget:
+            resp = await self._client.files.create_local_upload(
+                account_id,
+                folder_id,
+                data=FileCreateLocalUploadParamsData(name=name, file_size=file_size),
+                request_options=_REQ_OPTS,
+            )
+            f = resp.data
+            return UploadTarget(
+                file_id=f.id,
+                media_type=f.media_type,
+                chunks=[ChunkUrl(size=u.size, url=u.url) for u in (f.upload_urls or [])],
+            )
+
+        return await self._guard("create_local_upload", run)
+
+    async def get_upload_status(self, account_id: str, file_id: str) -> UploadStatus:
+        async def run() -> UploadStatus:
+            resp = await self._client.files.show_file_upload_status(
+                account_id, file_id, request_options=_REQ_OPTS
+            )
+            d = resp.data
+            return UploadStatus(complete=bool(d.upload_complete), failed=bool(d.upload_failed))
+
+        return await self._guard("get_upload_status", run)
+
+    async def ensure_folder_path(
+        self, account_id: str, root_folder_id: str, parts: list[str]
+    ) -> str:
+        """Resolve/create a nested subfolder path under root, returning the leaf folder id.
+
+        Idempotent: matches existing subfolders by name before creating, so re-runs and dropped
+        folder hierarchies don't duplicate. Cached per (parent, name).
+        """
+
+        async def run() -> str:
+            async with self._folder_lock:
+                current = root_folder_id
+                for part in parts:
+                    key = (current, part)
+                    cached = self._folder_cache.get(key)
+                    if cached is not None:
+                        current = cached
+                        continue
+                    existing = await self.list_subfolders(account_id, current)
+                    match = next((f for f in existing if f.name == part), None)
+                    if match is not None:
+                        current = match.id
+                    else:
+                        resp = await self._client.folders.create(
+                            account_id,
+                            current,
+                            data=FolderCreateParamsData(name=part),
+                            request_options=_REQ_OPTS,
+                        )
+                        current = resp.data.id
+                    self._folder_cache[key] = current
+                return current
+
+        return await self._guard("ensure_folder_path", run)
 
     # ── internals ───────────────────────────────────────────────────────────────
 

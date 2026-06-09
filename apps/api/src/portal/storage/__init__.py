@@ -4,7 +4,9 @@ from portal.storage.base import (
     DownloadURL,
     RemoteFile,
     StorageBackend,
+    UploadChunk,
     UploadCredentials,
+    UploadNotReady,
     UploadSession,
 )
 
@@ -14,6 +16,8 @@ __all__ = [
     "DownloadURL",
     "RemoteFile",
     "StorageBackend",
+    "UploadChunk",
     "UploadCredentials",
+    "UploadNotReady",
     "UploadSession",
 ]
