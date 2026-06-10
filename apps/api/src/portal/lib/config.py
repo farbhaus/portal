@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     # Webhooks — reject deliveries whose timestamp is further than this from now (replay window).
     webhook_signature_tolerance_seconds: int = Field(default=300)
 
+    # Sync engine — download retries before a job is dead-lettered, and backoff base (seconds;
+    # the nth retry defers by sync_retry_base_seconds * 2**(n-1)). Concurrency = parallel byte
+    # ranges per file.
+    sync_max_retries: int = Field(default=5)
+    sync_retry_base_seconds: int = Field(default=30)
+    sync_download_concurrency: int = Field(default=4)
+
     log_level: str = Field(default="INFO")
 
     @property

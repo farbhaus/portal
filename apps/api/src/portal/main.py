@@ -16,6 +16,7 @@ from portal.routes import (
     health,
     public,
     public_downloads,
+    sync_rules,
     upload_links,
     webhooks,
 )
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_routes.router, prefix="/api")
     app.include_router(webhooks.router, prefix="/api")
     app.include_router(webhooks.admin_router, prefix="/api")
+    app.include_router(sync_rules.router, prefix="/api")
     return app
 
 

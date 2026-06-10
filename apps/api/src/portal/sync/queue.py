@@ -16,8 +16,10 @@ from portal.lib.config import get_settings
 
 _pool: ArqRedis | None = None
 
-# Worker task name (matches the function registered in portal.sync.worker.WorkerSettings).
+# Worker task names (match the functions registered in portal.sync.worker.WorkerSettings).
 PROCESS_WEBHOOK_EVENT = "process_webhook_event"
+RUN_SYNC_JOB = "run_sync_job"
+RECONCILE_RULE = "reconcile_rule_task"
 
 
 async def get_arq_pool() -> ArqRedis:
@@ -30,6 +32,16 @@ async def get_arq_pool() -> ArqRedis:
 async def enqueue_webhook_processing(event_id: uuid.UUID) -> None:
     pool = await get_arq_pool()
     await pool.enqueue_job(PROCESS_WEBHOOK_EVENT, str(event_id))
+
+
+async def enqueue_sync_job(job_id: uuid.UUID) -> None:
+    pool = await get_arq_pool()
+    await pool.enqueue_job(RUN_SYNC_JOB, str(job_id))
+
+
+async def enqueue_reconcile_rule(rule_id: uuid.UUID) -> None:
+    pool = await get_arq_pool()
+    await pool.enqueue_job(RECONCILE_RULE, str(rule_id))
 
 
 async def close_arq_pool() -> None:

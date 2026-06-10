@@ -230,6 +230,21 @@ async def test_process_event_skips_disabled_rule() -> None:
     assert await _jobs() == []
 
 
+async def test_process_event_fires_callback_per_job() -> None:
+    await _make_rule()
+    event_id = await _make_event(_file_payload())
+    seen: list[uuid.UUID] = []
+
+    async def cb(job_id: uuid.UUID) -> None:
+        seen.append(job_id)
+
+    async with get_sessionmaker()() as db:
+        assert await process_event(db, event_id, on_job_created=cb) == 1
+    assert len(seen) == 1
+    jobs = await _jobs()
+    assert seen == [jobs[0].id]
+
+
 async def test_process_event_non_trigger_marks_processed() -> None:
     await _make_rule()
     event_id = await _make_event(_file_payload(event_type="file.updated"))

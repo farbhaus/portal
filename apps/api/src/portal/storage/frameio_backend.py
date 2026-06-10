@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import ClassVar
 
 from portal.frameio.client import FrameioClient, FrameioError, get_frameio_client
+from portal.frameio.webhooks import SYNC_TRIGGER_EVENTS
 from portal.storage.base import (
     ChangeSubscription,
     DestinationConfig,
@@ -51,6 +52,26 @@ class FrameioStorageBackend(StorageBackend):
             RemoteFile(id=f.id, name=f.name, size=f.file_size, media_type=f.media_type)
             for f in files
         ]
+
+    async def list_files_recursive(self, destination: DestinationConfig) -> list[RemoteFile]:
+        account_id = destination.require("account_id")
+        folder_id = destination.require("folder_id")
+        files = await self._client.list_files_recursive(account_id, folder_id)
+        return [
+            RemoteFile(id=f.id, name=f.name, size=f.file_size, media_type=f.media_type)
+            for f in files
+        ]
+
+    async def get_file(self, destination: DestinationConfig, file_id: str) -> RemoteFile:
+        account_id = destination.require("account_id")
+        f = await self._client.get_file_detail(account_id, file_id)
+        return RemoteFile(
+            id=f.id,
+            name=f.name,
+            size=f.file_size,
+            parent_id=f.parent_id,
+            project_id=f.project_id,
+        )
 
     async def create_upload_session(
         self,
@@ -131,7 +152,25 @@ class FrameioStorageBackend(StorageBackend):
     async def subscribe_to_changes(
         self, destination: DestinationConfig, *, callback_url: str
     ) -> ChangeSubscription:
-        # Signature verification + ingestion + the event->job processor land in step 10
-        # (portal.frameio.webhooks, portal.routes.webhooks, portal.sync.events). Creating the
-        # Frame.io subscription happens in step 11, when a sync rule is enabled.
-        raise NotImplementedError("Webhook subscription creation lands in build step 11")
+        """Create a workspace webhook for file arrivals; carry the signing secret back up.
+
+        Frame.io webhooks are workspace-scoped, so the subscription fires for every project in the
+        workspace; the sync processor (portal.sync.events) filters deliveries down to the rule's
+        folder.
+        """
+        account_id = destination.require("account_id")
+        workspace_id = destination.require("workspace_id")
+        sub = await self._client.create_webhook(
+            account_id,
+            workspace_id,
+            name="Portal sync",
+            url=callback_url,
+            events=sorted(SYNC_TRIGGER_EVENTS),
+        )
+        return ChangeSubscription(id=sub.id, backend_data={"secret": sub.secret})
+
+    async def unsubscribe_from_changes(
+        self, destination: DestinationConfig, subscription_id: str
+    ) -> None:
+        account_id = destination.require("account_id")
+        await self._client.delete_webhook(account_id, subscription_id)

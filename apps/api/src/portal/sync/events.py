@@ -14,6 +14,7 @@ and leave the precise folder-membership check to the Step 11 worker, which fetch
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -47,42 +48,52 @@ def is_sync_trigger(payload: WebhookPayload) -> bool:
     return payload.type in SYNC_TRIGGER_EVENTS and payload.resource_type == "file"
 
 
-async def process_event(db: AsyncSession, event_id: uuid.UUID) -> int:
+async def process_event(
+    db: AsyncSession,
+    event_id: uuid.UUID,
+    on_job_created: Callable[[uuid.UUID], Awaitable[None]] | None = None,
+) -> int:
     """Process one persisted webhook event; return the number of sync jobs created.
 
-    Idempotent: already-processed events are skipped, and a (rule, file) pair that already has a
-    job is not duplicated — so webhook retries and the file.ready/file.upload.completed pair don't
-    create extra jobs.
+    For each created job, ``on_job_created`` (if given) is awaited with the new job id — the worker
+    uses it to enqueue the download. Idempotent: already-processed events are skipped, and a
+    (rule, file) pair that already has a job is not duplicated, so webhook retries and the
+    file.ready / file.upload.completed pair don't create extra jobs.
     """
     event = await db.get(WebhookEvent, event_id)
     if event is None or event.processed:
         return 0
 
-    created = 0
+    created_ids: list[uuid.UUID] = []
     try:
         payload = parse_webhook_payload(event.raw)
         if is_sync_trigger(payload) and payload.resource_id is not None:
-            created = await _create_jobs(db, payload, payload.resource_id)
+            created_ids = await _create_jobs(db, payload, payload.resource_id)
         event.processed = True
         event.processed_at = datetime.now(UTC)
         event.error = None
     except Exception as exc:  # noqa: BLE001 - record and stop; reconciliation is the safety net
-        # Mark processed so a malformed event doesn't loop forever; the Step 11 reconciliation
-        # job catches anything genuinely missed.
+        # Mark processed so a malformed event doesn't loop forever; the reconciliation job catches
+        # anything genuinely missed.
         event.processed = True
         event.processed_at = datetime.now(UTC)
         event.error = str(exc)
         log.warning("webhook.process_failed", event_id=str(event_id), error=str(exc))
 
     await db.commit()
-    if created:
-        log.info("webhook.jobs_created", event_id=str(event_id), count=created)
-    return created
+    if created_ids:
+        log.info("webhook.jobs_created", event_id=str(event_id), count=len(created_ids))
+        if on_job_created is not None:
+            for job_id in created_ids:
+                await on_job_created(job_id)
+    return len(created_ids)
 
 
-async def _create_jobs(db: AsyncSession, payload: WebhookPayload, file_id: str) -> int:
+async def _create_jobs(
+    db: AsyncSession, payload: WebhookPayload, file_id: str
+) -> list[uuid.UUID]:
     result = await db.execute(select(SyncRule).where(SyncRule.enabled.is_(True)))
-    created = 0
+    created: list[uuid.UUID] = []
     for rule in result.scalars().all():
         if not rule_matches(rule.source_config, payload):
             continue
@@ -94,6 +105,8 @@ async def _create_jobs(db: AsyncSession, payload: WebhookPayload, file_id: str) 
         )
         if existing is not None:
             continue
-        db.add(SyncJob(sync_rule_id=rule.id, frameio_file_id=file_id, status="pending"))
-        created += 1
+        job = SyncJob(sync_rule_id=rule.id, frameio_file_id=file_id, status="pending")
+        db.add(job)
+        await db.flush()
+        created.append(job.id)
     return created

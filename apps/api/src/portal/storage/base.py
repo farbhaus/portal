@@ -46,6 +46,10 @@ class RemoteFile:
     size: int | None = None
     media_type: str | None = None
     created_at: datetime | None = None
+    # Where the file sits in the backend's tree — the sync engine uses these to filter events
+    # to a rule's folder and to template the local path.
+    parent_id: str | None = None
+    project_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -110,6 +114,14 @@ class StorageBackend(ABC):
         """List files directly in a destination (not recursive)."""
 
     @abstractmethod
+    async def list_files_recursive(self, destination: DestinationConfig) -> list[RemoteFile]:
+        """List all files under a destination, descending into subfolders (reconciliation)."""
+
+    @abstractmethod
+    async def get_file(self, destination: DestinationConfig, file_id: str) -> RemoteFile:
+        """Fetch one file's metadata (name, size, parent, project)."""
+
+    @abstractmethod
     async def create_upload_session(
         self,
         destination: DestinationConfig,
@@ -143,3 +155,9 @@ class StorageBackend(ABC):
         self, destination: DestinationConfig, *, callback_url: str
     ) -> ChangeSubscription:
         """Register for new-file notifications (Frame.io webhook now; S3 events/polling later)."""
+
+    @abstractmethod
+    async def unsubscribe_from_changes(
+        self, destination: DestinationConfig, subscription_id: str
+    ) -> None:
+        """Tear down a change subscription created by ``subscribe_to_changes``."""

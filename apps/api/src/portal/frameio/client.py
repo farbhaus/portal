@@ -28,6 +28,7 @@ from frameio import (
     AsyncFrameio,
     FileCreateLocalUploadParamsData,
     FolderCreateParamsData,
+    WebhookCreateParamsData,
 )
 
 from portal.db.session import get_sessionmaker
@@ -103,6 +104,24 @@ class DownloadFile:
     media_type: str | None
     download_url: str | None
     thumbnail_url: str | None
+
+
+@dataclass(frozen=True)
+class FileDetail:
+    """Metadata the sync worker needs: name + size to download, parent/project to place & filter."""
+
+    id: str
+    name: str
+    file_size: int | None
+    parent_id: str | None
+    project_id: str | None
+    status: str | None
+
+
+@dataclass(frozen=True)
+class WebhookSubscription:
+    id: str
+    secret: str
 
 
 async def _provide_token() -> str:
@@ -388,6 +407,23 @@ class FrameioClient:
 
         return await self._guard("get_file", run)
 
+    async def get_file_detail(self, account_id: str, file_id: str) -> FileDetail:
+        """File metadata for the sync worker (no media-link includes — cheaper)."""
+
+        async def run() -> FileDetail:
+            resp = await self._client.files.show(account_id, file_id, request_options=_REQ_OPTS)
+            f = resp.data
+            return FileDetail(
+                id=f.id,
+                name=getattr(f, "name", None) or f.id,
+                file_size=getattr(f, "file_size", None),
+                parent_id=getattr(f, "parent_id", None),
+                project_id=getattr(f, "project_id", None),
+                status=getattr(f, "status", None),
+            )
+
+        return await self._guard("get_file_detail", run)
+
     async def list_files_recursive(self, account_id: str, folder_id: str) -> list[FileItem]:
         """All files under a folder, descending into subfolders (capped)."""
 
@@ -406,6 +442,34 @@ class FrameioClient:
             return collected[:PICKER_MAX_ITEMS]
 
         return await self._guard("list_files_recursive", run)
+
+    # ── webhooks (workspace-scoped; secret returned once, on create) ──────────────
+
+    async def create_webhook(
+        self, account_id: str, workspace_id: str, *, name: str, url: str, events: list[str]
+    ) -> WebhookSubscription:
+        """Create a workspace webhook. The signing secret is only returned here — store it."""
+
+        async def run() -> WebhookSubscription:
+            resp = await self._client.webhooks.create(
+                account_id,
+                workspace_id,
+                data=WebhookCreateParamsData(name=name, url=url, events=events),
+                request_options=_REQ_OPTS,
+            )
+            d = resp.data
+            secret = getattr(d, "secret", None)
+            if not secret:
+                raise FrameioError("Frame.io did not return a webhook signing secret")
+            return WebhookSubscription(id=d.id, secret=str(secret))
+
+        return await self._guard("create_webhook", run)
+
+    async def delete_webhook(self, account_id: str, webhook_id: str) -> None:
+        async def run() -> None:
+            await self._client.webhooks.delete(account_id, webhook_id, request_options=_REQ_OPTS)
+
+        await self._guard("delete_webhook", run)
 
     # ── internals ───────────────────────────────────────────────────────────────
 
