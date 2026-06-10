@@ -17,10 +17,12 @@ from portal.routes import (
     public,
     public_downloads,
     upload_links,
+    webhooks,
 )
 from portal.routes import (
     settings as settings_routes,
 )
+from portal.sync.queue import close_arq_pool
 
 log = get_logger("main")
 
@@ -34,6 +36,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info("startup.complete", base_url=settings.base_url)
     yield
     await close_frameio_client()
+    await close_arq_pool()
 
 
 def create_app() -> FastAPI:
@@ -69,6 +72,8 @@ def create_app() -> FastAPI:
     app.include_router(download_links.router, prefix="/api")
     app.include_router(public_downloads.router, prefix="/api")
     app.include_router(settings_routes.router, prefix="/api")
+    app.include_router(webhooks.router, prefix="/api")
+    app.include_router(webhooks.admin_router, prefix="/api")
     return app
 
 

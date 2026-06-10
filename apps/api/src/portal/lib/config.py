@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     # Where notifications are sent; falls back to admin_email when blank.
     notify_email: str = Field(default="")
 
+    # Webhooks — reject deliveries whose timestamp is further than this from now (replay window).
+    webhook_signature_tolerance_seconds: int = Field(default=300)
+
     log_level: str = Field(default="INFO")
 
     @property

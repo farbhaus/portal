@@ -131,4 +131,7 @@ class FrameioStorageBackend(StorageBackend):
     async def subscribe_to_changes(
         self, destination: DestinationConfig, *, callback_url: str
     ) -> ChangeSubscription:
-        raise NotImplementedError("Webhook subscriptions are implemented in build step 8")
+        # Signature verification + ingestion + the event->job processor land in step 10
+        # (portal.frameio.webhooks, portal.routes.webhooks, portal.sync.events). Creating the
+        # Frame.io subscription happens in step 11, when a sync rule is enabled.
+        raise NotImplementedError("Webhook subscription creation lands in build step 11")
