@@ -106,6 +106,8 @@
       <a href={link.public_url} target="_blank" rel="noopener" class="max-w-xs truncate underline">{link.public_url}</a>
     </div>
     <div class="mt-2 flex items-center justify-between"><span class="text-neutral-500">Downloads</span><span>{link.downloads_count}{link.max_downloads ? ` / ${link.max_downloads}` : ""}</span></div>
+    <div class="mt-2 flex items-center justify-between"><span class="text-neutral-500">Unique viewers</span><span>{data.stats.unique_viewers}</span></div>
+    <div class="mt-2 flex items-center justify-between"><span class="text-neutral-500">Last activity</span><span>{data.stats.last_activity ? new Date(data.stats.last_activity).toLocaleString() : "—"}</span></div>
     <p class="mt-1 text-xs text-neutral-400">The source is fixed. Create a new link to share different files.</p>
   </div>
 
@@ -156,5 +158,33 @@
       <a href="/download-links" class="text-sm text-neutral-500 hover:text-neutral-900">Cancel</a>
     </div>
     <button onclick={remove} class="text-sm text-red-600 hover:text-red-700">Delete</button>
+  </div>
+
+  <div class="space-y-3 rounded-xl border border-neutral-200 bg-white p-6">
+    <h2 class="font-medium">Download log <span class="text-xs font-normal text-neutral-400">({data.stats.downloads})</span></h2>
+    {#if data.events.length === 0}
+      <p class="text-sm text-neutral-400">No downloads yet.</p>
+    {:else}
+      <div class="overflow-hidden rounded-lg border border-neutral-100">
+        <table class="w-full text-sm">
+          <thead class="border-b border-neutral-100 text-left text-neutral-500">
+            <tr>
+              <th class="px-3 py-2 font-medium">When</th>
+              <th class="px-3 py-2 font-medium">Viewer</th>
+              <th class="px-3 py-2 font-medium">File</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-neutral-50">
+            {#each data.events as ev (ev.started_at + ev.frameio_file_id)}
+              <tr>
+                <td class="px-3 py-2 text-xs whitespace-nowrap text-neutral-400">{new Date(ev.started_at).toLocaleString()}</td>
+                <td class="px-3 py-2 text-neutral-600">{ev.viewer_email ?? ev.viewer_name ?? ev.ip ?? "—"}</td>
+                <td class="px-3 py-2 font-mono text-xs">{ev.file_name ?? ev.frameio_file_id}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
   </div>
 </div>

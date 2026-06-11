@@ -9,6 +9,7 @@ from portal.lib.config import get_settings
 from portal.lib.errors import install_exception_handlers
 from portal.lib.logging import RequestIdMiddleware, configure_logging, get_logger
 from portal.routes import (
+    activity,
     auth,
     destinations,
     download_links,
@@ -76,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(webhooks.router, prefix="/api")
     app.include_router(webhooks.admin_router, prefix="/api")
     app.include_router(sync_rules.router, prefix="/api")
+    app.include_router(activity.router, prefix="/api")
     return app
 
 

@@ -12,12 +12,18 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from portal.auth.passwords import hash_password
 from portal.auth.session import require_admin
-from portal.db.models import AuditLog, DownloadLink, User
+from portal.db.models import (
+    AuditLog,
+    DownloadEvent,
+    DownloadLink,
+    DownloadSession,
+    User,
+)
 from portal.db.session import get_session
 from portal.downloads.links import validate_source
 from portal.lib.config import get_settings
@@ -248,3 +254,84 @@ async def delete_link(
         )
     )
     await db.commit()
+
+
+class DownloadEventOut(BaseModel):
+    frameio_file_id: str
+    file_name: str | None
+    viewer_name: str | None
+    viewer_email: str | None
+    ip: str | None
+    completed: bool
+    started_at: str
+
+
+class DownloadStats(BaseModel):
+    downloads: int
+    unique_viewers: int
+    last_activity: str | None
+
+
+@router.get("/{link_id}/events", response_model=list[DownloadEventOut])
+async def list_events(
+    link_id: uuid.UUID,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+    limit: int = 100,
+) -> list[DownloadEventOut]:
+    await _get_or_404(db, link_id)
+    limit = max(1, min(limit, 500))
+    result = await db.execute(
+        select(DownloadEvent, DownloadSession)
+        .join(DownloadSession, DownloadEvent.download_session_id == DownloadSession.id)
+        .where(DownloadSession.download_link_id == link_id)
+        .order_by(DownloadEvent.started_at.desc())
+        .limit(limit)
+    )
+    return [
+        DownloadEventOut(
+            frameio_file_id=ev.frameio_file_id,
+            file_name=ev.file_name,
+            viewer_name=sess.viewer_name,
+            viewer_email=sess.viewer_email,
+            ip=sess.ip,
+            completed=ev.completed,
+            started_at=ev.started_at.isoformat(),
+        )
+        for ev, sess in result.all()
+    ]
+
+
+@router.get("/{link_id}/stats", response_model=DownloadStats)
+async def stats(
+    link_id: uuid.UUID,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+) -> DownloadStats:
+    await _get_or_404(db, link_id)
+    sessions = select(DownloadSession.id).where(DownloadSession.download_link_id == link_id)
+    downloads = (
+        await db.scalar(
+            select(func.count()).where(DownloadEvent.download_session_id.in_(sessions))
+        )
+        or 0
+    )
+    viewer_key = func.coalesce(DownloadSession.viewer_email, DownloadSession.ip)
+    unique_viewers = (
+        await db.scalar(
+            select(func.count(func.distinct(viewer_key))).where(
+                DownloadSession.download_link_id == link_id
+            )
+        )
+        or 0
+    )
+    last = await db.scalar(
+        select(func.max(DownloadSession.started_at)).where(
+            DownloadSession.download_link_id == link_id
+        )
+    )
+    return DownloadStats(
+        downloads=downloads,
+        unique_viewers=unique_viewers,
+        last_activity=last.isoformat() if last else None,
+    )

@@ -3,9 +3,22 @@ import { error } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
 import type { UploadLink } from "../+page.server";
 
+export type UploadStats = {
+  uploads: number;
+  total_bytes: number;
+  last_activity: string | null;
+};
+
 export const load: PageServerLoad = async ({ params, request }) => {
-  const res = await apiFetch(`/api/upload-links/${params.id}`, request.headers.get("cookie"));
-  if (!res.ok) throw error(res.status === 404 ? 404 : 500, "Upload link not found");
-  const link: UploadLink = await res.json();
-  return { link };
+  const cookie = request.headers.get("cookie");
+  const [linkRes, statsRes] = await Promise.all([
+    apiFetch(`/api/upload-links/${params.id}`, cookie),
+    apiFetch(`/api/upload-links/${params.id}/stats`, cookie),
+  ]);
+  if (!linkRes.ok) throw error(linkRes.status === 404 ? 404 : 500, "Upload link not found");
+  const link: UploadLink = await linkRes.json();
+  const stats: UploadStats = statsRes.ok
+    ? await statsRes.json()
+    : { uploads: 0, total_bytes: 0, last_activity: null };
+  return { link, stats };
 };

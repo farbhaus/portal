@@ -20,6 +20,41 @@
       testing = false;
     }
   }
+
+  let currentPassword = $state("");
+  let newPassword = $state("");
+  let confirmPassword = $state("");
+  let savingPw = $state(false);
+  let pwResult = $state<{ ok: boolean; msg: string } | null>(null);
+
+  async function changePassword() {
+    pwResult = null;
+    if (newPassword.length < 8) {
+      pwResult = { ok: false, msg: "New password must be at least 8 characters." };
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      pwResult = { ok: false, msg: "New passwords don't match." };
+      return;
+    }
+    savingPw = true;
+    try {
+      const res = await fetch("/api/settings/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      });
+      if (res.ok) {
+        pwResult = { ok: true, msg: "Password changed." };
+        currentPassword = newPassword = confirmPassword = "";
+      } else {
+        const body = await res.json().catch(() => ({}));
+        pwResult = { ok: false, msg: body.detail ?? `Failed (${res.status})` };
+      }
+    } finally {
+      savingPw = false;
+    }
+  }
 </script>
 
 <div class="max-w-2xl space-y-6">
@@ -59,7 +94,29 @@
     {/if}
   </div>
 
-  <p class="text-xs text-neutral-400">
-    More settings (branding defaults, base URL, password change) arrive in a later build step.
-  </p>
+  <div class="space-y-4 rounded-xl border border-neutral-200 bg-white p-6">
+    <h2 class="font-medium">Change password</h2>
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <input type="password" bind:value={currentPassword} placeholder="Current password" autocomplete="current-password" class="rounded-md border border-neutral-300 px-3 py-2 text-sm" />
+      <input type="password" bind:value={newPassword} placeholder="New password" autocomplete="new-password" class="rounded-md border border-neutral-300 px-3 py-2 text-sm" />
+      <input type="password" bind:value={confirmPassword} placeholder="Confirm new password" autocomplete="new-password" class="rounded-md border border-neutral-300 px-3 py-2 text-sm" />
+    </div>
+    <div class="flex items-center gap-3">
+      <button onclick={changePassword} disabled={savingPw || !currentPassword || !newPassword} class="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50">
+        {savingPw ? "Saving…" : "Change password"}
+      </button>
+      {#if pwResult}
+        <span class="text-sm {pwResult.ok ? 'text-green-700' : 'text-red-700'}">{pwResult.msg}</span>
+      {/if}
+    </div>
+  </div>
+
+  <div class="rounded-xl border border-neutral-200 bg-white p-6 text-sm">
+    <h2 class="mb-3 font-medium">General</h2>
+    <div class="flex items-center justify-between">
+      <span class="text-neutral-500">Base URL</span>
+      <span class="font-mono text-xs">{data.general.base_url}</span>
+    </div>
+    <p class="mt-2 text-xs text-neutral-400">Base URL is set via <code class="rounded bg-neutral-100 px-1">BASE_URL</code> in <code class="rounded bg-neutral-100 px-1">.env</code>. Branding is configured per destination and per link.</p>
+  </div>
 </div>

@@ -12,13 +12,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from portal.auth.passwords import hash_password
 from portal.auth.session import require_admin
-from portal.db.models import AuditLog, Destination, UploadLink, User
+from portal.db.models import AuditLog, Destination, UploadLink, UploadSession, User
 from portal.db.session import get_session
 from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError, PortalError
@@ -279,3 +279,33 @@ async def delete_link(
         )
     )
     await db.commit()
+
+
+class UploadStats(BaseModel):
+    uploads: int  # completed sessions
+    total_bytes: int
+    last_activity: str | None
+
+
+@router.get("/{link_id}/stats", response_model=UploadStats)
+async def stats(
+    link_id: uuid.UUID,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+) -> UploadStats:
+    await _get_or_404(db, link_id)
+    completed = (UploadSession.upload_link_id == link_id) & (UploadSession.status == "completed")
+    uploads = await db.scalar(select(func.count()).where(completed)) or 0
+    total_bytes = await db.scalar(
+        select(func.coalesce(func.sum(UploadSession.total_bytes), 0)).where(completed)
+    ) or 0
+    last = await db.scalar(
+        select(func.max(UploadSession.completed_at)).where(
+            UploadSession.upload_link_id == link_id
+        )
+    )
+    return UploadStats(
+        uploads=uploads,
+        total_bytes=int(total_bytes),
+        last_activity=last.isoformat() if last else None,
+    )

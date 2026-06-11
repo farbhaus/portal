@@ -339,6 +339,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/upload-links/{link_id}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stats */
+        get: operations["stats_api_upload_links__link_id__stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/links/{token}": {
         parameters: {
             query?: never;
@@ -512,6 +529,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/download-links/{link_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Events */
+        get: operations["list_events_api_download_links__link_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/download-links/{link_id}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stats */
+        get: operations["stats_api_download_links__link_id__stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/downloads/{token}": {
         parameters: {
             query?: never;
@@ -608,6 +659,40 @@ export interface paths {
         put?: never;
         /** Send Email Test */
         post: operations["send_email_test_api_settings_email_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/general": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** General */
+        get: operations["general_api_settings_general_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change Password */
+        post: operations["change_password_api_settings_password_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -736,10 +821,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Activity */
+        get: operations["list_activity_api_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/activity/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Actions
+         * @description Distinct action names, for the filter dropdown.
+         */
+        get: operations["list_actions_api_activity_actions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/activity/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Summary */
+        get: operations["summary_api_activity_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActivityOut */
+        ActivityOut: {
+            /** Id */
+            id: string;
+            /** Action */
+            action: string;
+            /** User Email */
+            user_email: string | null;
+            /** Detail */
+            detail: {
+                [key: string]: unknown;
+            } | null;
+            /** Created At */
+            created_at: string;
+        };
         /** ChunkOut */
         ChunkOut: {
             /** Part */
@@ -817,6 +971,23 @@ export interface components {
             accent_color?: string | null;
             /** Subtitle */
             subtitle?: string | null;
+        };
+        /** DownloadEventOut */
+        DownloadEventOut: {
+            /** Frameio File Id */
+            frameio_file_id: string;
+            /** File Name */
+            file_name: string | null;
+            /** Viewer Name */
+            viewer_name: string | null;
+            /** Viewer Email */
+            viewer_email: string | null;
+            /** Ip */
+            ip: string | null;
+            /** Completed */
+            completed: boolean;
+            /** Started At */
+            started_at: string;
         };
         /** DownloadLinkCreate */
         DownloadLinkCreate: {
@@ -944,6 +1115,15 @@ export interface components {
             /** Allow Preview */
             allow_preview: boolean;
         };
+        /** DownloadStats */
+        DownloadStats: {
+            /** Downloads */
+            downloads: number;
+            /** Unique Viewers */
+            unique_viewers: number;
+            /** Last Activity */
+            last_activity: string | null;
+        };
         /** DownloadUrlResult */
         DownloadUrlResult: {
             /** Url */
@@ -1019,6 +1199,11 @@ export interface components {
             /** Folder Id */
             folder_id: string;
         };
+        /** GeneralOut */
+        GeneralOut: {
+            /** Base Url */
+            base_url: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1040,6 +1225,13 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** PasswordChange */
+        PasswordChange: {
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
         };
         /** PasswordVerifyRequest */
         PasswordVerifyRequest: {
@@ -1103,6 +1295,17 @@ export interface components {
             trusted: boolean;
             /** Sent */
             sent: boolean;
+        };
+        /** SummaryOut */
+        SummaryOut: {
+            /** Destinations */
+            destinations: number;
+            /** Upload Links */
+            upload_links: number;
+            /** Download Links */
+            download_links: number;
+            /** Sync Rules */
+            sync_rules: number;
         };
         /** SyncJobOut */
         SyncJobOut: {
@@ -1285,6 +1488,15 @@ export interface components {
             brand_display_name?: string | null;
             /** Brand Subtitle */
             brand_subtitle?: string | null;
+        };
+        /** UploadStats */
+        UploadStats: {
+            /** Uploads */
+            uploads: number;
+            /** Total Bytes */
+            total_bytes: number;
+            /** Last Activity */
+            last_activity: string | null;
         };
         /** UploaderFields */
         UploaderFields: {
@@ -2085,6 +2297,37 @@ export interface operations {
             };
         };
     };
+    stats_api_upload_links__link_id__stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadStats"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     resolve_link_api_public_links__token__get: {
         parameters: {
             query?: never;
@@ -2505,6 +2748,70 @@ export interface operations {
             };
         };
     };
+    list_events_api_download_links__link_id__events_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadEventOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stats_api_download_links__link_id__stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadStats"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     resolve_link_api_public_downloads__token__get: {
         parameters: {
             query?: never;
@@ -2677,6 +2984,61 @@ export interface operations {
                     "application/json": {
                         [key: string]: boolean;
                     };
+                };
+            };
+        };
+    };
+    general_api_settings_general_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GeneralOut"];
+                };
+            };
+        };
+    };
+    change_password_api_settings_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2984,6 +3346,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_activity_api_activity_get: {
+        parameters: {
+            query?: {
+                action?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_actions_api_activity_actions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+        };
+    };
+    summary_api_activity_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SummaryOut"];
                 };
             };
         };

@@ -9,9 +9,14 @@ export type EmailStatus = {
 };
 
 export const load: PageServerLoad = async ({ request }) => {
-  const res = await apiFetch("/api/settings/email", request.headers.get("cookie"));
-  const email: EmailStatus = res.ok
-    ? await res.json()
+  const cookie = request.headers.get("cookie");
+  const [emailRes, generalRes] = await Promise.all([
+    apiFetch("/api/settings/email", cookie),
+    apiFetch("/api/settings/general", cookie),
+  ]);
+  const email: EmailStatus = emailRes.ok
+    ? await emailRes.json()
     : { configured: false, smtp_host: null, smtp_from: null, notify_email: "" };
-  return { email };
+  const general: { base_url: string } = generalRes.ok ? await generalRes.json() : { base_url: "" };
+  return { email, general };
 };

@@ -46,6 +46,18 @@
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
+  function fmtBytes(n: number): string {
+    if (n < 1024) return `${n} B`;
+    const u = ["KB", "MB", "GB", "TB"];
+    let v = n / 1024,
+      i = 0;
+    while (v >= 1024 && i < u.length - 1) {
+      v /= 1024;
+      i++;
+    }
+    return `${v.toFixed(1)} ${u[i]}`;
+  }
+
   async function save() {
     saving = true;
     error = null;
@@ -113,6 +125,12 @@
     </div>
     <div class="mt-2 flex items-center justify-between">
       <span class="text-neutral-500">Status</span><span>{link.state}</span>
+    </div>
+    <div class="mt-2 flex items-center justify-between">
+      <span class="text-neutral-500">Uploads</span><span>{data.stats.uploads} ({fmtBytes(data.stats.total_bytes)})</span>
+    </div>
+    <div class="mt-2 flex items-center justify-between">
+      <span class="text-neutral-500">Last activity</span><span>{data.stats.last_activity ? new Date(data.stats.last_activity).toLocaleString() : "—"}</span>
     </div>
   </div>
 
