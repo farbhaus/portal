@@ -62,41 +62,41 @@
 
 <div class="max-w-2xl space-y-6">
   <div>
-    <a href="/destinations" class="text-sm text-neutral-500 hover:text-neutral-900">← Destinations</a>
+    <a href="/destinations" class="text-sm text-muted hover:text-text">← Destinations</a>
     <h1 class="mt-1 text-2xl font-semibold">Edit destination</h1>
   </div>
 
   {#if error}
-    <p class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+    <p class="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
   {:else if saved}
-    <p class="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">Saved.</p>
+    <p class="rounded-md bg-success/10 px-3 py-2 text-sm text-success">Saved.</p>
   {/if}
 
-  <div class="rounded-xl border border-neutral-200 bg-white p-6 text-sm">
+  <div class="rounded-xl border border-border bg-surface p-6 text-sm">
     <h2 class="font-medium">Frame.io folder</h2>
-    <p class="mt-2 text-neutral-600">
+    <p class="mt-2 text-muted">
       {dest.config.folder_name ?? dest.config.folder_id}
     </p>
-    <p class="mt-1 text-xs text-neutral-400">The folder binding is fixed. Create a new destination to target a different folder.</p>
+    <p class="mt-1 text-xs text-faint">The folder binding is fixed. Create a new destination to target a different folder.</p>
   </div>
 
-  <div class="space-y-4 rounded-xl border border-neutral-200 bg-white p-6">
+  <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
     <h2 class="font-medium">Branding</h2>
     <label class="block text-sm">
-      <span class="text-neutral-500">Display name <span class="text-red-500">*</span></span>
-      <input bind:value={displayName} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+      <span class="text-muted">Display name <span class="text-danger">*</span></span>
+      <input bind:value={displayName} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
     </label>
     <label class="block text-sm">
-      <span class="text-neutral-500">Subtitle</span>
-      <input bind:value={subtitle} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+      <span class="text-muted">Subtitle</span>
+      <input bind:value={subtitle} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
     </label>
     <label class="block text-sm">
-      <span class="text-neutral-500">Logo URL</span>
-      <input bind:value={logoUrl} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+      <span class="text-muted">Logo URL</span>
+      <input bind:value={logoUrl} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
     </label>
     <label class="block text-sm">
-      <span class="text-neutral-500">Accent color</span>
-      <input type="color" bind:value={accentColor} class="mt-1 block h-9 w-16 rounded-md border border-neutral-300" />
+      <span class="text-muted">Accent color</span>
+      <input type="color" bind:value={accentColor} class="mt-1 block h-9 w-16 rounded-md border border-border" />
     </label>
   </div>
 
@@ -105,12 +105,12 @@
       <button
         onclick={save}
         disabled={saving || !displayName.trim()}
-        class="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+        class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
       >
         {saving ? "Saving…" : "Save changes"}
       </button>
-      <a href="/destinations" class="text-sm text-neutral-500 hover:text-neutral-900">Cancel</a>
+      <a href="/destinations" class="text-sm text-muted hover:text-text">Cancel</a>
     </div>
-    <button onclick={remove} class="text-sm text-red-600 hover:text-red-700">Delete</button>
+    <button onclick={remove} class="text-sm text-danger hover:text-danger">Delete</button>
   </div>
 </div>

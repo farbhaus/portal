@@ -11,6 +11,7 @@ from portal.lib.logging import RequestIdMiddleware, configure_logging, get_logge
 from portal.routes import (
     activity,
     auth,
+    dashboard,
     destinations,
     download_links,
     frameio,
@@ -78,6 +79,7 @@ def create_app() -> FastAPI:
     app.include_router(webhooks.admin_router, prefix="/api")
     app.include_router(sync_rules.router, prefix="/api")
     app.include_router(activity.router, prefix="/api")
+    app.include_router(dashboard.router, prefix="/api")
     return app
 
 

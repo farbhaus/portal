@@ -1,10 +1,34 @@
 <script lang="ts">
+  import { goto, invalidateAll } from "$app/navigation";
+  import { page } from "$app/state";
+  import { Card, Button, StatusPill, PageHeader } from "$lib/components";
+
   let { data } = $props();
   const email = $derived(data.email);
+  const frameio = $derived(data.frameio);
 
+  const flash = $derived(page.url.searchParams.get("frameio"));
+
+  // --- Frame.io connection ---------------------------------------------------
+  let disconnecting = $state(false);
+  async function disconnect() {
+    if (!confirm("Disconnect this Frame.io account?")) return;
+    disconnecting = true;
+    try {
+      await fetch("/api/frameio/disconnect", { method: "POST" });
+      await goto("/settings", { replaceState: true });
+      await invalidateAll();
+    } finally {
+      disconnecting = false;
+    }
+  }
+  function fmt(iso: string | null | undefined): string {
+    return iso ? new Date(iso).toLocaleString() : "—";
+  }
+
+  // --- SMTP test -------------------------------------------------------------
   let testing = $state(false);
   let result = $state<{ ok: boolean; msg: string } | null>(null);
-
   async function sendTest() {
     testing = true;
     result = null;
@@ -21,6 +45,7 @@
     }
   }
 
+  // --- Password --------------------------------------------------------------
   let currentPassword = $state("");
   let newPassword = $state("");
   let confirmPassword = $state("");
@@ -55,68 +80,94 @@
       savingPw = false;
     }
   }
+
+  const fieldCls =
+    "rounded-md border border-border bg-surface-2 px-3 py-2 text-sm placeholder:text-faint";
 </script>
 
 <div class="max-w-2xl space-y-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Settings</h1>
-    <p class="text-sm text-neutral-500">Email and notification configuration.</p>
-  </div>
+  <PageHeader title="Settings" subtitle="Connection, email, account, and general configuration." />
 
-  <div class="space-y-4 rounded-xl border border-neutral-200 bg-white p-6">
+  {#if flash === "connected"}
+    <p class="rounded-md bg-success/10 px-3 py-2 text-sm text-success">Frame.io connected.</p>
+  {:else if flash === "error"}
+    <p class="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">
+      Frame.io connection failed. Please try again.
+    </p>
+  {/if}
+
+  <!-- Frame.io connection -->
+  <Card class="space-y-4" >
+    <div class="flex items-center justify-between">
+      <h2 class="font-medium">Frame.io connection</h2>
+      <StatusPill status={frameio.connected ? "connected" : "revoked"} label={frameio.connected ? "Connected" : "Not connected"} />
+    </div>
+
+    {#if frameio.connected}
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between"><dt class="text-muted">Account</dt><dd>{frameio.adobe_email ?? "—"}</dd></div>
+        <div class="flex justify-between"><dt class="text-muted">Token expires</dt><dd>{fmt(frameio.expires_at)}</dd></div>
+        <div class="flex justify-between"><dt class="text-muted">Token health</dt><dd>{frameio.needs_refresh ? "Refresh due" : "Healthy"}</dd></div>
+      </dl>
+      <Button variant="ghost" size="sm" onclick={disconnect} disabled={disconnecting}>
+        {disconnecting ? "Disconnecting…" : "Disconnect"}
+      </Button>
+    {:else}
+      <p class="text-sm text-muted">Connect your Frame.io account to create destinations and sync rules.</p>
+      <a href="/api/frameio/oauth/connect" data-sveltekit-reload class="inline-flex items-center justify-center gap-1.5 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover">
+        Connect Frame.io
+      </a>
+    {/if}
+  </Card>
+
+  <!-- Email -->
+  <Card class="space-y-4">
     <div class="flex items-center justify-between">
       <h2 class="font-medium">Email (SMTP)</h2>
-      <span class="rounded-full px-2.5 py-0.5 text-xs font-medium {email.configured ? 'bg-green-100 text-green-800' : 'bg-neutral-100 text-neutral-600'}">
-        {email.configured ? "Configured" : "Not configured"}
-      </span>
+      <StatusPill status={email.configured ? "connected" : "revoked"} label={email.configured ? "Configured" : "Not configured"} />
     </div>
 
     {#if email.configured}
       <dl class="space-y-2 text-sm">
-        <div class="flex justify-between"><dt class="text-neutral-500">SMTP host</dt><dd>{email.smtp_host}</dd></div>
-        <div class="flex justify-between"><dt class="text-neutral-500">From</dt><dd>{email.smtp_from}</dd></div>
-        <div class="flex justify-between"><dt class="text-neutral-500">Notifications to</dt><dd>{email.notify_email}</dd></div>
+        <div class="flex justify-between"><dt class="text-muted">SMTP host</dt><dd>{email.smtp_host}</dd></div>
+        <div class="flex justify-between"><dt class="text-muted">From</dt><dd>{email.smtp_from}</dd></div>
+        <div class="flex justify-between"><dt class="text-muted">Notifications to</dt><dd>{email.notify_email}</dd></div>
       </dl>
       <div class="flex items-center gap-3">
-        <button onclick={sendTest} disabled={testing} class="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50">
-          {testing ? "Sending…" : "Send test email"}
-        </button>
-        {#if result}
-          <span class="text-sm {result.ok ? 'text-green-700' : 'text-red-700'}">{result.msg}</span>
-        {/if}
+        <Button size="sm" onclick={sendTest} disabled={testing}>{testing ? "Sending…" : "Send test email"}</Button>
+        {#if result}<span class="text-sm {result.ok ? 'text-success' : 'text-danger'}">{result.msg}</span>{/if}
       </div>
     {:else}
-      <p class="text-sm text-neutral-500">
-        Set <code class="rounded bg-neutral-100 px-1">SMTP_HOST</code>, <code class="rounded bg-neutral-100 px-1">SMTP_FROM</code>
-        (and credentials) in <code class="rounded bg-neutral-100 px-1">.env</code>, then restart Portal. Notifications are
-        sent on upload completion.
+      <p class="text-sm text-muted">
+        Set <code class="rounded bg-surface-2 px-1">SMTP_HOST</code>, <code class="rounded bg-surface-2 px-1">SMTP_FROM</code>
+        (and credentials) in <code class="rounded bg-surface-2 px-1">.env</code>, then restart Portal.
       </p>
     {/if}
-  </div>
+  </Card>
 
-  <div class="space-y-4 rounded-xl border border-neutral-200 bg-white p-6">
+  <!-- Password -->
+  <Card class="space-y-4">
     <h2 class="font-medium">Change password</h2>
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      <input type="password" bind:value={currentPassword} placeholder="Current password" autocomplete="current-password" class="rounded-md border border-neutral-300 px-3 py-2 text-sm" />
-      <input type="password" bind:value={newPassword} placeholder="New password" autocomplete="new-password" class="rounded-md border border-neutral-300 px-3 py-2 text-sm" />
-      <input type="password" bind:value={confirmPassword} placeholder="Confirm new password" autocomplete="new-password" class="rounded-md border border-neutral-300 px-3 py-2 text-sm" />
+      <input type="password" bind:value={currentPassword} placeholder="Current password" autocomplete="current-password" class={fieldCls} />
+      <input type="password" bind:value={newPassword} placeholder="New password" autocomplete="new-password" class={fieldCls} />
+      <input type="password" bind:value={confirmPassword} placeholder="Confirm new password" autocomplete="new-password" class={fieldCls} />
     </div>
     <div class="flex items-center gap-3">
-      <button onclick={changePassword} disabled={savingPw || !currentPassword || !newPassword} class="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50">
+      <Button size="sm" onclick={changePassword} disabled={savingPw || !currentPassword || !newPassword}>
         {savingPw ? "Saving…" : "Change password"}
-      </button>
-      {#if pwResult}
-        <span class="text-sm {pwResult.ok ? 'text-green-700' : 'text-red-700'}">{pwResult.msg}</span>
-      {/if}
+      </Button>
+      {#if pwResult}<span class="text-sm {pwResult.ok ? 'text-success' : 'text-danger'}">{pwResult.msg}</span>{/if}
     </div>
-  </div>
+  </Card>
 
-  <div class="rounded-xl border border-neutral-200 bg-white p-6 text-sm">
-    <h2 class="mb-3 font-medium">General</h2>
+  <!-- General -->
+  <Card class="space-y-2 text-sm">
+    <h2 class="font-medium">General</h2>
     <div class="flex items-center justify-between">
-      <span class="text-neutral-500">Base URL</span>
+      <span class="text-muted">Base URL</span>
       <span class="font-mono text-xs">{data.general.base_url}</span>
     </div>
-    <p class="mt-2 text-xs text-neutral-400">Base URL is set via <code class="rounded bg-neutral-100 px-1">BASE_URL</code> in <code class="rounded bg-neutral-100 px-1">.env</code>. Branding is configured per destination and per link.</p>
-  </div>
+    <p class="text-xs text-faint">Set via <code class="rounded bg-surface-2 px-1">BASE_URL</code> in <code class="rounded bg-surface-2 px-1">.env</code>. Branding is per destination and per link.</p>
+  </Card>
 </div>

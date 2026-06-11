@@ -177,32 +177,32 @@
 
 <div class="max-w-2xl space-y-6">
   <div>
-    <a href="/download-links" class="text-sm text-neutral-500 hover:text-neutral-900">← Download links</a>
+    <a href="/download-links" class="text-sm text-muted hover:text-text">← Download links</a>
     <h1 class="mt-1 text-2xl font-semibold">New download link</h1>
   </div>
 
-  {#if error}<p class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>{/if}
+  {#if error}<p class="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>{/if}
 
-  <div class="space-y-5 rounded-xl border border-neutral-200 bg-white p-6">
+  <div class="space-y-5 rounded-xl border border-border bg-surface p-6">
     <h2 class="font-medium">Source</h2>
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
       <label class="block text-sm">
-        <span class="text-neutral-500">Account</span>
-        <select bind:value={accountId} onchange={onAccount} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5">
+        <span class="text-muted">Account</span>
+        <select bind:value={accountId} onchange={onAccount} class="mt-1 w-full rounded-md border border-border px-2 py-1.5">
           <option value="">Select…</option>
           {#each accounts as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
         </select>
       </label>
       <label class="block text-sm">
-        <span class="text-neutral-500">Workspace</span>
-        <select bind:value={workspaceId} onchange={onWorkspace} disabled={!accountId} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 disabled:bg-neutral-50">
+        <span class="text-muted">Workspace</span>
+        <select bind:value={workspaceId} onchange={onWorkspace} disabled={!accountId} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 disabled:bg-surface-2">
           <option value="">Select…</option>
           {#each workspaces as w (w.id)}<option value={w.id}>{w.name}</option>{/each}
         </select>
       </label>
       <label class="block text-sm">
-        <span class="text-neutral-500">Project</span>
-        <select bind:value={projectId} onchange={onProject} disabled={!workspaceId} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 disabled:bg-neutral-50">
+        <span class="text-muted">Project</span>
+        <select bind:value={projectId} onchange={onProject} disabled={!workspaceId} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 disabled:bg-surface-2">
           <option value="">Select…</option>
           {#each projects as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
         </select>
@@ -210,30 +210,30 @@
     </div>
 
     {#if folderPath.length > 0}
-      <div class="rounded-md border border-neutral-200 bg-neutral-50 p-3">
+      <div class="rounded-md border border-border bg-surface-2 p-3">
         <div class="flex flex-wrap items-center gap-1 text-sm">
           {#each folderPath as f, i (f.id)}
-            {#if i > 0}<span class="text-neutral-400">/</span>{/if}
-            <button onclick={() => jumpTo(i)} class="rounded px-1 hover:bg-neutral-200 {i === folderPath.length - 1 ? 'font-medium' : 'text-neutral-500'}">{f.name}</button>
+            {#if i > 0}<span class="text-faint">/</span>{/if}
+            <button onclick={() => jumpTo(i)} class="rounded px-1 hover:bg-surface-3 {i === folderPath.length - 1 ? 'font-medium' : 'text-muted'}">{f.name}</button>
           {/each}
-          <button onclick={shareFolder} class="ml-auto rounded border border-neutral-300 bg-white px-2 py-0.5 text-xs hover:bg-neutral-100">Share this whole folder</button>
+          <button onclick={shareFolder} class="ml-auto rounded border border-border bg-surface px-2 py-0.5 text-xs hover:bg-surface-2">Share this whole folder</button>
         </div>
 
         <div class="mt-3 space-y-1">
-          {#if loading}<p class="text-xs text-neutral-400">Loading…</p>{/if}
+          {#if loading}<p class="text-xs text-faint">Loading…</p>{/if}
           {#each subfolders as sf (sf.id)}
-            <button onclick={() => drillInto(sf)} class="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-neutral-200">
-              <span class="text-neutral-400">📁</span> {sf.name}
+            <button onclick={() => drillInto(sf)} class="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-surface-3">
+              <span class="text-faint">📁</span> {sf.name}
             </button>
           {/each}
           {#each files as f (f.id)}
-            <label class="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-neutral-200">
+            <label class="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-surface-3">
               <input type="checkbox" checked={selected.has(f.id)} onchange={() => toggleFile(f)} />
-              <span class="text-neutral-400">📄</span> {f.name}
+              <span class="text-faint">📄</span> {f.name}
             </label>
           {/each}
           {#if !loading && subfolders.length === 0 && files.length === 0}
-            <p class="text-xs text-neutral-400">This folder is empty.</p>
+            <p class="text-xs text-faint">This folder is empty.</p>
           {/if}
         </div>
       </div>
@@ -241,39 +241,39 @@
 
     <!-- Chosen source summary -->
     {#if hasSource}
-      <div class="rounded-md bg-neutral-900 px-3 py-2 text-sm text-white">
+      <div class="rounded-md bg-accent px-3 py-2 text-sm text-on-accent">
         {#if folderShare}
           <div class="flex items-center justify-between">
             <span>Sharing folder: <span class="font-medium">{folderShare.name}</span></span>
-            <button onclick={clearSource} class="text-xs text-neutral-300 hover:text-white">clear</button>
+            <button onclick={clearSource} class="text-xs text-faint hover:text-on-accent">clear</button>
           </div>
-          <label class="mt-1 flex items-center gap-1.5 text-xs text-neutral-300">
+          <label class="mt-1 flex items-center gap-1.5 text-xs text-faint">
             <input type="checkbox" bind:checked={recursive} /> Include subfolders (recursive)
           </label>
         {:else}
           <div class="flex items-center justify-between">
             <span>{selected.size} file{selected.size === 1 ? "" : "s"} selected</span>
-            <button onclick={clearSource} class="text-xs text-neutral-300 hover:text-white">clear</button>
+            <button onclick={clearSource} class="text-xs text-faint hover:text-on-accent">clear</button>
           </div>
         {/if}
       </div>
     {/if}
   </div>
 
-  <div class="space-y-4 rounded-xl border border-neutral-200 bg-white p-6">
+  <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
     <h2 class="font-medium">Options</h2>
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
       <label class="block text-sm">
-        <span class="text-neutral-500">Expires</span>
-        <input type="datetime-local" bind:value={expiresAt} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+        <span class="text-muted">Expires</span>
+        <input type="datetime-local" bind:value={expiresAt} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
       </label>
       <label class="block text-sm">
-        <span class="text-neutral-500">Password</span>
-        <input type="text" bind:value={password} placeholder="none" class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+        <span class="text-muted">Password</span>
+        <input type="text" bind:value={password} placeholder="none" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
       </label>
       <label class="block text-sm">
-        <span class="text-neutral-500">Max downloads</span>
-        <input type="number" min="1" bind:value={maxDownloads} placeholder="unlimited" class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+        <span class="text-muted">Max downloads</span>
+        <input type="number" min="1" bind:value={maxDownloads} placeholder="unlimited" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
       </label>
     </div>
     <div class="flex flex-wrap gap-4 text-sm">
@@ -284,22 +284,22 @@
     </div>
   </div>
 
-  <div class="space-y-4 rounded-xl border border-neutral-200 bg-white p-6">
+  <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
     <h2 class="font-medium">Branding</h2>
     <label class="block text-sm">
-      <span class="text-neutral-500">Display name</span>
-      <input bind:value={brandDisplayName} placeholder="e.g. Your deliverables" class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+      <span class="text-muted">Display name</span>
+      <input bind:value={brandDisplayName} placeholder="e.g. Your deliverables" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
     </label>
     <label class="block text-sm">
-      <span class="text-neutral-500">Subtitle</span>
-      <input bind:value={brandSubtitle} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+      <span class="text-muted">Subtitle</span>
+      <input bind:value={brandSubtitle} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
     </label>
   </div>
 
   <div class="flex items-center gap-3">
-    <button onclick={create} disabled={saving || !hasSource} class="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50">
+    <button onclick={create} disabled={saving || !hasSource} class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50">
       {saving ? "Creating…" : "Create link"}
     </button>
-    <a href="/download-links" class="text-sm text-neutral-500 hover:text-neutral-900">Cancel</a>
+    <a href="/download-links" class="text-sm text-muted hover:text-text">Cancel</a>
   </div>
 </div>

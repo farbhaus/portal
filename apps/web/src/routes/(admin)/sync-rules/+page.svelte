@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invalidateAll } from "$app/navigation";
+  import { PageHeader, Tabs, Button, Table, StatusPill, EmptyState } from "$lib/components";
   import type { SyncRule } from "./+page.server";
 
   let { data } = $props();
@@ -7,6 +8,11 @@
 
   let busy = $state<string | null>(null);
   let note = $state<string | null>(null);
+
+  const syncTabs = [
+    { label: "Destinations", href: "/destinations" },
+    { label: "Sync rules", href: "/sync-rules" },
+  ];
 
   function sourceLabel(r: SyncRule): string {
     const s = r.source as Record<string, unknown>;
@@ -42,51 +48,43 @@
   }
 </script>
 
-<div class="space-y-6">
-  <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-semibold">Sync rules</h1>
-    <a href="/sync-rules/new" class="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800">New rule</a>
-  </div>
+<div class="space-y-5">
+  <PageHeader title="Sync" subtitle="Mirror a Frame.io folder to a local path automatically.">
+    {#snippet actions()}
+      <Button href="/sync-rules/new">New sync rule</Button>
+    {/snippet}
+  </PageHeader>
 
-  {#if note}<p class="rounded-md bg-neutral-100 px-3 py-2 text-sm text-neutral-700">{note}</p>{/if}
+  <Tabs tabs={syncTabs} />
+
+  {#if note}<p class="rounded-md bg-surface-2 px-3 py-2 text-sm text-muted">{note}</p>{/if}
 
   {#if rules.length === 0}
-    <div class="rounded-xl border border-dashed border-neutral-300 p-10 text-center text-neutral-500">
-      No sync rules yet. Create one to mirror a Frame.io folder to a local path.
-    </div>
+    <EmptyState message="No sync rules yet. Create one to mirror a Frame.io folder to a local path.">
+      <Button href="/sync-rules/new" size="sm">Create one</Button>
+    </EmptyState>
   {:else}
-    <div class="overflow-hidden rounded-xl border border-neutral-200 bg-white">
-      <table class="w-full text-sm">
-        <thead class="border-b border-neutral-200 text-left text-neutral-500">
-          <tr>
-            <th class="px-4 py-2 font-medium">Name</th>
-            <th class="px-4 py-2 font-medium">Source</th>
-            <th class="px-4 py-2 font-medium">Destination</th>
-            <th class="px-4 py-2 font-medium">Status</th>
-            <th class="px-4 py-2"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-neutral-100">
-          {#each rules as r (r.id)}
-            <tr>
-              <td class="px-4 py-2"><a href="/sync-rules/{r.id}" class="font-medium hover:underline">{r.name}</a></td>
-              <td class="px-4 py-2 text-neutral-500">{sourceLabel(r)}</td>
-              <td class="px-4 py-2 font-mono text-xs text-neutral-500">{r.destination_path}</td>
-              <td class="px-4 py-2">
-                {#if r.enabled}
-                  <span class="rounded-full bg-green-50 px-2 py-0.5 text-xs text-green-700">enabled{r.subscription_active ? "" : " (no webhook)"}</span>
-                {:else}
-                  <span class="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500">disabled</span>
-                {/if}
-              </td>
-              <td class="px-4 py-2 text-right whitespace-nowrap">
-                <button onclick={() => run(r)} disabled={busy === r.id} class="rounded-md border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 disabled:opacity-50">Run now</button>
-                <button onclick={() => toggle(r)} disabled={busy === r.id} class="ml-1 rounded-md border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 disabled:opacity-50">{r.enabled ? "Disable" : "Enable"}</button>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
+    <Table columns={["Name", "Source", "Destination", "Status", { label: "", class: "text-right" }]}>
+      {#each rules as r (r.id)}
+        <tr>
+          <td class="px-4 py-2.5"><a href="/sync-rules/{r.id}" class="font-medium hover:text-accent">{r.name}</a></td>
+          <td class="px-4 py-2.5 text-muted">{sourceLabel(r)}</td>
+          <td class="px-4 py-2.5 font-mono text-xs text-muted">{r.destination_path}</td>
+          <td class="px-4 py-2.5">
+            {#if r.enabled}
+              <StatusPill status="ok" label={r.subscription_active ? "enabled" : "enabled (no webhook)"} />
+            {:else}
+              <StatusPill status="revoked" label="disabled" />
+            {/if}
+          </td>
+          <td class="px-4 py-2.5 text-right whitespace-nowrap">
+            <Button variant="ghost" size="sm" onclick={() => run(r)} disabled={busy === r.id}>Run now</Button>
+            <span class="ml-1 inline-block">
+              <Button variant="ghost" size="sm" onclick={() => toggle(r)} disabled={busy === r.id}>{r.enabled ? "Disable" : "Enable"}</Button>
+            </span>
+          </td>
+        </tr>
+      {/each}
+    </Table>
   {/if}
 </div>

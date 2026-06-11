@@ -137,35 +137,35 @@
 
 <div class="max-w-2xl space-y-6">
   <div>
-    <a href="/destinations" class="text-sm text-neutral-500 hover:text-neutral-900">← Destinations</a>
+    <a href="/destinations" class="text-sm text-muted hover:text-text">← Destinations</a>
     <h1 class="mt-1 text-2xl font-semibold">New destination</h1>
   </div>
 
   {#if error}
-    <p class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+    <p class="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
   {/if}
 
-  <div class="space-y-5 rounded-xl border border-neutral-200 bg-white p-6">
+  <div class="space-y-5 rounded-xl border border-border bg-surface p-6">
     <h2 class="font-medium">Frame.io folder</h2>
 
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
       <label class="block text-sm">
-        <span class="text-neutral-500">Account</span>
-        <select bind:value={accountId} onchange={onAccount} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5">
+        <span class="text-muted">Account</span>
+        <select bind:value={accountId} onchange={onAccount} class="mt-1 w-full rounded-md border border-border px-2 py-1.5">
           <option value="">Select…</option>
           {#each accounts as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
         </select>
       </label>
       <label class="block text-sm">
-        <span class="text-neutral-500">Workspace</span>
-        <select bind:value={workspaceId} onchange={onWorkspace} disabled={!accountId} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 disabled:bg-neutral-50">
+        <span class="text-muted">Workspace</span>
+        <select bind:value={workspaceId} onchange={onWorkspace} disabled={!accountId} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 disabled:bg-surface-2">
           <option value="">Select…</option>
           {#each workspaces as w (w.id)}<option value={w.id}>{w.name}</option>{/each}
         </select>
       </label>
       <label class="block text-sm">
-        <span class="text-neutral-500">Project</span>
-        <select bind:value={projectId} onchange={onProject} disabled={!workspaceId} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 disabled:bg-neutral-50">
+        <span class="text-muted">Project</span>
+        <select bind:value={projectId} onchange={onProject} disabled={!workspaceId} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 disabled:bg-surface-2">
           <option value="">Select…</option>
           {#each projects as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
         </select>
@@ -173,50 +173,50 @@
     </div>
 
     {#if folderPath.length > 0}
-      <div class="rounded-md border border-neutral-200 bg-neutral-50 p-3">
+      <div class="rounded-md border border-border bg-surface-2 p-3">
         <div class="flex flex-wrap items-center gap-1 text-sm">
           {#each folderPath as f, i (f.id)}
-            {#if i > 0}<span class="text-neutral-400">/</span>{/if}
-            <button onclick={() => jumpTo(i)} class="rounded px-1 hover:bg-neutral-200 {i === folderPath.length - 1 ? 'font-medium' : 'text-neutral-500'}">
+            {#if i > 0}<span class="text-faint">/</span>{/if}
+            <button onclick={() => jumpTo(i)} class="rounded px-1 hover:bg-surface-3 {i === folderPath.length - 1 ? 'font-medium' : 'text-muted'}">
               {f.name}
             </button>
           {/each}
         </div>
         <div class="mt-3 space-y-1">
           {#if subfolders.length === 0}
-            <p class="text-xs text-neutral-400">{loading ? "Loading…" : "No subfolders. This folder will be the target."}</p>
+            <p class="text-xs text-faint">{loading ? "Loading…" : "No subfolders. This folder will be the target."}</p>
           {:else}
             {#each subfolders as sf (sf.id)}
-              <button onclick={() => drillInto(sf)} class="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-neutral-200">
-                <span class="text-neutral-400">📁</span> {sf.name}
+              <button onclick={() => drillInto(sf)} class="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-surface-3">
+                <span class="text-faint">📁</span> {sf.name}
               </button>
             {/each}
           {/if}
         </div>
-        <p class="mt-3 text-xs text-neutral-600">
+        <p class="mt-3 text-xs text-muted">
           Target folder: <span class="font-medium">{currentFolder?.name}</span>
         </p>
       </div>
     {/if}
   </div>
 
-  <div class="space-y-4 rounded-xl border border-neutral-200 bg-white p-6">
+  <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
     <h2 class="font-medium">Branding</h2>
     <label class="block text-sm">
-      <span class="text-neutral-500">Display name <span class="text-red-500">*</span></span>
-      <input bind:value={displayName} placeholder="e.g. DIT Drop — Project X" class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+      <span class="text-muted">Display name <span class="text-danger">*</span></span>
+      <input bind:value={displayName} placeholder="e.g. DIT Drop — Project X" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
     </label>
     <label class="block text-sm">
-      <span class="text-neutral-500">Subtitle</span>
-      <input bind:value={subtitle} placeholder="Shown on the upload page" class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+      <span class="text-muted">Subtitle</span>
+      <input bind:value={subtitle} placeholder="Shown on the upload page" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
     </label>
     <label class="block text-sm">
-      <span class="text-neutral-500">Logo URL</span>
-      <input bind:value={logoUrl} placeholder="https://…" class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+      <span class="text-muted">Logo URL</span>
+      <input bind:value={logoUrl} placeholder="https://…" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
     </label>
     <label class="block text-sm">
-      <span class="text-neutral-500">Accent color</span>
-      <input type="color" bind:value={accentColor} class="mt-1 block h-9 w-16 rounded-md border border-neutral-300" />
+      <span class="text-muted">Accent color</span>
+      <input type="color" bind:value={accentColor} class="mt-1 block h-9 w-16 rounded-md border border-border" />
     </label>
   </div>
 
@@ -224,10 +224,10 @@
     <button
       onclick={save}
       disabled={saving || !displayName.trim() || !currentFolder}
-      class="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+      class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
     >
       {saving ? "Creating…" : "Create destination"}
     </button>
-    <a href="/destinations" class="text-sm text-neutral-500 hover:text-neutral-900">Cancel</a>
+    <a href="/destinations" class="text-sm text-muted hover:text-text">Cancel</a>
   </div>
 </div>

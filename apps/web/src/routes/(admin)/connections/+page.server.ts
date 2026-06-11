@@ -1,16 +1,8 @@
-import { apiFetch } from "$lib/server/api";
+import { redirect } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
 
-type Status = {
-  connected: boolean;
-  adobe_email?: string | null;
-  expires_at?: string | null;
-  needs_refresh?: boolean | null;
-  scopes?: string | null;
-};
-
-export const load: PageServerLoad = async ({ request }) => {
-  const res = await apiFetch("/api/frameio/status", request.headers.get("cookie"));
-  const status: Status = res.ok ? await res.json() : { connected: false };
-  return { status };
+// Connections moved into Settings. Preserve any OAuth return params.
+export const load: PageServerLoad = async ({ url }) => {
+  const qs = url.search ? url.search : "";
+  redirect(308, `/settings${qs}`);
 };

@@ -58,17 +58,17 @@ async def callback(
         return _web_redirect("/login")
     if error or not code or not state or state != expected:
         log.warning("frameio.callback.rejected", has_code=bool(code), state_ok=state == expected)
-        return _web_redirect("/connections?frameio=error")
+        return _web_redirect("/settings?frameio=error")
     try:
         tokens = await oauth.exchange_code(code)
         identity = await oauth.fetch_identity(tokens.access_token)
         await conn_svc.upsert_connection(db, user.id, tokens, identity)
     except oauth.FrameioOAuthError:
-        return _web_redirect("/connections?frameio=error")
+        return _web_redirect("/settings?frameio=error")
 
     db.add(AuditLog(user_id=user.id, action="frameio.connected", detail={"email": identity.email}))
     await db.commit()
-    return _web_redirect("/connections?frameio=connected")
+    return _web_redirect("/settings?frameio=connected")
 
 
 @router.get("/status", response_model=ConnectionStatus)

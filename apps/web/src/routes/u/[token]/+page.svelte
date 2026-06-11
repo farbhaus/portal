@@ -123,6 +123,9 @@
         password: password || undefined,
         code: code || undefined,
       });
+      // Code accepted by the server — consume it so it never lingers in the UI.
+      verified = true;
+      code = "";
       await runUpload(data.token, sessionId, items, {
         onBytes: (d) => (uploadedBytes += d),
         onFileStart: (p) => (currentFile = p),
@@ -141,61 +144,64 @@
 
 <svelte:head><title>{link.display_name}</title></svelte:head>
 
-<div class="flex min-h-screen flex-col items-center bg-neutral-50 px-4 py-12">
+<div class="flex min-h-screen flex-col items-center bg-surface-2 px-4 py-12">
   <div class="w-full max-w-xl">
     <div class="mb-6 text-center">
       {#if link.logo_url}
         <img src={link.logo_url} alt="" class="mx-auto mb-4 h-12 object-contain" />
       {/if}
       <h1 class="text-2xl font-semibold">{link.display_name}</h1>
-      {#if link.subtitle}<p class="mt-1 text-neutral-500">{link.subtitle}</p>{/if}
+      {#if link.subtitle}<p class="mt-1 text-muted">{link.subtitle}</p>{/if}
     </div>
 
     {#if link.state !== "ok"}
-      <div class="rounded-xl border border-neutral-200 bg-white p-8 text-center">
-        <p class="text-neutral-600">
+      <div class="rounded-xl border border-border bg-surface p-8 text-center">
+        <p class="text-muted">
           {link.state === "expired"
             ? "This upload link has expired."
             : "This upload link is no longer active."}
         </p>
       </div>
     {:else if phase === "done"}
-      <div class="rounded-xl border border-green-200 bg-white p-8 text-center">
-        <p class="text-lg font-medium text-green-700">Upload complete 🎉</p>
-        <p class="mt-1 text-sm text-neutral-500">
+      <div class="rounded-xl border border-success/30 bg-surface p-8 text-center">
+        <p class="text-lg font-medium text-success">Upload complete 🎉</p>
+        <p class="mt-1 text-sm text-muted">
           {items.length} file{items.length === 1 ? "" : "s"} ({formatBytes(totalBytes)}) delivered.
         </p>
       </div>
     {:else}
-      <div class="space-y-5 rounded-xl border border-neutral-200 bg-white p-6">
+      <div class="space-y-5 rounded-xl border border-border bg-surface p-6">
         {#if error}
-          <p class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+          <p class="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
         {/if}
 
         {#if link.uploader_fields_required.name || link.uploader_fields_required.email || link.uploader_fields_required.message || link.password_required}
           <div class="space-y-3">
             {#if link.uploader_fields_required.name}
               <input bind:value={name} placeholder="Your name" disabled={phase === "uploading"}
-                class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm" />
+                class="w-full rounded-md border border-border px-3 py-2 text-sm" />
             {/if}
             {#if link.uploader_fields_required.email}
               <input bind:value={email} type="email" placeholder="Your email" disabled={phase === "uploading" || codeSent}
-                class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm disabled:bg-neutral-50" />
+                class="w-full rounded-md border border-border px-3 py-2 text-sm disabled:bg-surface-2" />
             {/if}
             {#if link.uploader_fields_required.message}
               <textarea bind:value={message} placeholder="Message" disabled={phase === "uploading"}
-                class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"></textarea>
+                class="w-full rounded-md border border-border px-3 py-2 text-sm"></textarea>
             {/if}
             {#if link.password_required}
               <input bind:value={password} type="password" placeholder="Password" disabled={phase === "uploading"}
-                class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm" />
+                class="w-full rounded-md border border-border px-3 py-2 text-sm" />
             {/if}
-            {#if link.verify_email && codeSent}
+            {#if link.verify_email && verified}
+              <p class="flex items-center gap-1.5 text-xs text-success">✓ Email verified</p>
+            {:else if link.verify_email && codeSent}
               <div>
                 <input bind:value={code} inputmode="numeric" placeholder="Enter the 6-digit code"
-                  class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm tracking-widest" />
-                <p class="mt-1 text-xs text-neutral-500">We emailed a code to {email}.
-                  <button type="button" onclick={sendCode} class="underline hover:text-neutral-900">Resend</button></p>
+                  disabled={phase === "uploading"}
+                  class="w-full rounded-md border border-border px-3 py-2 text-sm tracking-widest" />
+                <p class="mt-1 text-xs text-muted">We emailed a code to {email}.
+                  <button type="button" onclick={sendCode} class="underline hover:text-text">Resend</button></p>
               </div>
             {/if}
           </div>
@@ -207,22 +213,22 @@
             ondragover={(e) => { e.preventDefault(); dragging = true; }}
             ondragleave={() => (dragging = false)}
             ondrop={onDrop}
-            class="rounded-lg border-2 border-dashed p-8 text-center transition-colors {dragging ? 'border-neutral-900 bg-neutral-50' : 'border-neutral-300'}"
+            class="rounded-lg border-2 border-dashed p-8 text-center transition-colors {dragging ? 'border-accent bg-surface-2' : 'border-border'}"
           >
-            <p class="text-sm text-neutral-500">Drag files or folders here</p>
-            <p class="my-2 text-xs text-neutral-400">or</p>
+            <p class="text-sm text-muted">Drag files or folders here</p>
+            <p class="my-2 text-xs text-faint">or</p>
             <div class="flex justify-center gap-2">
-              <label class="cursor-pointer rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100">
+              <label class="cursor-pointer rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2">
                 Choose files
                 <input type="file" multiple class="hidden" onchange={onPick} />
               </label>
-              <label class="cursor-pointer rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100">
+              <label class="cursor-pointer rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2">
                 Choose folder
                 <input type="file" webkitdirectory class="hidden" onchange={onPick} />
               </label>
             </div>
             {#if link.allowed_extensions}
-              <p class="mt-3 text-xs text-neutral-400">Allowed: {link.allowed_extensions.join(", ")}</p>
+              <p class="mt-3 text-xs text-faint">Allowed: {link.allowed_extensions.join(", ")}</p>
             {/if}
           </div>
         {/if}
@@ -230,14 +236,14 @@
         {#if items.length > 0}
           <div class="max-h-56 space-y-1 overflow-auto text-sm">
             {#each items as it (it.path)}
-              <div class="flex items-center justify-between rounded px-2 py-1 {doneFiles.has(it.path) ? 'bg-green-50' : currentFile === it.path ? 'bg-neutral-100' : ''}">
+              <div class="flex items-center justify-between rounded px-2 py-1 {doneFiles.has(it.path) ? 'bg-success/10' : currentFile === it.path ? 'bg-surface-2' : ''}">
                 <span class="truncate">{it.path}</span>
-                <span class="ml-2 flex shrink-0 items-center gap-2 text-xs text-neutral-400">
+                <span class="ml-2 flex shrink-0 items-center gap-2 text-xs text-faint">
                   {formatBytes(it.file.size)}
-                  {#if doneFiles.has(it.path)}<span class="text-green-600">✓</span>
-                  {:else if currentFile === it.path}<span class="text-neutral-500">…</span>
+                  {#if doneFiles.has(it.path)}<span class="text-success">✓</span>
+                  {:else if currentFile === it.path}<span class="text-muted">…</span>
                   {:else if phase === "select"}
-                    <button onclick={() => removeItem(it.path)} class="text-neutral-400 hover:text-red-600">✕</button>
+                    <button onclick={() => removeItem(it.path)} class="text-faint hover:text-danger">✕</button>
                   {/if}
                 </span>
               </div>
@@ -247,10 +253,10 @@
 
         {#if phase === "uploading"}
           <div>
-            <div class="h-2 w-full overflow-hidden rounded-full bg-neutral-200">
+            <div class="h-2 w-full overflow-hidden rounded-full bg-surface-3">
               <div class="h-full rounded-full transition-all" style="width:{percent}%; background:{accent}"></div>
             </div>
-            <p class="mt-2 text-center text-xs text-neutral-500">
+            <p class="mt-2 text-center text-xs text-muted">
               {formatBytes(uploadedBytes)} / {formatBytes(totalBytes)} ({percent.toFixed(0)}%)
             </p>
           </div>
@@ -258,7 +264,7 @@
           <button
             onclick={sendCode}
             disabled={!email.trim() || sendingCode}
-            class="w-full rounded-md px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+            class="w-full rounded-md px-4 py-2.5 text-sm font-medium text-on-accent disabled:opacity-50"
             style="background:{accent}"
           >
             {sendingCode ? "Sending…" : "Send verification code"}
@@ -267,7 +273,7 @@
           <button
             onclick={start}
             disabled={items.length === 0 || (link.verify_email && !verified && !code.trim())}
-            class="w-full rounded-md px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+            class="w-full rounded-md px-4 py-2.5 text-sm font-medium text-on-accent disabled:opacity-50"
             style="background:{accent}"
           >
             Upload {items.length > 0 ? `${items.length} file${items.length === 1 ? "" : "s"} (${formatBytes(totalBytes)})` : ""}
@@ -276,6 +282,6 @@
       </div>
     {/if}
 
-    <p class="mt-6 text-center text-xs text-neutral-400">Powered by Portal</p>
+    <p class="mt-6 text-center text-xs text-faint">Powered by Portal</p>
   </div>
 </div>

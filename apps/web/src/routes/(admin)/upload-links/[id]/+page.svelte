@@ -108,62 +108,62 @@
 
 <div class="max-w-2xl space-y-6">
   <div>
-    <a href="/upload-links" class="text-sm text-neutral-500 hover:text-neutral-900">← Upload links</a>
+    <a href="/upload-links" class="text-sm text-muted hover:text-text">← Upload links</a>
     <h1 class="mt-1 text-2xl font-semibold">Edit upload link</h1>
   </div>
 
-  {#if error}<p class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-  {:else if saved}<p class="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">Saved.</p>{/if}
+  {#if error}<p class="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
+  {:else if saved}<p class="rounded-md bg-success/10 px-3 py-2 text-sm text-success">Saved.</p>{/if}
 
-  <div class="rounded-xl border border-neutral-200 bg-white p-6 text-sm">
+  <div class="rounded-xl border border-border bg-surface p-6 text-sm">
     <div class="flex items-center justify-between">
-      <span class="text-neutral-500">Destination</span><span>{link.destination_name}</span>
+      <span class="text-muted">Destination</span><span>{link.destination_name}</span>
     </div>
     <div class="mt-2 flex items-center justify-between">
-      <span class="text-neutral-500">Public URL</span>
+      <span class="text-muted">Public URL</span>
       <a href={link.public_url} target="_blank" rel="noopener" class="max-w-xs truncate underline">{link.public_url}</a>
     </div>
     <div class="mt-2 flex items-center justify-between">
-      <span class="text-neutral-500">Status</span><span>{link.state}</span>
+      <span class="text-muted">Status</span><span>{link.state}</span>
     </div>
     <div class="mt-2 flex items-center justify-between">
-      <span class="text-neutral-500">Uploads</span><span>{data.stats.uploads} ({fmtBytes(data.stats.total_bytes)})</span>
+      <span class="text-muted">Uploads</span><span>{data.stats.uploads} ({fmtBytes(data.stats.total_bytes)})</span>
     </div>
     <div class="mt-2 flex items-center justify-between">
-      <span class="text-neutral-500">Last activity</span><span>{data.stats.last_activity ? new Date(data.stats.last_activity).toLocaleString() : "—"}</span>
+      <span class="text-muted">Last activity</span><span>{data.stats.last_activity ? new Date(data.stats.last_activity).toLocaleString() : "—"}</span>
     </div>
   </div>
 
-  <div class="space-y-4 rounded-xl border border-neutral-200 bg-white p-6">
+  <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <label class="block text-sm">
-        <span class="text-neutral-500">Expires</span>
-        <input type="datetime-local" bind:value={expiresAt} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+        <span class="text-muted">Expires</span>
+        <input type="datetime-local" bind:value={expiresAt} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
       </label>
       <label class="block text-sm">
-        <span class="text-neutral-500">Max file size, GB</span>
-        <input type="number" min="0" step="0.1" bind:value={maxSizeGb} placeholder="no limit" class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+        <span class="text-muted">Max file size, GB</span>
+        <input type="number" min="0" step="0.1" bind:value={maxSizeGb} placeholder="no limit" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
       </label>
     </div>
 
     <div class="text-sm">
-      <span class="text-neutral-500">Password</span>
-      {#if link.password_protected}<span class="ml-2 text-xs text-green-700">currently set</span>{/if}
-      <input type="text" bind:value={newPassword} disabled={clearPassword} placeholder={link.password_protected ? "enter to change" : "set a password"} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 disabled:bg-neutral-50" />
+      <span class="text-muted">Password</span>
+      {#if link.password_protected}<span class="ml-2 text-xs text-success">currently set</span>{/if}
+      <input type="text" bind:value={newPassword} disabled={clearPassword} placeholder={link.password_protected ? "enter to change" : "set a password"} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 disabled:bg-surface-2" />
       {#if link.password_protected}
-        <label class="mt-1 flex items-center gap-1.5 text-xs text-neutral-500"><input type="checkbox" bind:checked={clearPassword} /> Remove password</label>
+        <label class="mt-1 flex items-center gap-1.5 text-xs text-muted"><input type="checkbox" bind:checked={clearPassword} /> Remove password</label>
       {/if}
     </div>
 
     <div class="text-sm">
-      <label class="flex items-center gap-2"><input type="checkbox" bind:checked={restrictExtensions} /> <span class="text-neutral-600">Restrict file types</span></label>
+      <label class="flex items-center gap-2"><input type="checkbox" bind:checked={restrictExtensions} /> <span class="text-muted">Restrict file types</span></label>
       {#if restrictExtensions}
-        <textarea bind:value={extensions} rows="2" class="mt-2 w-full rounded-md border border-neutral-300 px-2 py-1.5 text-xs"></textarea>
+        <textarea bind:value={extensions} rows="2" class="mt-2 w-full rounded-md border border-border px-2 py-1.5 text-xs"></textarea>
       {/if}
     </div>
 
     <fieldset class="text-sm">
-      <span class="text-neutral-500">Required uploader fields</span>
+      <span class="text-muted">Required uploader fields</span>
       <div class="mt-1 flex gap-4">
         <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={reqName} /> Name</label>
         <label class="flex items-center gap-1.5"><input type="checkbox" checked={reqEmail || verifyEmail} disabled={verifyEmail} onchange={(e) => (reqEmail = e.currentTarget.checked)} /> Email</label>
@@ -175,28 +175,28 @@
     </fieldset>
   </div>
 
-  <div class="space-y-4 rounded-xl border border-neutral-200 bg-white p-6">
+  <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
     <h2 class="font-medium">Branding overrides</h2>
     <label class="block text-sm">
-      <span class="text-neutral-500">Display name</span>
-      <input bind:value={brandDisplayName} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+      <span class="text-muted">Display name</span>
+      <input bind:value={brandDisplayName} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
     </label>
     <label class="block text-sm">
-      <span class="text-neutral-500">Subtitle</span>
-      <input bind:value={brandSubtitle} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+      <span class="text-muted">Subtitle</span>
+      <input bind:value={brandSubtitle} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
     </label>
   </div>
 
   <div class="flex items-center justify-between">
     <div class="flex items-center gap-3">
-      <button onclick={save} disabled={saving} class="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50">
+      <button onclick={save} disabled={saving} class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50">
         {saving ? "Saving…" : "Save changes"}
       </button>
-      <a href="/upload-links" class="text-sm text-neutral-500 hover:text-neutral-900">Cancel</a>
+      <a href="/upload-links" class="text-sm text-muted hover:text-text">Cancel</a>
     </div>
     <div class="flex items-center gap-3">
-      {#if link.state === "ok"}<button onclick={revoke} class="text-sm text-amber-700 hover:text-amber-800">Revoke</button>{/if}
-      <button onclick={remove} class="text-sm text-red-600 hover:text-red-700">Delete</button>
+      {#if link.state === "ok"}<button onclick={revoke} class="text-sm text-warning hover:text-warning">Revoke</button>{/if}
+      <button onclick={remove} class="text-sm text-danger hover:text-danger">Delete</button>
     </div>
   </div>
 </div>

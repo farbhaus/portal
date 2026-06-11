@@ -92,42 +92,42 @@
 
 <div class="max-w-2xl space-y-6">
   <div>
-    <a href="/download-links" class="text-sm text-neutral-500 hover:text-neutral-900">← Download links</a>
+    <a href="/download-links" class="text-sm text-muted hover:text-text">← Download links</a>
     <h1 class="mt-1 text-2xl font-semibold">Edit download link</h1>
   </div>
 
-  {#if error}<p class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-  {:else if saved}<p class="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">Saved.</p>{/if}
+  {#if error}<p class="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
+  {:else if saved}<p class="rounded-md bg-success/10 px-3 py-2 text-sm text-success">Saved.</p>{/if}
 
-  <div class="rounded-xl border border-neutral-200 bg-white p-6 text-sm">
-    <div class="flex items-center justify-between"><span class="text-neutral-500">Source</span><span>{sourceLabel()}</span></div>
+  <div class="rounded-xl border border-border bg-surface p-6 text-sm">
+    <div class="flex items-center justify-between"><span class="text-muted">Source</span><span>{sourceLabel()}</span></div>
     <div class="mt-2 flex items-center justify-between">
-      <span class="text-neutral-500">Public URL</span>
+      <span class="text-muted">Public URL</span>
       <a href={link.public_url} target="_blank" rel="noopener" class="max-w-xs truncate underline">{link.public_url}</a>
     </div>
-    <div class="mt-2 flex items-center justify-between"><span class="text-neutral-500">Downloads</span><span>{link.downloads_count}{link.max_downloads ? ` / ${link.max_downloads}` : ""}</span></div>
-    <div class="mt-2 flex items-center justify-between"><span class="text-neutral-500">Unique viewers</span><span>{data.stats.unique_viewers}</span></div>
-    <div class="mt-2 flex items-center justify-between"><span class="text-neutral-500">Last activity</span><span>{data.stats.last_activity ? new Date(data.stats.last_activity).toLocaleString() : "—"}</span></div>
-    <p class="mt-1 text-xs text-neutral-400">The source is fixed. Create a new link to share different files.</p>
+    <div class="mt-2 flex items-center justify-between"><span class="text-muted">Downloads</span><span>{link.downloads_count}{link.max_downloads ? ` / ${link.max_downloads}` : ""}</span></div>
+    <div class="mt-2 flex items-center justify-between"><span class="text-muted">Unique viewers</span><span>{data.stats.unique_viewers}</span></div>
+    <div class="mt-2 flex items-center justify-between"><span class="text-muted">Last activity</span><span>{data.stats.last_activity ? new Date(data.stats.last_activity).toLocaleString() : "—"}</span></div>
+    <p class="mt-1 text-xs text-faint">The source is fixed. Create a new link to share different files.</p>
   </div>
 
-  <div class="space-y-4 rounded-xl border border-neutral-200 bg-white p-6">
+  <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <label class="block text-sm">
-        <span class="text-neutral-500">Expires</span>
-        <input type="datetime-local" bind:value={expiresAt} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+        <span class="text-muted">Expires</span>
+        <input type="datetime-local" bind:value={expiresAt} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
       </label>
       <label class="block text-sm">
-        <span class="text-neutral-500">Max downloads</span>
-        <input type="number" min="1" bind:value={maxDownloads} placeholder="unlimited" class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+        <span class="text-muted">Max downloads</span>
+        <input type="number" min="1" bind:value={maxDownloads} placeholder="unlimited" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
       </label>
     </div>
     <div class="text-sm">
-      <span class="text-neutral-500">Password</span>
-      {#if link.password_protected}<span class="ml-2 text-xs text-green-700">currently set</span>{/if}
-      <input type="text" bind:value={newPassword} disabled={clearPassword} placeholder={link.password_protected ? "enter to change" : "set a password"} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 disabled:bg-neutral-50" />
+      <span class="text-muted">Password</span>
+      {#if link.password_protected}<span class="ml-2 text-xs text-success">currently set</span>{/if}
+      <input type="text" bind:value={newPassword} disabled={clearPassword} placeholder={link.password_protected ? "enter to change" : "set a password"} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 disabled:bg-surface-2" />
       {#if link.password_protected}
-        <label class="mt-1 flex items-center gap-1.5 text-xs text-neutral-500"><input type="checkbox" bind:checked={clearPassword} /> Remove password</label>
+        <label class="mt-1 flex items-center gap-1.5 text-xs text-muted"><input type="checkbox" bind:checked={clearPassword} /> Remove password</label>
       {/if}
     </div>
     <div class="flex flex-wrap gap-4 text-sm">
@@ -138,47 +138,47 @@
     </div>
   </div>
 
-  <div class="space-y-4 rounded-xl border border-neutral-200 bg-white p-6">
+  <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
     <h2 class="font-medium">Branding</h2>
     <label class="block text-sm">
-      <span class="text-neutral-500">Display name</span>
-      <input bind:value={brandDisplayName} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+      <span class="text-muted">Display name</span>
+      <input bind:value={brandDisplayName} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
     </label>
     <label class="block text-sm">
-      <span class="text-neutral-500">Subtitle</span>
-      <input bind:value={brandSubtitle} class="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5" />
+      <span class="text-muted">Subtitle</span>
+      <input bind:value={brandSubtitle} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
     </label>
   </div>
 
   <div class="flex items-center justify-between">
     <div class="flex items-center gap-3">
-      <button onclick={save} disabled={saving} class="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50">
+      <button onclick={save} disabled={saving} class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50">
         {saving ? "Saving…" : "Save changes"}
       </button>
-      <a href="/download-links" class="text-sm text-neutral-500 hover:text-neutral-900">Cancel</a>
+      <a href="/download-links" class="text-sm text-muted hover:text-text">Cancel</a>
     </div>
-    <button onclick={remove} class="text-sm text-red-600 hover:text-red-700">Delete</button>
+    <button onclick={remove} class="text-sm text-danger hover:text-danger">Delete</button>
   </div>
 
-  <div class="space-y-3 rounded-xl border border-neutral-200 bg-white p-6">
-    <h2 class="font-medium">Download log <span class="text-xs font-normal text-neutral-400">({data.stats.downloads})</span></h2>
+  <div class="space-y-3 rounded-xl border border-border bg-surface p-6">
+    <h2 class="font-medium">Download log <span class="text-xs font-normal text-faint">({data.stats.downloads})</span></h2>
     {#if data.events.length === 0}
-      <p class="text-sm text-neutral-400">No downloads yet.</p>
+      <p class="text-sm text-faint">No downloads yet.</p>
     {:else}
-      <div class="overflow-hidden rounded-lg border border-neutral-100">
+      <div class="overflow-hidden rounded-lg border border-border">
         <table class="w-full text-sm">
-          <thead class="border-b border-neutral-100 text-left text-neutral-500">
+          <thead class="border-b border-border text-left text-muted">
             <tr>
               <th class="px-3 py-2 font-medium">When</th>
               <th class="px-3 py-2 font-medium">Viewer</th>
               <th class="px-3 py-2 font-medium">File</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-neutral-50">
+          <tbody class="divide-y divide-border">
             {#each data.events as ev (ev.started_at + ev.frameio_file_id)}
               <tr>
-                <td class="px-3 py-2 text-xs whitespace-nowrap text-neutral-400">{new Date(ev.started_at).toLocaleString()}</td>
-                <td class="px-3 py-2 text-neutral-600">{ev.viewer_email ?? ev.viewer_name ?? ev.ip ?? "—"}</td>
+                <td class="px-3 py-2 text-xs whitespace-nowrap text-faint">{new Date(ev.started_at).toLocaleString()}</td>
+                <td class="px-3 py-2 text-muted">{ev.viewer_email ?? ev.viewer_name ?? ev.ip ?? "—"}</td>
                 <td class="px-3 py-2 font-mono text-xs">{ev.file_name ?? ev.frameio_file_id}</td>
               </tr>
             {/each}

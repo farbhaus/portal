@@ -1,1 +1,101 @@
 @import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Portal design system — single dark theme, amber accent (FARBHAUS).
+   Tokens below generate Tailwind utilities: bg-surface, text-muted,
+   border-border, bg-accent, ring-accent, etc.
+--------------------------------------------------------------------------- */
+@theme {
+  --color-bg: #0e0f12;
+  --color-surface: #16181d;
+  --color-surface-2: #1c1f26;
+  --color-surface-3: #232730;
+  --color-border: #2a2e37;
+  --color-border-strong: #3a3f4b;
+
+  --color-text: #e7e9ee;
+  --color-muted: #9aa1ad;
+  --color-faint: #6b7280;
+
+  --color-accent: #f59e0b;
+  --color-accent-hover: #fbbf24;
+  --color-accent-soft: #f59e0b1a; /* 10% — soft fills/badges */
+  --color-on-accent: #1a1206; /* near-black text on amber */
+
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+  --color-info: #60a5fa;
+
+  --radius-card: 0.75rem;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Inputs/selects/textareas: dark by default so every form inherits the theme
+   without per-field classes. Pages can still override. */
+input,
+select,
+textarea {
+  background-color: var(--color-surface-2);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-faint);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+/* Slim scrollbars to match the dark chrome */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}

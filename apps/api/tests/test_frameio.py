@@ -123,7 +123,7 @@ async def test_callback_rejects_bad_state(client: AsyncClient) -> None:
     # No prior /connect, so session has no stored state -> mismatch.
     resp = await client.get("/api/frameio/oauth/callback", params={"code": "x", "state": "y"})
     assert resp.status_code == 302
-    assert resp.headers["location"].endswith("/connections?frameio=error")
+    assert resp.headers["location"].endswith("/settings?frameio=error")
 
 
 async def test_status_not_connected(client: AsyncClient) -> None:
