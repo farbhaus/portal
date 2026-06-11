@@ -27,6 +27,7 @@
   let maxDownloads = $state("");
   let reqName = $state(false);
   let reqEmail = $state(false);
+  let verifyEmail = $state(false);
   let allowPreview = $state(true);
   let brandDisplayName = $state("");
   let brandSubtitle = $state("");
@@ -149,6 +150,7 @@
       const body: Record<string, unknown> = {
         source,
         viewer_fields_required: { name: reqName, email: reqEmail },
+        verify_email: verifyEmail,
         allow_preview: allowPreview,
       };
       if (expiresAt) body.expires_at = new Date(expiresAt).toISOString();
@@ -276,7 +278,8 @@
     </div>
     <div class="flex flex-wrap gap-4 text-sm">
       <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={reqName} /> Require name</label>
-      <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={reqEmail} /> Require email</label>
+      <label class="flex items-center gap-1.5"><input type="checkbox" checked={reqEmail || verifyEmail} disabled={verifyEmail} onchange={(e) => (reqEmail = e.currentTarget.checked)} /> Require email</label>
+      <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={verifyEmail} /> Verify email (one-time code)</label>
       <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={allowPreview} /> Show thumbnails/previews</label>
     </div>
   </div>

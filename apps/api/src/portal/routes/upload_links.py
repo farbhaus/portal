@@ -52,6 +52,7 @@ class UploadLinkCreate(BaseModel):
     max_file_size: int | None = Field(default=None, ge=1)
     allowed_extensions: list[str] | None = None
     uploader_fields_required: UploaderFields = UploaderFields()
+    verify_email: bool = False
     brand_logo_url: str | None = None
     brand_accent_color: str | None = Field(default=None, max_length=32)
     brand_display_name: str | None = Field(default=None, max_length=255)
@@ -65,6 +66,7 @@ class UploadLinkUpdate(BaseModel):
     max_file_size: int | None = Field(default=None, ge=1)
     allowed_extensions: list[str] | None = None
     uploader_fields_required: UploaderFields | None = None
+    verify_email: bool | None = None
     brand_logo_url: str | None = None
     brand_accent_color: str | None = Field(default=None, max_length=32)
     brand_display_name: str | None = Field(default=None, max_length=255)
@@ -83,6 +85,7 @@ class UploadLinkOut(BaseModel):
     max_file_size: int | None
     allowed_extensions: list[str] | None
     uploader_fields_required: dict[str, bool]
+    verify_email: bool
     brand_logo_url: str | None
     brand_accent_color: str | None
     brand_display_name: str | None
@@ -93,6 +96,14 @@ class UploadLinkOut(BaseModel):
 
 def _public_url(token: str) -> str:
     return f"{get_settings().base_url.rstrip('/')}/u/{token}"
+
+
+def _with_email_forced(fields: dict[str, Any], verify_email: bool) -> dict[str, Any]:
+    """Verification implies the email field is required."""
+    fields = dict(fields)
+    if verify_email:
+        fields["email"] = True
+    return fields
 
 
 def _to_out(link: UploadLink) -> UploadLinkOut:
@@ -113,6 +124,7 @@ def _to_out(link: UploadLink) -> UploadLinkOut:
             "email": bool(fields.get("email")),
             "message": bool(fields.get("message")),
         },
+        verify_email=link.verify_email,
         brand_logo_url=link.brand_logo_url,
         brand_accent_color=link.brand_accent_color,
         brand_display_name=link.brand_display_name,
@@ -168,7 +180,10 @@ async def create_link(
         password_hash=hash_password(body.password) if body.password else None,
         max_file_size=body.max_file_size,
         allowed_extensions=normalize_extensions(body.allowed_extensions),
-        uploader_fields_required=body.uploader_fields_required.model_dump(),
+        uploader_fields_required=_with_email_forced(
+            body.uploader_fields_required.model_dump(), body.verify_email
+        ),
+        verify_email=body.verify_email,
         brand_logo_url=body.brand_logo_url,
         brand_accent_color=body.brand_accent_color,
         brand_display_name=body.brand_display_name,
@@ -219,6 +234,10 @@ async def update_link(
 
     for key, value in fields.items():
         setattr(link, key, value)
+    if link.verify_email:  # verification implies the email field is required
+        link.uploader_fields_required = _with_email_forced(
+            link.uploader_fields_required or {}, True
+        )
 
     await db.commit()
     link = await _get_or_404(db, link_id)

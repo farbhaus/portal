@@ -10,6 +10,7 @@
   let maxDownloads = $state("");
   let reqName = $state(false);
   let reqEmail = $state(false);
+  let verifyEmail = $state(false);
   let allowPreview = $state(true);
   let brandDisplayName = $state("");
   let brandSubtitle = $state("");
@@ -26,6 +27,7 @@
       maxDownloads = link.max_downloads ? String(link.max_downloads) : "";
       reqName = link.viewer_fields_required.name;
       reqEmail = link.viewer_fields_required.email;
+      verifyEmail = link.verify_email;
       allowPreview = link.allow_preview;
       brandDisplayName = link.brand_display_name ?? "";
       brandSubtitle = link.brand_subtitle ?? "";
@@ -57,6 +59,7 @@
         expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
         max_downloads: maxDownloads ? parseInt(maxDownloads, 10) : null,
         viewer_fields_required: { name: reqName, email: reqEmail },
+        verify_email: verifyEmail,
         allow_preview: allowPreview,
         brand_display_name: brandDisplayName.trim() || null,
         brand_subtitle: brandSubtitle.trim() || null,
@@ -127,7 +130,8 @@
     </div>
     <div class="flex flex-wrap gap-4 text-sm">
       <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={reqName} /> Require name</label>
-      <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={reqEmail} /> Require email</label>
+      <label class="flex items-center gap-1.5"><input type="checkbox" checked={reqEmail || verifyEmail} disabled={verifyEmail} onchange={(e) => (reqEmail = e.currentTarget.checked)} /> Require email</label>
+      <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={verifyEmail} /> Verify email (one-time code)</label>
       <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={allowPreview} /> Show thumbnails/previews</label>
     </div>
   </div>

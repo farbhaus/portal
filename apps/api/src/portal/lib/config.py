@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     # Where notifications are sent; falls back to admin_email when blank.
     notify_email: str = Field(default="")
 
+    # Email verification (2FA-by-code) for links with "verify email" on.
+    verify_code_ttl_seconds: int = Field(default=600)
+    verify_max_attempts: int = Field(default=5)
+    verify_resend_cooldown_seconds: int = Field(default=30)
+    verify_trust_days: int = Field(default=30)
+    # Pre-filter a typed address with a DNS MX/A lookup before emailing a code. Disable if the
+    # worker has no outbound DNS; the code send is still the real gate.
+    verify_check_mx: bool = Field(default=True)
+
     # Webhooks — reject deliveries whose timestamp is further than this from now (replay window).
     webhook_signature_tolerance_seconds: int = Field(default=300)
 

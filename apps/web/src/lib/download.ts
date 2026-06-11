@@ -17,7 +17,7 @@ async function asJson(res: Response): Promise<any> {
 
 export async function startSession(
   token: string,
-  fields: { name?: string; email?: string; password?: string },
+  fields: { name?: string; email?: string; password?: string; code?: string },
 ): Promise<{ sessionId: string; files: DownloadFile[] }> {
   const res = await fetch(`/api/public/downloads/${token}/sessions`, {
     method: "POST",
@@ -27,6 +27,20 @@ export async function startSession(
   if (!res.ok) throw new Error((await asJson(res)).detail ?? "Could not open this link");
   const body = await asJson(res);
   return { sessionId: body.session_id, files: body.files };
+}
+
+// Ask Portal to email a verification code (or report this device is already trusted).
+export async function requestCode(
+  token: string,
+  email: string,
+): Promise<{ trusted: boolean; sent: boolean }> {
+  const res = await fetch(`/api/public/downloads/${token}/request-code`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) throw new Error((await asJson(res)).detail ?? "Could not send a code");
+  return asJson(res);
 }
 
 // Ask Portal for a fresh signed URL for one file (records the download event + cap).

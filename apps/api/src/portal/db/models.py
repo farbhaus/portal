@@ -92,6 +92,8 @@ class UploadLink(Base, TimestampMixin):
     allowed_extensions: Mapped[list[Any] | None] = mapped_column(JSONB)
     # {"name": bool, "email": bool, "message": bool}
     uploader_fields_required: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # When true, the email field is required AND must be verified by a one-time code.
+    verify_email: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Branding overrides (fall back to destination branding when null)
     brand_logo_url: Mapped[str | None] = mapped_column(Text)
@@ -210,6 +212,8 @@ class DownloadLink(Base, TimestampMixin):
     downloads_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # {"name": bool, "email": bool}
     viewer_fields_required: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # When true, the email field is required AND must be verified by a one-time code.
+    verify_email: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     allow_preview: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Branding (self-contained; no destination to fall back to)
@@ -258,3 +262,22 @@ class DownloadEvent(Base):
     )
 
     download_session: Mapped[DownloadSession] = relationship(back_populates="events")
+
+
+class EmailVerification(Base):
+    """A pending one-time email-verification code. One active row per email (upsert on resend);
+    deleted on success. Backs the 2FA gate on links with verify_email."""
+
+    __tablename__ = "email_verifications"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # sha256 hex of the code
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_sent_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

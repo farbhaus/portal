@@ -9,12 +9,13 @@ land in build step 6; this is the token-resolution and password-gate core.
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from portal import verify
 from portal.auth.passwords import verify_password
 from portal.db.models import Destination, UploadLink, UploadSession
 from portal.db.session import get_session
@@ -43,6 +44,7 @@ class PublicLinkOut(BaseModel):
     max_file_size: int | None
     allowed_extensions: list[str] | None
     uploader_fields_required: dict[str, bool]
+    verify_email: bool
 
 
 class PasswordVerifyRequest(BaseModel):
@@ -85,7 +87,40 @@ async def resolve_link(token: str, db: AsyncSession = Depends(get_session)) -> P
             "email": bool(fields.get("email")),
             "message": bool(fields.get("message")),
         },
+        verify_email=link.verify_email,
     )
+
+
+class RequestCodeRequest(BaseModel):
+    email: str
+
+
+class RequestCodeResult(BaseModel):
+    trusted: bool
+    sent: bool
+
+
+@router.post("/{token}/request-code", response_model=RequestCodeResult)
+async def request_code(
+    token: str,
+    body: RequestCodeRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+) -> RequestCodeResult:
+    link = await _get_link(db, token)
+    _require_usable(link)
+    if not link.verify_email:
+        raise HTTPException(status_code=400, detail="This link does not require verification")
+    email = body.email.strip()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email is required")
+    if verify.is_trusted(request, email):
+        return RequestCodeResult(trusted=True, sent=False)
+    try:
+        await verify.request_code(db, email)
+    except verify.VerificationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return RequestCodeResult(trusted=False, sent=True)
 
 
 @router.post("/{token}/verify-password", response_model=PasswordVerifyResult)
@@ -108,6 +143,7 @@ class StartSessionRequest(BaseModel):
     email: str | None = None
     message: str | None = None
     password: str | None = None
+    code: str | None = None
 
 
 class StartSessionResult(BaseModel):
@@ -173,7 +209,11 @@ async def _load_session(db: AsyncSession, link: UploadLink, session_id: str) -> 
 
 @router.post("/{token}/sessions", response_model=StartSessionResult)
 async def start_session(
-    token: str, body: StartSessionRequest, db: AsyncSession = Depends(get_session)
+    token: str,
+    body: StartSessionRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_session),
 ) -> StartSessionResult:
     link = await _get_link(db, token)
     _require_usable(link)
@@ -188,6 +228,11 @@ async def start_session(
     if missing:
         raise HTTPException(
             status_code=422, detail=f"Missing required field(s): {', '.join(missing)}"
+        )
+
+    if link.verify_email:
+        await verify.enforce_verification(
+            db, request, response, (body.email or "").strip(), body.code
         )
 
     session = UploadSession(
@@ -280,10 +325,15 @@ async def complete_session(
     session_id: str,
     body: CompleteSessionRequest,
     background: BackgroundTasks,
+    response: Response,
     db: AsyncSession = Depends(get_session),
 ) -> PasswordVerifyResult:
     link = await _get_link(db, token)
     session = await _load_session(db, link, session_id)
+
+    # Slide the device trust window on a real upload (verified links only).
+    if link.verify_email and session.uploader_email:
+        verify.issue_trust(response, session.uploader_email)
     now = datetime.now(UTC)
     session.status = "completed"
     session.completed_at = now

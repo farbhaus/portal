@@ -10,6 +10,7 @@ export type PublicDownload = {
   accent_color: string | null;
   password_required: boolean;
   viewer_fields_required: { name: boolean; email: boolean };
+  verify_email: boolean;
   allow_preview: boolean;
 };
 

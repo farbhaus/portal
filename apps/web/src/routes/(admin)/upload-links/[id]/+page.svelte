@@ -13,6 +13,7 @@
   let reqName = $state(false);
   let reqEmail = $state(false);
   let reqMessage = $state(false);
+  let verifyEmail = $state(false);
   let brandDisplayName = $state("");
   let brandSubtitle = $state("");
 
@@ -31,6 +32,7 @@
       reqName = link.uploader_fields_required.name;
       reqEmail = link.uploader_fields_required.email;
       reqMessage = link.uploader_fields_required.message;
+      verifyEmail = link.verify_email;
       brandDisplayName = link.brand_display_name ?? "";
       brandSubtitle = link.brand_subtitle ?? "";
       newPassword = "";
@@ -56,6 +58,7 @@
           ? extensions.split(",").map((e) => e.trim()).filter(Boolean)
           : null,
         uploader_fields_required: { name: reqName, email: reqEmail, message: reqMessage },
+        verify_email: verifyEmail,
         brand_display_name: brandDisplayName.trim() || null,
         brand_subtitle: brandSubtitle.trim() || null,
       };
@@ -145,9 +148,12 @@
       <span class="text-neutral-500">Required uploader fields</span>
       <div class="mt-1 flex gap-4">
         <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={reqName} /> Name</label>
-        <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={reqEmail} /> Email</label>
+        <label class="flex items-center gap-1.5"><input type="checkbox" checked={reqEmail || verifyEmail} disabled={verifyEmail} onchange={(e) => (reqEmail = e.currentTarget.checked)} /> Email</label>
         <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={reqMessage} /> Message</label>
       </div>
+      <label class="mt-2 flex items-center gap-1.5">
+        <input type="checkbox" bind:checked={verifyEmail} /> Verify email (sends a one-time code)
+      </label>
     </fieldset>
   </div>
 

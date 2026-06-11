@@ -46,6 +46,23 @@ def _format_duration(seconds: float) -> str:
     return f"{hours}h {minutes}m"
 
 
+async def send_verification_code(to: str, code: str, ttl_minutes: int) -> None:
+    """Email a one-time verification code (links with verify_email on)."""
+    subject = "Your verification code"
+    text = (
+        f"Your verification code is {code}\n\n"
+        f"It expires in {ttl_minutes} minutes. "
+        "If you didn't request this, you can ignore this email."
+    )
+    html = (
+        "<p>Your verification code is:</p>"
+        f"<p style=\"font-size:28px;font-weight:700;letter-spacing:4px;margin:8px 0\">{code}</p>"
+        f"<p style=\"color:#666\">It expires in {ttl_minutes} minutes. "
+        "If you didn't request this, you can ignore this email.</p>"
+    )
+    await send_email(to, subject, text, html)
+
+
 async def send_email(to: str, subject: str, text: str, html: str | None = None) -> None:
     """Send one email. Raises EmailError if SMTP isn't configured or the send fails."""
     settings = get_settings()

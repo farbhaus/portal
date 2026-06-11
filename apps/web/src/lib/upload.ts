@@ -21,7 +21,7 @@ async function asJson(res: Response): Promise<any> {
 
 export async function startSession(
   token: string,
-  fields: { name?: string; email?: string; message?: string; password?: string },
+  fields: { name?: string; email?: string; message?: string; password?: string; code?: string },
 ): Promise<string> {
   const res = await fetch(`/api/public/links/${token}/sessions`, {
     method: "POST",
@@ -30,6 +30,20 @@ export async function startSession(
   });
   if (!res.ok) throw new Error((await asJson(res)).detail ?? "Could not start the upload");
   return (await asJson(res)).session_id as string;
+}
+
+// Ask Portal to email a verification code (or report this device is already trusted).
+export async function requestCode(
+  token: string,
+  email: string,
+): Promise<{ trusted: boolean; sent: boolean }> {
+  const res = await fetch(`/api/public/links/${token}/request-code`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) throw new Error((await asJson(res)).detail ?? "Could not send a code");
+  return asJson(res);
 }
 
 export async function completeSession(

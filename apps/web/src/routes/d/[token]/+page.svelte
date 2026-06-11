@@ -3,6 +3,7 @@
     downloadAll,
     downloadFile,
     formatBytes,
+    requestCode,
     startSession,
     type DownloadFile,
   } from "$lib/download";
@@ -14,6 +15,8 @@
   let name = $state("");
   let email = $state("");
   let password = $state("");
+  let code = $state("");
+  let codeSent = $state(false);
 
   let sessionId = $state<string | null>(null);
   let files = $state<DownloadFile[]>([]);
@@ -23,29 +26,55 @@
   let allProgress = $state<string | null>(null);
 
   const needsGate = $derived(
-    link.password_required || link.viewer_fields_required.name || link.viewer_fields_required.email,
+    link.password_required ||
+      link.verify_email ||
+      link.viewer_fields_required.name ||
+      link.viewer_fields_required.email,
   );
 
   function missing(): string | null {
     if (link.viewer_fields_required.name && !name.trim()) return "Please enter your name.";
-    if (link.viewer_fields_required.email && !email.trim()) return "Please enter your email.";
+    if ((link.viewer_fields_required.email || link.verify_email) && !email.trim())
+      return "Please enter your email.";
     if (link.password_required && !password) return "Please enter the password.";
     return null;
   }
 
+  // For verified links: first click emails a code (unless this device is already trusted), the
+  // second click (with the code) opens the link. Non-verified links open in one click.
   async function open() {
     const m = missing();
     if (m) {
       error = m;
       return;
     }
-    opening = true;
     error = null;
+    if (link.verify_email && !codeSent) {
+      opening = true;
+      try {
+        const r = await requestCode(data.token, email);
+        if (!r.trusted) {
+          codeSent = true;
+          return;
+        }
+      } catch (e) {
+        error = e instanceof Error ? e.message : "Could not send a code.";
+        return;
+      } finally {
+        opening = false;
+      }
+    }
+    if (link.verify_email && codeSent && !code.trim()) {
+      error = "Enter the code we emailed you.";
+      return;
+    }
+    opening = true;
     try {
       const res = await startSession(data.token, {
         name: name || undefined,
         email: email || undefined,
         password: password || undefined,
+        code: code || undefined,
       });
       sessionId = res.sessionId;
       files = res.files;
@@ -53,6 +82,15 @@
       error = e instanceof Error ? e.message : "Could not open this link.";
     } finally {
       opening = false;
+    }
+  }
+
+  async function resend() {
+    error = null;
+    try {
+      await requestCode(data.token, email);
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Could not resend the code.";
     }
   }
 
@@ -110,16 +148,28 @@
               {#if link.viewer_fields_required.name}
                 <input bind:value={name} placeholder="Your name" class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm" />
               {/if}
-              {#if link.viewer_fields_required.email}
-                <input bind:value={email} type="email" placeholder="Your email" class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm" />
+              {#if link.viewer_fields_required.email || link.verify_email}
+                <input bind:value={email} type="email" placeholder="Your email" disabled={codeSent} class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm disabled:bg-neutral-50" />
               {/if}
               {#if link.password_required}
                 <input bind:value={password} type="password" placeholder="Password" class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm" />
               {/if}
+              {#if link.verify_email && codeSent}
+                <div>
+                  <input bind:value={code} inputmode="numeric" placeholder="Enter the 6-digit code" class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm tracking-widest" />
+                  <p class="mt-1 text-xs text-neutral-500">We emailed a code to {email}. <button type="button" onclick={resend} class="underline hover:text-neutral-900">Resend</button></p>
+                </div>
+              {/if}
             </div>
           {/if}
           <button onclick={open} disabled={opening} class="w-full rounded-md px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50" style="background:{accent}">
-            {opening ? "Opening…" : "View files"}
+            {opening
+              ? link.verify_email && !codeSent
+                ? "Sending…"
+                : "Opening…"
+              : link.verify_email && !codeSent
+                ? "Send code"
+                : "View files"}
           </button>
         {:else}
           <div class="flex items-center justify-between">

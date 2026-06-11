@@ -12,6 +12,7 @@ export type DownloadLink = {
   max_downloads: number | null;
   downloads_count: number;
   viewer_fields_required: { name: boolean; email: boolean };
+  verify_email: boolean;
   allow_preview: boolean;
   brand_logo_url: string | null;
   brand_accent_color: string | null;

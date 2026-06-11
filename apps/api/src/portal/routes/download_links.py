@@ -45,6 +45,7 @@ class DownloadLinkCreate(BaseModel):
     password: str | None = None
     max_downloads: int | None = Field(default=None, ge=1)
     viewer_fields_required: ViewerFields = ViewerFields()
+    verify_email: bool = False
     allow_preview: bool = True
     brand_logo_url: str | None = None
     brand_accent_color: str | None = Field(default=None, max_length=32)
@@ -57,6 +58,7 @@ class DownloadLinkUpdate(BaseModel):
     password: str | None = None
     max_downloads: int | None = Field(default=None, ge=1)
     viewer_fields_required: ViewerFields | None = None
+    verify_email: bool | None = None
     allow_preview: bool | None = None
     brand_logo_url: str | None = None
     brand_accent_color: str | None = Field(default=None, max_length=32)
@@ -75,6 +77,7 @@ class DownloadLinkOut(BaseModel):
     max_downloads: int | None
     downloads_count: int
     viewer_fields_required: dict[str, bool]
+    verify_email: bool
     allow_preview: bool
     brand_logo_url: str | None
     brand_accent_color: str | None
@@ -104,6 +107,7 @@ def _to_out(link: DownloadLink) -> DownloadLinkOut:
             "name": bool(fields.get("name")),
             "email": bool(fields.get("email")),
         },
+        verify_email=link.verify_email,
         allow_preview=link.allow_preview,
         brand_logo_url=link.brand_logo_url,
         brand_accent_color=link.brand_accent_color,
@@ -140,13 +144,17 @@ async def create_link(
     except ValueError as exc:
         raise BadRequestError(str(exc)) from exc
 
+    fields = body.viewer_fields_required.model_dump()
+    if body.verify_email:
+        fields["email"] = True  # verification implies the email field is required
     link = DownloadLink(
         token=generate_token(),
         source=body.source,
         expires_at=body.expires_at,
         password_hash=hash_password(body.password) if body.password else None,
         max_downloads=body.max_downloads,
-        viewer_fields_required=body.viewer_fields_required.model_dump(),
+        viewer_fields_required=fields,
+        verify_email=body.verify_email,
         allow_preview=body.allow_preview,
         brand_logo_url=body.brand_logo_url,
         brand_accent_color=body.brand_accent_color,
@@ -193,6 +201,11 @@ async def update_link(
         link.viewer_fields_required = fields.pop("viewer_fields_required")
     for key, value in fields.items():
         setattr(link, key, value)
+    if link.verify_email:  # verification implies the email field is required
+        vfr = dict(link.viewer_fields_required or {})
+        if not vfr.get("email"):
+            vfr["email"] = True
+            link.viewer_fields_required = vfr
     await db.commit()
     await db.refresh(link)
     return _to_out(link)

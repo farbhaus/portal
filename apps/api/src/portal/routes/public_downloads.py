@@ -11,11 +11,12 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from portal import verify
 from portal.auth.passwords import verify_password
 from portal.db.models import DownloadEvent, DownloadLink, DownloadSession
 from portal.db.session import get_session
@@ -39,6 +40,7 @@ class DownloadPageOut(BaseModel):
     accent_color: str | None
     password_required: bool
     viewer_fields_required: dict[str, bool]
+    verify_email: bool
     allow_preview: bool
 
 
@@ -46,6 +48,16 @@ class StartSessionRequest(BaseModel):
     name: str | None = None
     email: str | None = None
     password: str | None = None
+    code: str | None = None
+
+
+class RequestCodeRequest(BaseModel):
+    email: str
+
+
+class RequestCodeResult(BaseModel):
+    trusted: bool
+    sent: bool
 
 
 class FileOut(BaseModel):
@@ -106,8 +118,32 @@ async def resolve_link(token: str, db: AsyncSession = Depends(get_session)) -> D
             "name": bool(fields.get("name")),
             "email": bool(fields.get("email")),
         },
+        verify_email=link.verify_email,
         allow_preview=link.allow_preview,
     )
+
+
+@router.post("/{token}/request-code", response_model=RequestCodeResult)
+async def request_code(
+    token: str,
+    body: RequestCodeRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+) -> RequestCodeResult:
+    link = await _get_link(db, token)
+    _require_usable(link)
+    if not link.verify_email:
+        raise HTTPException(status_code=400, detail="This link does not require verification")
+    email = body.email.strip()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email is required")
+    if verify.is_trusted(request, email):
+        return RequestCodeResult(trusted=True, sent=False)
+    try:
+        await verify.request_code(db, email)
+    except verify.VerificationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return RequestCodeResult(trusted=False, sent=True)
 
 
 @router.post("/{token}/sessions", response_model=StartSessionResult)
@@ -115,6 +151,7 @@ async def start_session(
     token: str,
     body: StartSessionRequest,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_session),
 ) -> StartSessionResult:
     link = await _get_link(db, token)
@@ -130,6 +167,11 @@ async def start_session(
     if missing:
         raise HTTPException(
             status_code=422, detail=f"Missing required field(s): {', '.join(missing)}"
+        )
+
+    if link.verify_email:
+        await verify.enforce_verification(
+            db, request, response, (body.email or "").strip(), body.code
         )
 
     try:
@@ -172,11 +214,16 @@ async def get_download_url(
     token: str,
     session_id: str,
     file_id: str,
+    response: Response,
     db: AsyncSession = Depends(get_session),
 ) -> DownloadUrlResult:
     link = await _get_link(db, token)
     _require_usable(link)
     session = await _load_session(db, link, session_id)
+
+    # Slide the device trust window on real activity (verified links only).
+    if link.verify_email and session.viewer_email:
+        verify.issue_trust(response, session.viewer_email)
 
     if link.max_downloads is not None and link.downloads_count >= link.max_downloads:
         raise HTTPException(status_code=429, detail="This link's download limit has been reached")

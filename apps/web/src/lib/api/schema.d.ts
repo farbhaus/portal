@@ -356,6 +356,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/links/{token}/request-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request Code */
+        post: operations["request_code_api_public_links__token__request_code_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/links/{token}/verify-password": {
         parameters: {
             query?: never;
@@ -506,6 +523,23 @@ export interface paths {
         get: operations["resolve_link_api_public_downloads__token__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/downloads/{token}/request-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request Code */
+        post: operations["request_code_api_public_downloads__token__request_code_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -804,6 +838,11 @@ export interface components {
              */
             viewer_fields_required: components["schemas"]["ViewerFields"];
             /**
+             * Verify Email
+             * @default false
+             */
+            verify_email: boolean;
+            /**
              * Allow Preview
              * @default true
              */
@@ -843,6 +882,8 @@ export interface components {
             viewer_fields_required: {
                 [key: string]: boolean;
             };
+            /** Verify Email */
+            verify_email: boolean;
             /** Allow Preview */
             allow_preview: boolean;
             /** Brand Logo Url */
@@ -867,6 +908,8 @@ export interface components {
             /** Max Downloads */
             max_downloads?: number | null;
             viewer_fields_required?: components["schemas"]["ViewerFields"] | null;
+            /** Verify Email */
+            verify_email?: boolean | null;
             /** Allow Preview */
             allow_preview?: boolean | null;
             /** Brand Logo Url */
@@ -896,6 +939,8 @@ export interface components {
             viewer_fields_required: {
                 [key: string]: boolean;
             };
+            /** Verify Email */
+            verify_email: boolean;
             /** Allow Preview */
             allow_preview: boolean;
         };
@@ -1044,6 +1089,20 @@ export interface components {
             uploader_fields_required: {
                 [key: string]: boolean;
             };
+            /** Verify Email */
+            verify_email: boolean;
+        };
+        /** RequestCodeRequest */
+        RequestCodeRequest: {
+            /** Email */
+            email: string;
+        };
+        /** RequestCodeResult */
+        RequestCodeResult: {
+            /** Trusted */
+            trusted: boolean;
+            /** Sent */
+            sent: boolean;
         };
         /** SyncJobOut */
         SyncJobOut: {
@@ -1150,6 +1209,11 @@ export interface components {
              *     }
              */
             uploader_fields_required: components["schemas"]["UploaderFields"];
+            /**
+             * Verify Email
+             * @default false
+             */
+            verify_email: boolean;
             /** Brand Logo Url */
             brand_logo_url?: string | null;
             /** Brand Accent Color */
@@ -1185,6 +1249,8 @@ export interface components {
             uploader_fields_required: {
                 [key: string]: boolean;
             };
+            /** Verify Email */
+            verify_email: boolean;
             /** Brand Logo Url */
             brand_logo_url: string | null;
             /** Brand Accent Color */
@@ -1209,6 +1275,8 @@ export interface components {
             /** Allowed Extensions */
             allowed_extensions?: string[] | null;
             uploader_fields_required?: components["schemas"]["UploaderFields"] | null;
+            /** Verify Email */
+            verify_email?: boolean | null;
             /** Brand Logo Url */
             brand_logo_url?: string | null;
             /** Brand Accent Color */
@@ -1298,6 +1366,8 @@ export interface components {
             message?: string | null;
             /** Password */
             password?: string | null;
+            /** Code */
+            code?: string | null;
         };
         /** StartSessionResult */
         portal__routes__public__StartSessionResult: {
@@ -1312,6 +1382,8 @@ export interface components {
             email?: string | null;
             /** Password */
             password?: string | null;
+            /** Code */
+            code?: string | null;
         };
         /** StartSessionResult */
         portal__routes__public_downloads__StartSessionResult: {
@@ -2044,6 +2116,41 @@ export interface operations {
             };
         };
     };
+    request_code_api_public_links__token__request_code_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestCodeResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     verify_link_password_api_public_links__token__verify_password_post: {
         parameters: {
             query?: never;
@@ -2416,6 +2523,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DownloadPageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_code_api_public_downloads__token__request_code_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestCodeResult"];
                 };
             };
             /** @description Validation Error */

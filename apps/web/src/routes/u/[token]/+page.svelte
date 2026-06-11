@@ -4,6 +4,7 @@
     formatBytes,
     itemsFromDataTransfer,
     itemsFromFileList,
+    requestCode,
     runUpload,
     startSession,
     type UploadItem,
@@ -17,6 +18,10 @@
   let email = $state("");
   let message = $state("");
   let password = $state("");
+  let code = $state("");
+  let codeSent = $state(false);
+  let verified = $state(false); // device already trusted; no code needed
+  let sendingCode = $state(false);
 
   let items = $state<UploadItem[]>([]);
   let dragging = $state(false);
@@ -77,10 +82,32 @@
     return null;
   }
 
+  async function sendCode() {
+    if (!email.trim()) {
+      error = "Please enter your email.";
+      return;
+    }
+    sendingCode = true;
+    error = null;
+    try {
+      const r = await requestCode(data.token, email);
+      if (r.trusted) verified = true;
+      else codeSent = true;
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Could not send a code.";
+    } finally {
+      sendingCode = false;
+    }
+  }
+
   async function start() {
     const fieldErr = missingFields();
     if (fieldErr) {
       error = fieldErr;
+      return;
+    }
+    if (link.verify_email && !verified && !code.trim()) {
+      error = "Enter the code we emailed you.";
       return;
     }
     if (items.length === 0) return;
@@ -94,6 +121,7 @@
         email: email || undefined,
         message: message || undefined,
         password: password || undefined,
+        code: code || undefined,
       });
       await runUpload(data.token, sessionId, items, {
         onBytes: (d) => (uploadedBytes += d),
@@ -151,8 +179,8 @@
                 class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm" />
             {/if}
             {#if link.uploader_fields_required.email}
-              <input bind:value={email} type="email" placeholder="Your email" disabled={phase === "uploading"}
-                class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm" />
+              <input bind:value={email} type="email" placeholder="Your email" disabled={phase === "uploading" || codeSent}
+                class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm disabled:bg-neutral-50" />
             {/if}
             {#if link.uploader_fields_required.message}
               <textarea bind:value={message} placeholder="Message" disabled={phase === "uploading"}
@@ -161,6 +189,14 @@
             {#if link.password_required}
               <input bind:value={password} type="password" placeholder="Password" disabled={phase === "uploading"}
                 class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm" />
+            {/if}
+            {#if link.verify_email && codeSent}
+              <div>
+                <input bind:value={code} inputmode="numeric" placeholder="Enter the 6-digit code"
+                  class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm tracking-widest" />
+                <p class="mt-1 text-xs text-neutral-500">We emailed a code to {email}.
+                  <button type="button" onclick={sendCode} class="underline hover:text-neutral-900">Resend</button></p>
+              </div>
             {/if}
           </div>
         {/if}
@@ -218,10 +254,19 @@
               {formatBytes(uploadedBytes)} / {formatBytes(totalBytes)} ({percent.toFixed(0)}%)
             </p>
           </div>
+        {:else if link.verify_email && !verified && !codeSent}
+          <button
+            onclick={sendCode}
+            disabled={!email.trim() || sendingCode}
+            class="w-full rounded-md px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+            style="background:{accent}"
+          >
+            {sendingCode ? "Sending…" : "Send verification code"}
+          </button>
         {:else}
           <button
             onclick={start}
-            disabled={items.length === 0}
+            disabled={items.length === 0 || (link.verify_email && !verified && !code.trim())}
             class="w-full rounded-md px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
             style="background:{accent}"
           >

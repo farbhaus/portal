@@ -13,6 +13,7 @@ export type UploadLink = {
   max_file_size: number | null;
   allowed_extensions: string[] | null;
   uploader_fields_required: { name: boolean; email: boolean; message: boolean };
+  verify_email: boolean;
   brand_logo_url: string | null;
   brand_accent_color: string | null;
   brand_display_name: string | null;

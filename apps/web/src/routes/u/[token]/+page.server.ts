@@ -12,6 +12,7 @@ export type PublicLink = {
   max_file_size: number | null;
   allowed_extensions: string[] | null;
   uploader_fields_required: { name: boolean; email: boolean; message: boolean };
+  verify_email: boolean;
 };
 
 export const load: PageServerLoad = async ({ params }) => {
