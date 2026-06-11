@@ -55,6 +55,10 @@ class FrameioNotConnected(FrameioError):
     """No usable Frame.io connection (not connected, or token refresh failed)."""
 
 
+class FrameioRateLimited(FrameioError):
+    """Frame.io returned 429 (and the SDK's retries were exhausted). Transient — retry later."""
+
+
 @dataclass(frozen=True)
 class PickerItem:
     id: str
@@ -479,9 +483,18 @@ class FrameioClient:
         except FrameioNotConnected:
             raise
         except Exception as exc:
+            status = getattr(exc, "status_code", None)
             log.warning(
-                "frameio.client.error", op=op, error=str(exc), error_type=type(exc).__name__
+                "frameio.client.error",
+                op=op,
+                error=str(exc),
+                error_type=type(exc).__name__,
+                status=status,
             )
+            # 429s survive the SDK's own retries on the tightly-limited folder endpoints; flag
+            # them as transient so callers can tell the user "try again" rather than "failed".
+            if status == 429:
+                raise FrameioRateLimited(f"Frame.io is rate-limiting: {op}") from exc
             raise FrameioError(f"Frame.io API call failed: {op}") from exc
 
 

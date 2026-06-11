@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     sync_max_retries: int = Field(default=5)
     sync_retry_base_seconds: int = Field(default=30)
     sync_download_concurrency: int = Field(default=4)
+    # Reconciliation polling cadence (minutes). This is the safety net that catches files added
+    # directly in Frame.io; client uploads through Portal links trigger sync immediately on
+    # completion, so they don't wait for this. Each run lists the watched folder (rate-limited
+    # endpoint), so don't set it too low.
+    sync_reconcile_interval_minutes: int = Field(default=15)
 
     log_level: str = Field(default="INFO")
 

@@ -25,6 +25,7 @@ from portal.notify.email import UploadedFile, send_upload_completion
 from portal.storage.base import DestinationConfig, UploadNotReady
 from portal.storage.base import UploadSession as StorageUploadSession
 from portal.storage.frameio_backend import FrameioStorageBackend
+from portal.sync.events import trigger_sync_for_upload
 from portal.uploads.links import link_state, merged_branding
 
 log = get_logger("routes.public")
@@ -288,7 +289,7 @@ async def complete_session(
     session.completed_at = now
     session.total_bytes = body.total_bytes
 
-    # Snapshot everything the notification needs BEFORE commit (attributes expire on commit).
+    # Snapshot what the notification + sync trigger need BEFORE commit (attrs expire on commit).
     entries = session.frameio_asset_ids or []
     files = [UploadedFile(name=str(e.get("name", "")), size=e.get("size")) for e in entries]
     total_bytes = body.total_bytes or sum(f.size or 0 for f in files)
@@ -296,6 +297,10 @@ async def complete_session(
     duration = (now - started_at).total_seconds() if started_at else 0.0
     link_name = link.brand_display_name or link.destination.display_name
     uploader = (session.uploader_name, session.uploader_email, session.uploader_message)
+    dest_cfg = dict(link.destination.config)
+    sync_account = str(dest_cfg.get("account_id") or "")
+    sync_folder = str(dest_cfg.get("folder_id") or "")
+    uploaded_file_ids = [str(e["file_id"]) for e in entries if e.get("file_id")]
 
     await db.commit()
     log.info("public.upload.session_completed", session_id=session_id)
@@ -310,4 +315,11 @@ async def complete_session(
         total_bytes=total_bytes,
         duration_seconds=duration,
     )
+    # Portal's own sync trigger: mirror client-uploaded files to any matching sync rule's NAS
+    # destination immediately, instead of waiting on a Frame.io webhook (which self-serve plans
+    # don't deliver) or the reconcile cron.
+    if sync_account and sync_folder and uploaded_file_ids:
+        background.add_task(
+            trigger_sync_for_upload, sync_account, sync_folder, uploaded_file_ids
+        )
     return PasswordVerifyResult(ok=True)

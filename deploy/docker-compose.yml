@@ -73,6 +73,12 @@ services:
       - .env
     environment:
       REDIS_URL: ${REDIS_URL}
+    volumes:
+      # Sync destinations live on the host (local disk or NAS mounts). Bind the mount root with
+      # rslave propagation so any filesystem mounted under it on the host (e.g. an fstab NAS mount)
+      # appears inside the worker automatically — no per-mount compose edits. Source == target so a
+      # rule's destination_path means the same path inside and outside the container.
+      - ${SYNC_HOST_ROOT:-/mnt}:${SYNC_HOST_ROOT:-/mnt}:rslave
     depends_on:
       portal_redis:
         condition: service_healthy

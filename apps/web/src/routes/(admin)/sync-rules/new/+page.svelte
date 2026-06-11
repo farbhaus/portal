@@ -116,6 +116,7 @@
     saving = true;
     error = null;
     try {
+      const projectName = projects.find((p) => p.id === projectId)?.name ?? "";
       const body = {
         name: name.trim() || chosenFolder.name,
         source: {
@@ -125,6 +126,9 @@
           project_id: projectId,
           folder_id: chosenFolder.id,
           recursive,
+          // Sent so the backend skips the tightly rate-limited folder lookup on create.
+          folder_name: chosenFolder.name,
+          project_name: projectName,
         },
         destination_path: destinationPath.trim(),
         conflict_policy: conflictPolicy,

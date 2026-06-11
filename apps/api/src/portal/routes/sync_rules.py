@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from portal.auth.session import require_admin
 from portal.db.models import AuditLog, SyncJob, SyncRule, User
 from portal.db.session import get_session
-from portal.frameio.client import FrameioError, FrameioNotConnected, get_frameio_client
+from portal.frameio.client import (
+    FrameioError,
+    FrameioNotConnected,
+    FrameioRateLimited,
+    get_frameio_client,
+)
 from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError, PortalError
 from portal.lib.logging import get_logger
@@ -101,7 +106,14 @@ def _callback_url(rule_id: uuid.UUID) -> str:
 
 
 async def _validate_and_enrich_source(source: dict[str, Any]) -> dict[str, Any]:
-    """Validate the picked Frame.io folder and cache project/folder names for path templating."""
+    """Resolve project/folder names (for path templating) from the source.
+
+    The admin picker already knows both names, so it sends them and we make zero Frame.io calls
+    here — important because the folder endpoints are tightly rate-limited and browsing the picker
+    can exhaust the window, which previously turned creation into a confusing 502. We only fall
+    back to API lookups (with a clear rate-limit message) when a name is missing, e.g. for
+    non-UI/API callers.
+    """
     if source.get("type") != "frameio":
         raise BadRequestError("source.type must be 'frameio'")
     try:
@@ -112,16 +124,26 @@ async def _validate_and_enrich_source(source: dict[str, Any]) -> dict[str, Any]:
     except KeyError as exc:
         raise BadRequestError(f"source missing {exc}") from exc
 
-    client = get_frameio_client()
-    try:
-        folder = await client.get_folder(account_id, folder_id)
-        projects = await client.list_projects(account_id, workspace_id)
-    except FrameioNotConnected as exc:
-        raise HTTPException(status_code=409, detail="Frame.io is not connected") from exc
-    except FrameioError as exc:
-        raise HTTPException(status_code=502, detail="Could not validate the source") from exc
+    folder_name = str(source.get("folder_name") or "")
+    project_name = str(source.get("project_name") or "")
 
-    project_name = next((p.name for p in projects if p.id == project_id), "")
+    if not folder_name or not project_name:
+        client = get_frameio_client()
+        try:
+            if not folder_name:
+                folder_name = (await client.get_folder(account_id, folder_id)).name
+            if not project_name:
+                projects = await client.list_projects(account_id, workspace_id)
+                project_name = next((p.name for p in projects if p.id == project_id), "")
+        except FrameioNotConnected as exc:
+            raise HTTPException(status_code=409, detail="Frame.io is not connected") from exc
+        except FrameioRateLimited as exc:
+            raise HTTPException(
+                status_code=503, detail="Frame.io is busy, try again in a moment"
+            ) from exc
+        except FrameioError as exc:
+            raise HTTPException(status_code=502, detail="Could not validate the source") from exc
+
     return {
         "type": "frameio",
         "account_id": account_id,
@@ -129,7 +151,7 @@ async def _validate_and_enrich_source(source: dict[str, Any]) -> dict[str, Any]:
         "project_id": project_id,
         "folder_id": folder_id,
         "recursive": bool(source.get("recursive", True)),
-        "folder_name": folder.name,
+        "folder_name": folder_name,
         "project_name": project_name,
     }
 
@@ -142,6 +164,10 @@ async def _subscribe(rule: SyncRule) -> None:
         )
     except FrameioNotConnected as exc:
         raise HTTPException(status_code=409, detail="Frame.io is not connected") from exc
+    except FrameioRateLimited as exc:
+        raise HTTPException(
+            status_code=503, detail="Frame.io is busy, try again in a moment"
+        ) from exc
     except FrameioError as exc:
         raise HTTPException(status_code=502, detail="Could not create the webhook") from exc
     rule.frameio_webhook_id = sub.id

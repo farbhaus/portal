@@ -21,8 +21,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from portal.db.models import SyncJob, SyncRule, WebhookEvent
+from portal.db.session import get_sessionmaker
 from portal.frameio.webhooks import SYNC_TRIGGER_EVENTS, WebhookPayload, parse_webhook_payload
 from portal.lib.logging import get_logger
+from portal.sync.queue import enqueue_sync_job
 
 log = get_logger("sync.events")
 
@@ -86,6 +88,54 @@ async def process_event(
         if on_job_created is not None:
             for job_id in created_ids:
                 await on_job_created(job_id)
+    return len(created_ids)
+
+
+async def trigger_sync_for_upload(
+    account_id: str, folder_id: str, file_ids: list[str]
+) -> int:
+    """Drive sync the moment a client upload through a Portal link completes — no webhook needed.
+
+    Portal owns the upload-completion event, so when files land via an upload link we know exactly
+    which files arrived and which folder they're in. We create + enqueue sync jobs for any enabled
+    rule whose source folder *is* the upload's destination folder. Files added directly in Frame.io
+    (outside Portal) aren't covered here — the reconcile cron catches those.
+
+    Runs as a background task in the API process: opens its own session, commits, then enqueues
+    (so the worker never races a not-yet-committed job row).
+    """
+    if not file_ids:
+        return 0
+
+    created_ids: list[uuid.UUID] = []
+    async with get_sessionmaker()() as db:
+        result = await db.execute(select(SyncRule).where(SyncRule.enabled.is_(True)))
+        rules = [
+            r
+            for r in result.scalars().all()
+            if r.source_config.get("account_id") == account_id
+            and r.source_config.get("folder_id") == folder_id
+        ]
+        for rule in rules:
+            for file_id in file_ids:
+                existing = await db.scalar(
+                    select(SyncJob.id).where(
+                        SyncJob.sync_rule_id == rule.id,
+                        SyncJob.frameio_file_id == file_id,
+                    )
+                )
+                if existing is not None:
+                    continue
+                job = SyncJob(sync_rule_id=rule.id, frameio_file_id=file_id, status="pending")
+                db.add(job)
+                await db.flush()
+                created_ids.append(job.id)
+        await db.commit()
+
+    for job_id in created_ids:
+        await enqueue_sync_job(job_id)
+    if created_ids:
+        log.info("sync.upload_trigger.created", folder_id=folder_id, count=len(created_ids))
     return len(created_ids)
 
 

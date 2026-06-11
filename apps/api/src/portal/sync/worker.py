@@ -116,13 +116,18 @@ async def shutdown(ctx: dict[str, Any]) -> None:
     log.info("worker.shutdown")
 
 
+# Run reconciliation every N minutes (N from config, clamped to a sane range).
+_interval = max(1, min(get_settings().sync_reconcile_interval_minutes, 60))
+_reconcile_minutes = set(range(0, 60, _interval))
+
+
 class WorkerSettings:
     functions: list[Any] = [
         process_webhook_event,
         run_sync_job,
         reconcile_rule_task,
     ]
-    cron_jobs = [cron(reconcile_all, minute=0)]
+    cron_jobs = [cron(reconcile_all, minute=_reconcile_minutes)]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

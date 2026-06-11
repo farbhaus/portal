@@ -7,7 +7,12 @@ from sqlalchemy import delete, select
 
 from portal.db.models import SyncJob, SyncRule
 from portal.db.session import get_sessionmaker
-from portal.frameio.client import PickerItem, ProjectItem, WebhookSubscription
+from portal.frameio.client import (
+    FrameioRateLimited,
+    PickerItem,
+    ProjectItem,
+    WebhookSubscription,
+)
 from portal.routes import sync_rules as routes
 
 CREDS = {"email": "admin@example.com", "password": "test-password"}
@@ -19,22 +24,31 @@ SOURCE = {
     "folder_id": "fld-1",
     "recursive": True,
 }
+# What the UI sends — names included so create makes no Frame.io lookup calls.
+SOURCE_WITH_NAMES = {**SOURCE, "folder_name": "Dailies", "project_name": "Acme"}
 
 
 class _StubClient:
     def __init__(self) -> None:
         self.deleted: list[str] = []
         self.created = 0
+        self.get_folder_calls = 0
+        self.list_projects_calls = 0
+        self.webhook_error: Exception | None = None
 
     async def get_folder(self, account_id: str, folder_id: str) -> PickerItem:
+        self.get_folder_calls += 1
         return PickerItem(id=folder_id, name="Dailies")
 
     async def list_projects(self, account_id: str, workspace_id: str) -> list[ProjectItem]:
+        self.list_projects_calls += 1
         return [ProjectItem(id="p1", name="Acme", root_folder_id="rf")]
 
     async def create_webhook(
         self, account_id: str, workspace_id: str, *, name: str, url: str, events: list[str]
     ) -> WebhookSubscription:
+        if self.webhook_error is not None:
+            raise self.webhook_error
         self.created += 1
         return WebhookSubscription(id="wh-1", secret="whsec-xyz")
 
@@ -86,6 +100,33 @@ async def test_create_enabled_subscribes(client: AsyncClient, stub: _StubClient)
         rule = (await db.execute(select(SyncRule))).scalar_one()
         assert rule.webhook_secret == "whsec-xyz"
         assert rule.frameio_webhook_id == "wh-1"
+
+
+async def test_create_with_names_skips_lookups(client: AsyncClient, stub: _StubClient) -> None:
+    await _login(client)
+    resp = await client.post(
+        "/api/sync-rules",
+        json={"name": "R", "source": SOURCE_WITH_NAMES, "destination_path": "/mnt/sync"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["source"]["folder_name"] == "Dailies"
+    assert body["source"]["project_name"] == "Acme"
+    # The throttled folder/project lookups are skipped entirely when the UI supplies names.
+    assert stub.get_folder_calls == 0
+    assert stub.list_projects_calls == 0
+    assert stub.created == 1
+
+
+async def test_create_rate_limited_returns_503(client: AsyncClient, stub: _StubClient) -> None:
+    await _login(client)
+    stub.webhook_error = FrameioRateLimited("busy")
+    resp = await client.post(
+        "/api/sync-rules",
+        json={"name": "R", "source": SOURCE_WITH_NAMES, "destination_path": "/mnt/sync"},
+    )
+    assert resp.status_code == 503
+    assert "try again" in resp.json()["detail"].lower()
 
 
 async def test_create_disabled_no_subscription(client: AsyncClient, stub: _StubClient) -> None:
