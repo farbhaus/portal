@@ -50,6 +50,9 @@ class RemoteFile:
     # to a rule's folder and to template the local path.
     parent_id: str | None = None
     project_id: str | None = None
+    # Backend processing state; the sync engine waits for a downloadable state before pulling
+    # (Frame.io: "transcoded"). None when the backend doesn't report one.
+    status: str | None = None
 
 
 @dataclass(frozen=True)

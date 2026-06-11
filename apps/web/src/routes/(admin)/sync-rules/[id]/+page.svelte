@@ -52,6 +52,7 @@
     done: "bg-green-50 text-green-700",
     pending: "bg-amber-50 text-amber-700",
     running: "bg-blue-50 text-blue-700",
+    waiting: "bg-purple-50 text-purple-700",
     skipped: "bg-neutral-100 text-neutral-500",
     dead_letter: "bg-red-50 text-red-700",
   };

@@ -31,10 +31,28 @@ log = get_logger("sync.runner")
 
 EnqueueJob = Callable[[uuid.UUID], Awaitable[None]]
 
+# Frame.io file states from which the original is downloadable. A freshly uploaded large file sits
+# in an intermediate state for a while (the original 403s until finalized), so we wait for one of
+# these before pulling. Easy to extend if other backends/states prove downloadable.
+DOWNLOADABLE_STATUSES = frozenset({"transcoded"})
+
+
+class SourceNotReady(Exception):
+    """The remote file isn't downloadable yet (still finalizing/transcoding). Retry later, and
+    do NOT count this toward the dead-letter cap — large originals can take a long time."""
+
 
 def _destination(rule: SyncRule) -> DestinationConfig:
     cfg = dict(rule.source_config)
     return DestinationConfig(type=str(cfg.get("type", "frameio")), data=cfg)
+
+
+def _is_orphaned(job: SyncJob, now: datetime, stale_after_seconds: int) -> bool:
+    """A job stuck "running" longer than a full job timeout means its worker died mid-download
+    (no task is alive to finish or fail it), so reconcile should re-pick it."""
+    if job.status != "running" or job.started_at is None:
+        return False
+    return (now - job.started_at).total_seconds() > stale_after_seconds
 
 
 def _in_scope(rule: SyncRule, parent_id: str | None) -> bool:
@@ -59,6 +77,11 @@ async def execute_job(
 
     dest = _destination(rule)
     remote = await backend.get_file(dest, job.frameio_file_id)
+
+    # Wait for the original to be downloadable. Frame.io reports a status; if it's not yet a
+    # downloadable one, defer (the worker re-queues patiently without burning the retry budget).
+    if remote.status is not None and remote.status not in DOWNLOADABLE_STATUSES:
+        raise SourceNotReady(f"file status is '{remote.status}', not yet downloadable")
 
     if not _in_scope(rule, remote.parent_id):
         job.status = "skipped"
@@ -123,20 +146,34 @@ async def reconcile_rule(
     else:
         files = await backend.list_files_in_destination(dest)
 
+    now = datetime.now(UTC)
+    stale_after = get_settings().sync_job_timeout_seconds
+
     created = 0
     for f in files:
         existing = await db.scalar(
-            select(SyncJob.id).where(
+            select(SyncJob).where(
                 SyncJob.sync_rule_id == rule.id, SyncJob.frameio_file_id == f.id
             )
         )
-        if existing is not None:
-            continue
-        job = SyncJob(sync_rule_id=rule.id, frameio_file_id=f.id, status="pending")
-        db.add(job)
-        await db.flush()
-        await enqueue(job.id)
-        created += 1
+        if existing is None:
+            job = SyncJob(sync_rule_id=rule.id, frameio_file_id=f.id, status="pending")
+            db.add(job)
+            await db.flush()
+            await enqueue(job.id)
+            created += 1
+        elif existing.status == "dead_letter" or _is_orphaned(existing, now, stale_after):
+            # Self-heal: a transient failure (source not ready in time, a network blip) or a job
+            # left "running" by a killed worker shouldn't strand a file. Reset + re-attempt.
+            existing.status = "pending"
+            existing.retry_count = 0
+            existing.error = None
+            existing.started_at = None
+            existing.completed_at = None
+            await db.flush()
+            await enqueue(existing.id)
+            created += 1
+        # done / skipped / pending / waiting / fresh-running: leave as-is
 
     await db.commit()
     if created:

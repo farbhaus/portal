@@ -67,6 +67,16 @@ class Settings(BaseSettings):
     # completion, so they don't wait for this. Each run lists the watched folder (rate-limited
     # endpoint), so don't set it too low.
     sync_reconcile_interval_minutes: int = Field(default=15)
+    # A freshly uploaded large file isn't downloadable until Frame.io finalizes it. While it's not
+    # ready, re-check every this many seconds (without counting toward the retry/dead-letter cap),
+    # giving up only after the timeout. Big originals (100s of GB) can take a while to finalize.
+    sync_source_poll_seconds: int = Field(default=120)
+    sync_source_ready_timeout_seconds: int = Field(default=21600)  # 6h
+    # Max wall-clock for a single download task. MUST exceed the time to pull your largest file —
+    # arq cancels a task past this (arq's own default is only 300s, far too low for big DCPs). Also
+    # the threshold past which a still-"running" job is treated as orphaned (worker died) and
+    # re-picked by reconcile. Default 24h.
+    sync_job_timeout_seconds: int = Field(default=86400)
 
     log_level: str = Field(default="INFO")
 

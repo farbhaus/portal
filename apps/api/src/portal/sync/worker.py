@@ -11,6 +11,7 @@ flat regardless of file size.
 """
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -25,12 +26,20 @@ from portal.lib.logging import configure_logging, get_logger
 from portal.storage.frameio_backend import FrameioStorageBackend
 from portal.sync.events import process_event
 from portal.sync.queue import RUN_SYNC_JOB
-from portal.sync.runner import execute_job, reconcile_rule
+from portal.sync.runner import SourceNotReady, execute_job, reconcile_rule
 
 log = get_logger("worker")
 
 # Terminal job states the worker never re-runs.
 _TERMINAL = {"done", "skipped", "dead_letter"}
+
+
+def _unwrap_error(exc: BaseException) -> str:
+    """Flatten an exception (incl. TaskGroup ExceptionGroups) to a readable message, so the job's
+    recorded error is the real cause (e.g. an HTTP 403) rather than the opaque group wrapper."""
+    if isinstance(exc, BaseExceptionGroup):
+        return "; ".join(_unwrap_error(e) for e in exc.exceptions)
+    return f"{type(exc).__name__}: {exc}"
 
 
 async def process_webhook_event(ctx: dict[str, Any], event_id: str) -> int:
@@ -52,20 +61,41 @@ async def run_sync_job(ctx: dict[str, Any], job_id: str) -> str:
         job = await db.get(SyncJob, uuid.UUID(job_id))
         if job is None or job.status in _TERMINAL:
             return "skip"
+        created_at = job.created_at
         job.status = "running"
+        job.started_at = datetime.now(UTC)
         await db.commit()
 
         try:
             await execute_job(db, job, backend=FrameioStorageBackend(), http=http)
             await db.commit()
             return job.status
-        except Exception as exc:  # noqa: BLE001 - turn any failure into retry/dead-letter
-            job.retry_count += 1
+        except SourceNotReady as exc:
+            # The original isn't downloadable yet (still finalizing). Wait patiently — re-check on
+            # a fixed cadence WITHOUT spending the retry budget — and give up only after the
+            # readiness timeout, so a 100 GB upload that takes a while to finalize still syncs.
+            waited = (datetime.now(UTC) - created_at).total_seconds()
+            if waited > settings.sync_source_ready_timeout_seconds:
+                job.status = "dead_letter"
+                job.error = f"source never became ready: {exc}"
+                await db.commit()
+                log.warning("sync.job.source_timeout", job_id=job_id, waited_s=int(waited))
+                return "dead_letter"
+            job.status = "waiting"
             job.error = str(exc)
+            await db.commit()
+            poll = settings.sync_source_poll_seconds
+            await ctx["redis"].enqueue_job(RUN_SYNC_JOB, job_id, _defer_by=poll)
+            log.info("sync.job.waiting_source", job_id=job_id, poll_s=poll)
+            return "waiting"
+        except Exception as exc:  # noqa: BLE001 - turn any failure into retry/dead-letter
+            error = _unwrap_error(exc)
+            job.retry_count += 1
+            job.error = error
             if job.retry_count >= settings.sync_max_retries:
                 job.status = "dead_letter"
                 await db.commit()
-                log.warning("sync.job.dead_letter", job_id=job_id, error=str(exc))
+                log.warning("sync.job.dead_letter", job_id=job_id, error=error)
                 return "dead_letter"
             job.status = "pending"
             await db.commit()
@@ -131,3 +161,7 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
+    # arq cancels a task past job_timeout (its default is only 300s — fatal for multi-GB downloads).
+    # Allow a full file pull; we run our own retry/dead-letter, so disable arq's auto-retry.
+    job_timeout = get_settings().sync_job_timeout_seconds
+    max_tries = 1

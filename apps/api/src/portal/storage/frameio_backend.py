@@ -71,6 +71,7 @@ class FrameioStorageBackend(StorageBackend):
             size=f.file_size,
             parent_id=f.parent_id,
             project_id=f.project_id,
+            status=f.status,
         )
 
     async def create_upload_session(

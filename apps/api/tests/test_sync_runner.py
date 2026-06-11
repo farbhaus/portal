@@ -2,6 +2,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import delete
 
@@ -13,12 +14,25 @@ from portal.sync.download import DownloadResult
 
 
 class _StubBackend:
-    def __init__(self, files: list[RemoteFile], *, parent_id: str = "fld-1") -> None:
+    def __init__(
+        self,
+        files: list[RemoteFile],
+        *,
+        parent_id: str = "fld-1",
+        status: str = "transcoded",
+    ) -> None:
         self._files = files
         self._parent_id = parent_id
+        self._status = status
 
     async def get_file(self, dest: DestinationConfig, file_id: str) -> RemoteFile:
-        return RemoteFile(id=file_id, name=f"{file_id}.mov", size=100, parent_id=self._parent_id)
+        return RemoteFile(
+            id=file_id,
+            name=f"{file_id}.mov",
+            size=100,
+            parent_id=self._parent_id,
+            status=self._status,
+        )
 
     async def get_download_url(self, dest: DestinationConfig, file_id: str) -> DownloadURL:
         return DownloadURL(url=f"https://s3/{file_id}")
@@ -156,3 +170,135 @@ async def test_reconcile_creates_and_enqueues(tmp_path: Path) -> None:
 
         total = await db.scalar(select(func.count()).select_from(SyncJob))
     assert total == 3
+
+
+async def test_execute_job_waits_when_source_not_ready(tmp_path: Path, monkeypatch: Any) -> None:
+    _patch_download(monkeypatch)
+    rule_id = await _make_rule(str(tmp_path))
+    job_id = await _make_job(rule_id)
+    backend = _StubBackend([], status="transcoding")  # not yet downloadable
+    async with get_sessionmaker()() as db:
+        job = await db.get(SyncJob, job_id)
+        with pytest.raises(runner.SourceNotReady):
+            await runner.execute_job(db, job, backend=backend)  # type: ignore[arg-type]
+    assert not any(tmp_path.iterdir())  # noqa: ASYNC240 - sync check in test
+
+
+async def test_execute_job_proceeds_when_transcoded(tmp_path: Path, monkeypatch: Any) -> None:
+    _patch_download(monkeypatch)
+    rule_id = await _make_rule(str(tmp_path))
+    job_id = await _make_job(rule_id)
+    async with get_sessionmaker()() as db:
+        job = await db.get(SyncJob, job_id)
+        await runner.execute_job(db, job, backend=_StubBackend([], status="transcoded"))  # type: ignore[arg-type]
+        await db.commit()
+    async with get_sessionmaker()() as db:
+        job = await db.get(SyncJob, job_id)
+        assert job.status == "done"
+
+
+async def test_reconcile_repicks_dead_letter(tmp_path: Path) -> None:
+    rule_id = await _make_rule(str(tmp_path))
+    # A previously dead-lettered file should be reset + re-enqueued by the next sweep.
+    async with get_sessionmaker()() as db:
+        job = SyncJob(
+            sync_rule_id=rule_id,
+            frameio_file_id="stuck",
+            status="dead_letter",
+            retry_count=5,
+            error="boom",
+        )
+        db.add(job)
+        await db.commit()
+        dead_id = job.id
+    backend = _StubBackend([RemoteFile(id="stuck", name="s")])
+    enqueued: list[uuid.UUID] = []
+
+    async def enqueue(job_id: uuid.UUID) -> None:
+        enqueued.append(job_id)
+
+    async with get_sessionmaker()() as db:
+        created = await runner.reconcile_rule(db, rule_id, backend=backend, enqueue=enqueue)  # type: ignore[arg-type]
+    assert created == 1
+    assert enqueued == [dead_id]
+    async with get_sessionmaker()() as db:
+        job = await db.get(SyncJob, dead_id)
+        assert job.status == "pending"
+        assert job.retry_count == 0
+        assert job.error is None
+
+
+async def test_reconcile_repicks_orphaned_running(tmp_path: Path) -> None:
+    # A job left "running" long ago (worker killed mid-download) is orphaned -> re-picked.
+    from datetime import UTC, datetime, timedelta
+
+    rule_id = await _make_rule(str(tmp_path))
+    async with get_sessionmaker()() as db:
+        job = SyncJob(
+            sync_rule_id=rule_id,
+            frameio_file_id="orphan",
+            status="running",
+            started_at=datetime.now(UTC) - timedelta(days=2),
+        )
+        db.add(job)
+        await db.commit()
+        orphan_id = job.id
+    enqueued: list[uuid.UUID] = []
+
+    async def enqueue(job_id: uuid.UUID) -> None:
+        enqueued.append(job_id)
+
+    async with get_sessionmaker()() as db:
+        created = await runner.reconcile_rule(
+            db, rule_id, backend=_StubBackend([RemoteFile(id="orphan", name="o")]), enqueue=enqueue  # type: ignore[arg-type]
+        )
+    assert created == 1
+    assert enqueued == [orphan_id]
+    async with get_sessionmaker()() as db:
+        job = await db.get(SyncJob, orphan_id)
+        assert job.status == "pending"
+
+
+async def test_reconcile_leaves_fresh_running_alone(tmp_path: Path) -> None:
+    # A job that's actively running (recent started_at) must NOT be re-picked mid-download.
+    from datetime import UTC, datetime
+
+    rule_id = await _make_rule(str(tmp_path))
+    async with get_sessionmaker()() as db:
+        db.add(
+            SyncJob(
+                sync_rule_id=rule_id,
+                frameio_file_id="busy",
+                status="running",
+                started_at=datetime.now(UTC),
+            )
+        )
+        await db.commit()
+    enqueued: list[uuid.UUID] = []
+
+    async def enqueue(job_id: uuid.UUID) -> None:
+        enqueued.append(job_id)
+
+    async with get_sessionmaker()() as db:
+        created = await runner.reconcile_rule(
+            db, rule_id, backend=_StubBackend([RemoteFile(id="busy", name="b")]), enqueue=enqueue  # type: ignore[arg-type]
+        )
+    assert created == 0
+    assert enqueued == []
+
+
+async def test_reconcile_leaves_done_alone(tmp_path: Path) -> None:
+    rule_id = await _make_rule(str(tmp_path))
+    async with get_sessionmaker()() as db:
+        db.add(SyncJob(sync_rule_id=rule_id, frameio_file_id="ok", status="done", bytes=1))
+        await db.commit()
+    backend = _StubBackend([RemoteFile(id="ok", name="o")])
+    enqueued: list[uuid.UUID] = []
+
+    async def enqueue(job_id: uuid.UUID) -> None:
+        enqueued.append(job_id)
+
+    async with get_sessionmaker()() as db:
+        created = await runner.reconcile_rule(db, rule_id, backend=backend, enqueue=enqueue)  # type: ignore[arg-type]
+    assert created == 0
+    assert enqueued == []
