@@ -204,7 +204,11 @@ export interface paths {
          */
         get: operations["list_folders_api_frameio_folders_get"];
         put?: never;
-        post?: never;
+        /**
+         * Create Folder
+         * @description Create a new subfolder under a parent folder — used by the picker's New-folder action.
+         */
+        post: operations["create_folder_api_frameio_folders_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -978,6 +982,15 @@ export interface components {
             needs_refresh?: boolean | null;
             /** Scopes */
             scopes?: string | null;
+        };
+        /** CreateFolderRequest */
+        CreateFolderRequest: {
+            /** Account Id */
+            account_id: string;
+            /** Parent Folder Id */
+            parent_folder_id: string;
+            /** Name */
+            name: string;
         };
         /** DestinationCreate */
         DestinationCreate: {
@@ -1999,6 +2012,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PickerItemOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_folder_api_frameio_folders_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFolderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PickerItemOut"];
                 };
             };
             /** @description Validation Error */

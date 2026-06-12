@@ -255,6 +255,11 @@ class _StubClient:
     async def list_subfolders(self, account_id: str, folder_id: str) -> list[PickerItem]:
         return [PickerItem(id="f1", name="F1")]
 
+    async def create_folder(
+        self, account_id: str, parent_folder_id: str, name: str
+    ) -> PickerItem:
+        return PickerItem(id="new1", name=name)
+
 
 async def _login(client: AsyncClient) -> None:
     assert (await client.post("/api/auth/login", json=CREDS)).status_code == 200
@@ -296,6 +301,27 @@ async def test_picker_route_upstream_failure_returns_502(client: AsyncClient, mo
     await _login(client)
     monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _Err())
     assert (await client.get("/api/frameio/accounts")).status_code == 502
+
+
+async def test_create_folder_route(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    resp = await client.post(
+        "/api/frameio/folders",
+        json={"account_id": "a1", "parent_folder_id": "rf1", "name": "Dailies"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"id": "new1", "name": "Dailies"}
+
+
+async def test_create_folder_requires_name(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    resp = await client.post(
+        "/api/frameio/folders",
+        json={"account_id": "a1", "parent_folder_id": "rf1", "name": "  "},
+    )
+    assert resp.status_code == 422
 
 
 async def test_picker_route_requires_auth(client: AsyncClient) -> None:

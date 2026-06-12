@@ -110,6 +110,32 @@
     await loadFolder();
   }
 
+  let newFolderName = $state("");
+  let creatingFolder = $state(false);
+  async function createFolder() {
+    const name = newFolderName.trim();
+    if (!name || !currentFolder) return;
+    creatingFolder = true;
+    error = null;
+    try {
+      const res = await fetch("/api/frameio/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account_id: accountId, parent_folder_id: currentFolder.id, name }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        error = body.detail ?? `Could not create folder (${res.status})`;
+        return;
+      }
+      const folder = (await res.json()) as Item;
+      newFolderName = "";
+      await drillInto(folder);
+    } finally {
+      creatingFolder = false;
+    }
+  }
+
   function toggleFile(f: FileItem) {
     folderShare = null;
     const next = new Map(selected);
@@ -235,6 +261,15 @@
           {#if !loading && subfolders.length === 0 && files.length === 0}
             <p class="text-xs text-faint">This folder is empty.</p>
           {/if}
+        </div>
+        <div class="mt-3 flex items-center gap-2">
+          <input bind:value={newFolderName} placeholder="New subfolder name"
+            onkeydown={(e) => e.key === "Enter" && createFolder()}
+            class="flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm" />
+          <button onclick={createFolder} disabled={!newFolderName.trim() || creatingFolder}
+            class="shrink-0 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-surface-3 disabled:opacity-50">
+            {creatingFolder ? "Creating…" : "＋ New folder"}
+          </button>
         </div>
       </div>
     {/if}

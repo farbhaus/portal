@@ -277,6 +277,23 @@ class FrameioClient:
 
         return await self._guard("get_folder", run)
 
+    async def create_folder(
+        self, account_id: str, parent_folder_id: str, name: str
+    ) -> PickerItem:
+        """Create one subfolder under a parent and return it (the picker's New-folder action)."""
+
+        async def run() -> PickerItem:
+            resp = await self._client.folders.create(
+                account_id,
+                parent_folder_id,
+                data=FolderCreateParamsData(name=name),
+                request_options=_REQ_OPTS,
+            )
+            d = resp.data
+            return PickerItem(id=d.id, name=getattr(d, "name", None) or name)
+
+        return await self._guard("create_folder", run)
+
     async def list_files(self, account_id: str, folder_id: str) -> list[FileItem]:
         """Direct child files (not subfolders) of a folder."""
 

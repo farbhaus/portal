@@ -164,6 +164,28 @@ async def list_folders(
     return [PickerItemOut(id=i.id, name=i.name) for i in items]
 
 
+class CreateFolderRequest(BaseModel):
+    account_id: str
+    parent_folder_id: str
+    name: str
+
+
+@router.post("/folders", response_model=PickerItemOut)
+async def create_folder(
+    body: CreateFolderRequest, _: User = Depends(require_admin)
+) -> PickerItemOut:
+    """Create a new subfolder under a parent folder — used by the picker's New-folder action."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Folder name is required")
+    client = get_frameio_client()
+    try:
+        item = await client.create_folder(body.account_id, body.parent_folder_id, name)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+    return PickerItemOut(id=item.id, name=item.name)
+
+
 class FileItemOut(BaseModel):
     id: str
     name: str
