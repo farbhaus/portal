@@ -305,6 +305,28 @@ async def test_reconcile_leaves_done_alone(tmp_path: Path) -> None:
     assert enqueued == []
 
 
+async def test_execute_job_source_gone_skipped(tmp_path: Path, monkeypatch: Any) -> None:
+    from portal.frameio.client import FrameioNotFound
+
+    _patch_download(monkeypatch)
+    rule_id = await _make_rule(str(tmp_path))
+    job_id = await _make_job(rule_id)
+
+    class _GoneBackend(_StubBackend):
+        async def get_file(self, dest: DestinationConfig, file_id: str) -> RemoteFile:
+            raise FrameioNotFound("Frame.io entity not found: get_file_detail")
+
+    async with get_sessionmaker()() as db:
+        job = await db.get(SyncJob, job_id)
+        await runner.execute_job(db, job, backend=_GoneBackend([]))  # type: ignore[arg-type]
+        await db.commit()
+    async with get_sessionmaker()() as db:
+        job = await db.get(SyncJob, job_id)
+        assert job.status == "skipped"
+        assert job.error is not None and "no longer exists" in job.error
+    assert not any(tmp_path.iterdir())  # noqa: ASYNC240 - sync check in test
+
+
 async def test_reclaim_orphaned_running_requeues_and_leaves_others() -> None:
     rule_id = await _make_rule("/dest")
     async with get_sessionmaker()() as db:

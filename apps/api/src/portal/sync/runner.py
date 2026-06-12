@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from portal.db.models import SyncJob, SyncRule
+from portal.frameio.client import FrameioNotFound
 from portal.lib.config import get_settings
 from portal.lib.logging import get_logger
 from portal.storage.base import DestinationConfig, StorageBackend
@@ -76,7 +77,16 @@ async def execute_job(
         raise RuntimeError(f"sync rule {job.sync_rule_id} is gone")
 
     dest = _destination(rule)
-    remote = await backend.get_file(dest, job.frameio_file_id)
+    try:
+        remote = await backend.get_file(dest, job.frameio_file_id)
+    except FrameioNotFound:
+        # The source was deleted/moved on Frame.io before we pulled it. Sync is additive/copy-once,
+        # so there's nothing to fetch — terminal skip (don't retry into dead_letter).
+        job.status = "skipped"
+        job.completed_at = datetime.now(UTC)
+        job.error = "source file no longer exists on Frame.io"
+        log.info("sync.job.skipped_source_gone", job_id=str(job.id), file_id=job.frameio_file_id)
+        return
 
     # Wait for the original to be downloadable. Frame.io reports a status; if it's not yet a
     # downloadable one, defer (the worker re-queues patiently without burning the retry budget).

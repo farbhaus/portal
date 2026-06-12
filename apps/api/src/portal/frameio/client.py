@@ -59,6 +59,10 @@ class FrameioRateLimited(FrameioError):
     """Frame.io returned 429 (and the SDK's retries were exhausted). Transient — retry later."""
 
 
+class FrameioNotFound(FrameioError):
+    """Frame.io returned 404 — the entity no longer exists. Terminal, not worth retrying."""
+
+
 @dataclass(frozen=True)
 class PickerItem:
     id: str
@@ -495,6 +499,8 @@ class FrameioClient:
             # them as transient so callers can tell the user "try again" rather than "failed".
             if status == 429:
                 raise FrameioRateLimited(f"Frame.io is rate-limiting: {op}") from exc
+            if status == 404:
+                raise FrameioNotFound(f"Frame.io entity not found: {op}") from exc
             raise FrameioError(f"Frame.io API call failed: {op}") from exc
 
 
