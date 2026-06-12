@@ -132,6 +132,30 @@ async def execute_job(
     )
 
 
+async def reclaim_orphaned_running(db: AsyncSession, enqueue: EnqueueJob) -> int:
+    """Re-pick every job left ``running`` and re-enqueue it. Called once at worker startup.
+
+    We run a single worker, so any job still ``running`` when the worker boots was orphaned by a
+    previous worker that died mid-download (e.g. killed by a deploy; arq's ``max_tries=1`` means it
+    is never re-queued). Without this, such a job sits ``running`` until ``_is_orphaned`` notices it
+    a full ``sync_job_timeout`` (24h) later, and reconcile won't create a fresh job because a row
+    already exists — so the file strands for a day. NOTE: assumes a single worker; with multiple
+    workers this would steal in-flight jobs.
+    """
+    jobs = (await db.execute(select(SyncJob).where(SyncJob.status == "running"))).scalars().all()
+    for job in jobs:
+        job.status = "pending"
+        job.started_at = None
+        job.completed_at = None
+        job.error = None
+        await db.flush()
+        await enqueue(job.id)
+    await db.commit()
+    if jobs:
+        log.info("sync.reclaim.orphaned_running", count=len(jobs))
+    return len(jobs)
+
+
 async def reconcile_rule(
     db: AsyncSession, rule_id: uuid.UUID, *, backend: StorageBackend, enqueue: EnqueueJob
 ) -> int:

@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     # the threshold past which a still-"running" job is treated as orphaned (worker died) and
     # re-picked by reconcile. Default 24h.
     sync_job_timeout_seconds: int = Field(default=86400)
+    # Max sync downloads running at once (arq max_jobs). The NAS link is the bottleneck
+    # (~18 MB/s over CIFS-on-VPN), so many parallel multi-GB pulls just thrash and leave
+    # everything half-done. Keep this small.
+    sync_max_concurrent_jobs: int = Field(default=3)
 
     log_level: str = Field(default="INFO")
 

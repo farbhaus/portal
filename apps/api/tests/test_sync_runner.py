@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -302,3 +303,32 @@ async def test_reconcile_leaves_done_alone(tmp_path: Path) -> None:
         created = await runner.reconcile_rule(db, rule_id, backend=backend, enqueue=enqueue)  # type: ignore[arg-type]
     assert created == 0
     assert enqueued == []
+
+
+async def test_reclaim_orphaned_running_requeues_and_leaves_others() -> None:
+    rule_id = await _make_rule("/dest")
+    async with get_sessionmaker()() as db:
+        running = SyncJob(sync_rule_id=rule_id, frameio_file_id="stuck", status="running")
+        running.started_at = datetime.now(UTC)
+        done = SyncJob(sync_rule_id=rule_id, frameio_file_id="ok", status="done")
+        db.add_all([running, done])
+        await db.commit()
+        running_id = running.id
+        done_id = done.id
+
+    enqueued: list[uuid.UUID] = []
+
+    async def enqueue(job_id: uuid.UUID) -> None:
+        enqueued.append(job_id)
+
+    async with get_sessionmaker()() as db:
+        count = await runner.reclaim_orphaned_running(db, enqueue)
+
+    assert count == 1
+    assert enqueued == [running_id]
+    async with get_sessionmaker()() as db:
+        reclaimed = await db.get(SyncJob, running_id)
+        untouched = await db.get(SyncJob, done_id)
+        assert reclaimed is not None and reclaimed.status == "pending"
+        assert reclaimed.started_at is None
+        assert untouched is not None and untouched.status == "done"

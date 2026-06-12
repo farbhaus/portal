@@ -26,7 +26,12 @@ from portal.lib.logging import configure_logging, get_logger
 from portal.storage.frameio_backend import FrameioStorageBackend
 from portal.sync.events import process_event
 from portal.sync.queue import RUN_SYNC_JOB
-from portal.sync.runner import SourceNotReady, execute_job, reconcile_rule
+from portal.sync.runner import (
+    SourceNotReady,
+    execute_job,
+    reclaim_orphaned_running,
+    reconcile_rule,
+)
 
 log = get_logger("worker")
 
@@ -138,6 +143,17 @@ async def startup(ctx: dict[str, Any]) -> None:
     )
     log.info("worker.startup")
 
+    # Any job still "running" was orphaned by a previous worker (single-worker deployment) — most
+    # often killed mid-download by a deploy. Re-pick them now so they don't strand until the 24h
+    # orphan window; this self-heals sync on every restart.
+    redis = ctx["redis"]
+
+    async def _enqueue(job_id: uuid.UUID) -> None:
+        await redis.enqueue_job(RUN_SYNC_JOB, str(job_id))
+
+    async with get_sessionmaker()() as db:
+        await reclaim_orphaned_running(db, _enqueue)
+
 
 async def shutdown(ctx: dict[str, Any]) -> None:
     http = ctx.get("http")
@@ -165,3 +181,5 @@ class WorkerSettings:
     # Allow a full file pull; we run our own retry/dead-letter, so disable arq's auto-retry.
     job_timeout = get_settings().sync_job_timeout_seconds
     max_tries = 1
+    # Cap parallel downloads — the NAS link is the bottleneck, so more just thrashes it.
+    max_jobs = get_settings().sync_max_concurrent_jobs
