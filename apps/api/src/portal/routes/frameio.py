@@ -206,3 +206,41 @@ async def list_files(
         FileItemOut(id=i.id, name=i.name, file_size=i.file_size, media_type=i.media_type)
         for i in items
     ]
+
+
+class DownloadUrlOut(BaseModel):
+    url: str
+
+
+@router.get("/files/{file_id}/download-url", response_model=DownloadUrlOut)
+async def file_download_url(
+    file_id: str, account_id: str, _: User = Depends(require_admin)
+) -> DownloadUrlOut:
+    """Mint a short-lived signed download URL for a file (explorer download action)."""
+    try:
+        url = await get_frameio_client().get_download_url(account_id, file_id)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+    return DownloadUrlOut(url=url)
+
+
+@router.delete("/files/{file_id}", status_code=204)
+async def delete_file(
+    file_id: str, account_id: str, user: User = Depends(require_admin)
+) -> None:
+    """Delete a file from Frame.io (explorer)."""
+    try:
+        await get_frameio_client().delete_file(account_id, file_id)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+
+
+@router.delete("/folders/{folder_id}", status_code=204)
+async def delete_folder(
+    folder_id: str, account_id: str, user: User = Depends(require_admin)
+) -> None:
+    """Delete a folder (and its contents) from Frame.io (explorer)."""
+    try:
+        await get_frameio_client().delete_folder(account_id, folder_id)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc

@@ -294,6 +294,22 @@ class FrameioClient:
 
         return await self._guard("create_folder", run)
 
+    async def delete_file(self, account_id: str, file_id: str) -> None:
+        """Delete a file. Used by the in-Portal file explorer."""
+
+        async def run() -> None:
+            await self._client.files.delete(account_id, file_id, request_options=_REQ_OPTS)
+
+        await self._guard("delete_file", run)
+
+    async def delete_folder(self, account_id: str, folder_id: str) -> None:
+        """Delete a folder (and its contents). Used by the in-Portal file explorer."""
+
+        async def run() -> None:
+            await self._client.folders.delete(account_id, folder_id, request_options=_REQ_OPTS)
+
+        await self._guard("delete_folder", run)
+
     async def list_files(self, account_id: str, folder_id: str) -> list[FileItem]:
         """Direct child files (not subfolders) of a folder."""
 

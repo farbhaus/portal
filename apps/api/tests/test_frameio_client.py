@@ -260,6 +260,15 @@ class _StubClient:
     ) -> PickerItem:
         return PickerItem(id="new1", name=name)
 
+    async def get_download_url(self, account_id: str, file_id: str) -> str:
+        return f"https://signed/{file_id}"
+
+    async def delete_file(self, account_id: str, file_id: str) -> None:
+        return None
+
+    async def delete_folder(self, account_id: str, folder_id: str) -> None:
+        return None
+
 
 async def _login(client: AsyncClient) -> None:
     assert (await client.post("/api/auth/login", json=CREDS)).status_code == 200
@@ -322,6 +331,34 @@ async def test_create_folder_requires_name(client: AsyncClient, monkeypatch) -> 
         json={"account_id": "a1", "parent_folder_id": "rf1", "name": "  "},
     )
     assert resp.status_code == 422
+
+
+async def test_file_download_url_route(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    resp = await client.get("/api/frameio/files/f1/download-url", params={"account_id": "a1"})
+    assert resp.status_code == 200
+    assert resp.json() == {"url": "https://signed/f1"}
+
+
+async def test_delete_file_and_folder_routes(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    assert (
+        await client.delete("/api/frameio/files/f1", params={"account_id": "a1"})
+    ).status_code == 204
+    assert (
+        await client.delete("/api/frameio/folders/fl1", params={"account_id": "a1"})
+    ).status_code == 204
+
+
+async def test_explorer_routes_require_auth(client: AsyncClient) -> None:
+    assert (
+        await client.get("/api/frameio/files/f1/download-url", params={"account_id": "a1"})
+    ).status_code == 401
+    assert (
+        await client.delete("/api/frameio/files/f1", params={"account_id": "a1"})
+    ).status_code == 401
 
 
 async def test_picker_route_requires_auth(client: AsyncClient) -> None:

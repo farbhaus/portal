@@ -20,6 +20,12 @@
       icon: "M3 12 12 3l9 9M5 10v10h5v-6h4v6h5V10",
     },
     {
+      label: "Files",
+      href: "/explorer",
+      match: ["/explorer"],
+      icon: "M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z",
+    },
+    {
       label: "Links",
       href: "/upload-links",
       match: ["/upload-links", "/download-links"],
