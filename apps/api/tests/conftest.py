@@ -10,6 +10,7 @@ os.environ.setdefault("TOKEN_ENCRYPTION_KEY", "test-token-encryption-key")
 os.environ.setdefault("ADMIN_EMAIL", "admin@example.com")
 os.environ.setdefault("ADMIN_PASSWORD", "test-password")
 os.environ.setdefault("SESSION_COOKIE_SECURE", "false")
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
 from collections.abc import AsyncIterator  # noqa: E402
 

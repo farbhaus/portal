@@ -91,6 +91,14 @@ class Settings(BaseSettings):
     # everything half-done. Keep this small.
     sync_max_concurrent_jobs: int = Field(default=3)
 
+    # Rate limiting for public (unauthenticated) endpoints, keyed by (token, client IP).
+    # "default" covers page loads + session starts; "strict" covers code/password attempts.
+    # Per-file upload/download endpoints are intentionally NOT limited (they're high-frequency
+    # within one legitimate transfer).
+    rate_limit_enabled: bool = Field(default=True)
+    rate_limit_default_per_minute: int = Field(default=120)
+    rate_limit_strict_per_minute: int = Field(default=12)
+
     log_level: str = Field(default="INFO")
 
     @property

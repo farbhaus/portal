@@ -24,6 +24,7 @@ from portal.downloads.links import branding, resolve_source
 from portal.frameio.client import FrameioError, FrameioNotConnected, get_frameio_client
 from portal.lib.errors import NotFoundError
 from portal.lib.logging import get_logger
+from portal.lib.ratelimit import limit
 from portal.storage.base import DestinationConfig
 from portal.storage.frameio_backend import FrameioStorageBackend
 from portal.uploads.links import link_state
@@ -102,7 +103,7 @@ async def _load_session(db: AsyncSession, link: DownloadLink, session_id: str) -
     return session
 
 
-@router.get("/{token}", response_model=DownloadPageOut)
+@router.get("/{token}", response_model=DownloadPageOut, dependencies=[limit("default")])
 async def resolve_link(token: str, db: AsyncSession = Depends(get_session)) -> DownloadPageOut:
     link = await _get_link(db, token)
     b = branding(link)
@@ -123,7 +124,9 @@ async def resolve_link(token: str, db: AsyncSession = Depends(get_session)) -> D
     )
 
 
-@router.post("/{token}/request-code", response_model=RequestCodeResult)
+@router.post(
+    "/{token}/request-code", response_model=RequestCodeResult, dependencies=[limit("strict")]
+)
 async def request_code(
     token: str,
     body: RequestCodeRequest,
@@ -146,7 +149,9 @@ async def request_code(
     return RequestCodeResult(trusted=False, sent=True)
 
 
-@router.post("/{token}/sessions", response_model=StartSessionResult)
+@router.post(
+    "/{token}/sessions", response_model=StartSessionResult, dependencies=[limit("default")]
+)
 async def start_session(
     token: str,
     body: StartSessionRequest,

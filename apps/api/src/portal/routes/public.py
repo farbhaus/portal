@@ -22,6 +22,7 @@ from portal.db.session import get_session
 from portal.frameio.client import FrameioError, FrameioNotConnected, get_frameio_client
 from portal.lib.errors import NotFoundError
 from portal.lib.logging import get_logger
+from portal.lib.ratelimit import limit
 from portal.notify.email import UploadedFile, send_upload_completion
 from portal.storage.base import DestinationConfig, UploadNotReady
 from portal.storage.base import UploadSession as StorageUploadSession
@@ -68,7 +69,7 @@ async def _get_link(db: AsyncSession, token: str) -> UploadLink:
     return link
 
 
-@router.get("/{token}", response_model=PublicLinkOut)
+@router.get("/{token}", response_model=PublicLinkOut, dependencies=[limit("default")])
 async def resolve_link(token: str, db: AsyncSession = Depends(get_session)) -> PublicLinkOut:
     link = await _get_link(db, token)
     branding = merged_branding(link, link.destination)
@@ -105,7 +106,9 @@ class VerifyCodeRequest(BaseModel):
     code: str
 
 
-@router.post("/{token}/request-code", response_model=RequestCodeResult)
+@router.post(
+    "/{token}/request-code", response_model=RequestCodeResult, dependencies=[limit("strict")]
+)
 async def request_code(
     token: str,
     body: RequestCodeRequest,
@@ -128,7 +131,9 @@ async def request_code(
     return RequestCodeResult(trusted=False, sent=True)
 
 
-@router.post("/{token}/verify-code", response_model=PasswordVerifyResult)
+@router.post(
+    "/{token}/verify-code", response_model=PasswordVerifyResult, dependencies=[limit("strict")]
+)
 async def verify_link_code(
     token: str,
     body: VerifyCodeRequest,
@@ -153,7 +158,9 @@ async def verify_link_code(
     return PasswordVerifyResult(ok=True)
 
 
-@router.post("/{token}/verify-password", response_model=PasswordVerifyResult)
+@router.post(
+    "/{token}/verify-password", response_model=PasswordVerifyResult, dependencies=[limit("strict")]
+)
 async def verify_link_password(
     token: str, body: PasswordVerifyRequest, db: AsyncSession = Depends(get_session)
 ) -> PasswordVerifyResult:
@@ -237,7 +244,9 @@ async def _load_session(db: AsyncSession, link: UploadLink, session_id: str) -> 
     return session
 
 
-@router.post("/{token}/sessions", response_model=StartSessionResult)
+@router.post(
+    "/{token}/sessions", response_model=StartSessionResult, dependencies=[limit("default")]
+)
 async def start_session(
     token: str,
     body: StartSessionRequest,
