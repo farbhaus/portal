@@ -170,7 +170,7 @@
         <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={reqMessage} /> Message</label>
       </div>
       <label class="mt-2 flex items-center gap-1.5">
-        <input type="checkbox" bind:checked={verifyEmail} /> Verify email (sends a one-time code)
+        <input type="checkbox" bind:checked={verifyEmail} /> Require OTP (one-time passcode by email)
       </label>
     </fieldset>
   </div>

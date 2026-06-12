@@ -305,6 +305,64 @@ async def test_reconcile_leaves_done_alone(tmp_path: Path) -> None:
     assert enqueued == []
 
 
+async def test_execute_job_downloads_at_uploaded_status(tmp_path: Path, monkeypatch: Any) -> None:
+    # "uploaded" (pre-transcode) is downloadable now — we don't wait for transcode.
+    _patch_download(monkeypatch)
+    rule_id = await _make_rule(str(tmp_path))
+    job_id = await _make_job(rule_id)
+    async with get_sessionmaker()() as db:
+        job = await db.get(SyncJob, job_id)
+        await runner.execute_job(db, job, backend=_StubBackend([], status="uploaded"))  # type: ignore[arg-type]
+        await db.commit()
+    async with get_sessionmaker()() as db:
+        job = await db.get(SyncJob, job_id)
+        assert job.status == "done"
+
+
+async def test_execute_job_403_download_is_source_not_ready(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    import httpx
+    import pytest
+
+    rule_id = await _make_rule(str(tmp_path))
+    job_id = await _make_job(rule_id)
+
+    async def boom(url: str, size: int | None, tmp: Path, **kw: Any) -> Any:
+        err = httpx.HTTPStatusError(
+            "403", request=httpx.Request("GET", "https://s3"), response=httpx.Response(403)
+        )
+        raise BaseExceptionGroup("download failed", [err])  # ranged path wraps in a group
+
+    monkeypatch.setattr(runner, "download_to_file", boom)
+    async with get_sessionmaker()() as db:
+        job = await db.get(SyncJob, job_id)
+        with pytest.raises(runner.SourceNotReady):
+            await runner.execute_job(db, job, backend=_StubBackend([], status="uploaded"))  # type: ignore[arg-type]
+    assert not any(tmp_path.iterdir())  # noqa: ASYNC240 - .part cleaned up
+
+
+async def test_execute_job_forbidden_download_url_is_source_not_ready(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    import pytest
+
+    from portal.frameio.client import FrameioForbidden
+
+    _patch_download(monkeypatch)
+    rule_id = await _make_rule(str(tmp_path))
+    job_id = await _make_job(rule_id)
+
+    class _ForbiddenURL(_StubBackend):
+        async def get_download_url(self, dest: DestinationConfig, file_id: str) -> DownloadURL:
+            raise FrameioForbidden("Frame.io forbidden (not ready?): get_download_url")
+
+    async with get_sessionmaker()() as db:
+        job = await db.get(SyncJob, job_id)
+        with pytest.raises(runner.SourceNotReady):
+            await runner.execute_job(db, job, backend=_ForbiddenURL([], status="uploaded"))  # type: ignore[arg-type]
+
+
 async def test_execute_job_source_gone_skipped(tmp_path: Path, monkeypatch: Any) -> None:
     from portal.frameio.client import FrameioNotFound
 

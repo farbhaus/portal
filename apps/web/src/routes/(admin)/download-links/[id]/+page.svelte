@@ -133,7 +133,7 @@
     <div class="flex flex-wrap gap-4 text-sm">
       <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={reqName} /> Require name</label>
       <label class="flex items-center gap-1.5"><input type="checkbox" checked={reqEmail || verifyEmail} disabled={verifyEmail} onchange={(e) => (reqEmail = e.currentTarget.checked)} /> Require email</label>
-      <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={verifyEmail} /> Verify email (one-time code)</label>
+      <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={verifyEmail} /> Require OTP (one-time passcode by email)</label>
       <label class="flex items-center gap-1.5"><input type="checkbox" bind:checked={allowPreview} /> Show thumbnails/previews</label>
     </div>
   </div>

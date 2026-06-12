@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from portal.db.models import SyncJob, SyncRule
-from portal.frameio.client import FrameioNotFound
+from portal.frameio.client import FrameioForbidden, FrameioNotFound
 from portal.lib.config import get_settings
 from portal.lib.logging import get_logger
 from portal.storage.base import DestinationConfig, StorageBackend
@@ -32,10 +32,21 @@ log = get_logger("sync.runner")
 
 EnqueueJob = Callable[[uuid.UUID], Awaitable[None]]
 
-# Frame.io file states from which the original is downloadable. A freshly uploaded large file sits
-# in an intermediate state for a while (the original 403s until finalized), so we wait for one of
-# these before pulling. Easy to extend if other backends/states prove downloadable.
-DOWNLOADABLE_STATUSES = frozenset({"transcoded"})
+# Frame.io file states from which we'll *attempt* the original download. "uploaded" means the
+# upload finalized — the original is usually fetchable then, well before transcoding (proxies)
+# finishes, so we don't make the user wait for transcode. If the original still isn't ready we get
+# a 403, which we treat as "not ready yet" (patient wait) rather than a failure — see execute_job.
+DOWNLOADABLE_STATUSES = frozenset({"uploaded", "transcoded"})
+
+
+def _is_not_ready_403(exc: BaseException) -> bool:
+    """True if exc (or anything in its ExceptionGroup) is an HTTP 403 — the signal that a Frame.io
+    original isn't finalized yet. Lets us wait patiently instead of burning the retry budget."""
+    if isinstance(exc, BaseExceptionGroup):
+        return any(_is_not_ready_403(e) for e in exc.exceptions)
+    if isinstance(exc, FrameioForbidden):
+        return True
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 403
 
 
 class SourceNotReady(Exception):
@@ -113,7 +124,12 @@ async def execute_job(
         log.info("sync.job.skipped_conflict", job_id=str(job.id), path=str(target))
         return
 
-    download = await backend.get_download_url(dest, job.frameio_file_id)
+    try:
+        download = await backend.get_download_url(dest, job.frameio_file_id)
+    except FrameioForbidden as exc:
+        # Original not finalized yet — wait patiently rather than spend the retry budget.
+        raise SourceNotReady("original not downloadable yet (403)") from exc
+
     tmp = final.with_name(final.name + ".part")
     try:
         result = await download_to_file(
@@ -124,8 +140,10 @@ async def execute_job(
             client=http,
         )
         tmp.replace(final)
-    except BaseException:
+    except BaseException as exc:
         tmp.unlink(missing_ok=True)
+        if _is_not_ready_403(exc):
+            raise SourceNotReady("original not finalized yet (403 during download)") from exc
         raise
 
     job.status = "done"

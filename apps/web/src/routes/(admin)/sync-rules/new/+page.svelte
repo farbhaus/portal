@@ -241,6 +241,14 @@
       </label>
     </div>
     <p class="text-xs text-faint">Tokens: {"{filename} {stem} {ext} {project} {folder} {date} {year} {month} {day}"}. Leave blank to keep original names at the destination root.</p>
+    <div class="rounded-md border border-border bg-surface-2 p-3 text-xs text-muted">
+      <div class="mb-1 font-medium text-faint">Examples</div>
+      <ul class="space-y-0.5 font-mono">
+        <li>{"{project}/{date}/{filename}"} → Acme/2026-06-12/clip.mov</li>
+        <li>{"{year}/{month}/{filename}"} → 2026/06/clip.mov</li>
+        <li>{"{folder}/{stem}{ext}"} → Dailies/clip.mov</li>
+      </ul>
+    </div>
     <label class="flex items-center gap-1.5 text-sm">
       <input type="checkbox" bind:checked={enabled} /> Enable now (creates the Frame.io webhook)
     </label>

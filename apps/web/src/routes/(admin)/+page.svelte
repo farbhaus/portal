@@ -88,7 +88,7 @@
       </div>
     {/snippet}
     {@render stat("Synced (24h)", health.done_24h, "text-text")}
-    {@render stat("Running", health.running, health.running ? "text-info" : "text-text")}
+    {@render stat("In progress", health.running, health.running ? "text-info" : "text-text")}
     {@render stat("Waiting", health.waiting, health.waiting ? "text-warning" : "text-text")}
     {@render stat("Failed", health.dead_letter, health.dead_letter ? "text-danger" : "text-text")}
   </div>

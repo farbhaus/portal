@@ -63,6 +63,10 @@ class FrameioNotFound(FrameioError):
     """Frame.io returned 404 — the entity no longer exists. Terminal, not worth retrying."""
 
 
+class FrameioForbidden(FrameioError):
+    """Frame.io returned 403 — typically the original isn't finalized yet. Transient; wait."""
+
+
 @dataclass(frozen=True)
 class PickerItem:
     id: str
@@ -501,6 +505,8 @@ class FrameioClient:
                 raise FrameioRateLimited(f"Frame.io is rate-limiting: {op}") from exc
             if status == 404:
                 raise FrameioNotFound(f"Frame.io entity not found: {op}") from exc
+            if status == 403:
+                raise FrameioForbidden(f"Frame.io forbidden (not ready?): {op}") from exc
             raise FrameioError(f"Frame.io API call failed: {op}") from exc
 
 

@@ -150,9 +150,18 @@
         </select>
       </label>
       <label class="block text-sm">
-        <span class="text-muted">Path template</span>
-        <input bind:value={pathTemplate} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 font-mono" />
+        <span class="text-muted">Path template (optional)</span>
+        <input bind:value={pathTemplate} placeholder="{'{project}/{date}/{filename}'}" class="mt-1 w-full rounded-md border border-border px-2 py-1.5 font-mono" />
       </label>
+    </div>
+    <p class="text-xs text-faint">Tokens: {"{filename} {stem} {ext} {project} {folder} {date} {year} {month} {day}"}. Leave blank to keep original names at the destination root.</p>
+    <div class="rounded-md border border-border bg-surface-2 p-3 text-xs text-muted">
+      <div class="mb-1 font-medium text-faint">Examples</div>
+      <ul class="space-y-0.5 font-mono">
+        <li>{"{project}/{date}/{filename}"} → Acme/2026-06-12/clip.mov</li>
+        <li>{"{year}/{month}/{filename}"} → 2026/06/clip.mov</li>
+        <li>{"{folder}/{stem}{ext}"} → Dailies/clip.mov</li>
+      </ul>
     </div>
     <div class="flex items-center justify-between">
       <button onclick={save} disabled={saving} class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50">{saving ? "Saving…" : "Save changes"}</button>

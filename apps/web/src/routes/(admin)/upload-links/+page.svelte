@@ -58,7 +58,7 @@
           <td class="px-4 py-3"><StatusPill status={link.state} /></td>
           <td class="px-4 py-3 text-xs text-muted">
             {link.password_protected ? "🔒 password " : ""}
-            {link.verify_email ? "✉︎ 2FA " : ""}
+            {link.verify_email ? "✉︎ OTP " : ""}
             {link.expires_at ? `⏰ ${new Date(link.expires_at).toLocaleDateString()} ` : ""}
             {link.allowed_extensions ? `· ${link.allowed_extensions.length} types` : ""}
             {#if !link.password_protected && !link.verify_email && !link.expires_at && !link.allowed_extensions}—{/if}
