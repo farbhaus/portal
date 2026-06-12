@@ -60,6 +60,7 @@ class UploadLinkCreate(BaseModel):
 
 
 class UploadLinkUpdate(BaseModel):
+    destination_id: uuid.UUID | None = None
     expires_at: datetime | None = None
     # "" or null clears the password; a non-empty value sets it; omitting leaves it unchanged.
     password: str | None = None
@@ -223,6 +224,11 @@ async def update_link(
     link = await _get_or_404(db, link_id)
     fields = body.model_dump(exclude_unset=True)
 
+    if "destination_id" in fields:
+        dest_id = fields.pop("destination_id")
+        if await db.get(Destination, dest_id) is None:
+            raise BadRequestError("Destination not found")
+        link.destination_id = dest_id
     if "password" in fields:
         pw = fields.pop("password")
         link.password_hash = hash_password(pw) if pw else None

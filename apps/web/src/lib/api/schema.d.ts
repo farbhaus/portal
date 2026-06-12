@@ -1569,6 +1569,8 @@ export interface components {
         };
         /** UploadLinkUpdate */
         UploadLinkUpdate: {
+            /** Destination Id */
+            destination_id?: string | null;
             /** Expires At */
             expires_at?: string | null;
             /** Password */

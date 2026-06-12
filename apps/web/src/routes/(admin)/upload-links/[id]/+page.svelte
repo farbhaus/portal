@@ -16,6 +16,7 @@
   let verifyEmail = $state(false);
   let brandDisplayName = $state("");
   let brandSubtitle = $state("");
+  let destinationId = $state("");
 
   let saving = $state(false);
   let error = $state<string | null>(null);
@@ -35,6 +36,7 @@
       verifyEmail = link.verify_email;
       brandDisplayName = link.brand_display_name ?? "";
       brandSubtitle = link.brand_subtitle ?? "";
+      destinationId = link.destination_id;
       newPassword = "";
       clearPassword = false;
     }
@@ -64,6 +66,7 @@
     saved = false;
     try {
       const body: Record<string, unknown> = {
+        destination_id: destinationId,
         expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
         max_file_size: maxSizeGb ? Math.round(parseFloat(maxSizeGb) * 1024 ** 3) : null,
         allowed_extensions: restrictExtensions
@@ -135,6 +138,15 @@
   </div>
 
   <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
+    <label class="block text-sm">
+      <span class="text-muted">Destination</span>
+      <select bind:value={destinationId} class="mt-1 w-full rounded-md border border-border px-2 py-1.5">
+        {#each data.destinations as d (d.id)}
+          <option value={d.id}>{d.display_name}</option>
+        {/each}
+      </select>
+      <span class="mt-1 block text-xs text-faint">Where new uploads to this link are delivered.</span>
+    </label>
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <label class="block text-sm">
         <span class="text-muted">Expires</span>

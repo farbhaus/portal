@@ -141,6 +141,24 @@ async def test_update_link_password_and_revoke(client: AsyncClient) -> None:
     assert rev.json()["revoked_at"] is not None
 
 
+async def test_update_link_change_destination(client: AsyncClient) -> None:
+    await _login(client)
+    dest_a = await _make_destination(display_name="A")
+    dest_b = await _make_destination(display_name="B")
+    link = (await client.post("/api/upload-links", json={"destination_id": dest_a})).json()
+    assert link["destination_id"] == dest_a
+
+    upd = await client.patch(f"/api/upload-links/{link['id']}", json={"destination_id": dest_b})
+    assert upd.status_code == 200
+    assert upd.json()["destination_id"] == dest_b
+
+    bad = await client.patch(
+        f"/api/upload-links/{link['id']}",
+        json={"destination_id": "00000000-0000-0000-0000-000000000000"},
+    )
+    assert bad.status_code == 400
+
+
 async def test_list_and_delete(client: AsyncClient) -> None:
     await _login(client)
     dest_id = await _make_destination()

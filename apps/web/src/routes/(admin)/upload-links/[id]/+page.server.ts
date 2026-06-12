@@ -9,16 +9,20 @@ export type UploadStats = {
   last_activity: string | null;
 };
 
+export type DestinationOption = { id: string; display_name: string };
+
 export const load: PageServerLoad = async ({ params, request }) => {
   const cookie = request.headers.get("cookie");
-  const [linkRes, statsRes] = await Promise.all([
+  const [linkRes, statsRes, destRes] = await Promise.all([
     apiFetch(`/api/upload-links/${params.id}`, cookie),
     apiFetch(`/api/upload-links/${params.id}/stats`, cookie),
+    apiFetch("/api/destinations", cookie),
   ]);
   if (!linkRes.ok) throw error(linkRes.status === 404 ? 404 : 500, "Upload link not found");
   const link: UploadLink = await linkRes.json();
   const stats: UploadStats = statsRes.ok
     ? await statsRes.json()
     : { uploads: 0, total_bytes: 0, last_activity: null };
-  return { link, stats };
+  const destinations: DestinationOption[] = destRes.ok ? await destRes.json() : [];
+  return { link, stats, destinations };
 };
