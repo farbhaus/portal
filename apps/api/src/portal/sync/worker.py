@@ -66,7 +66,11 @@ async def run_sync_job(ctx: dict[str, Any], job_id: str) -> str:
         job = await db.get(SyncJob, uuid.UUID(job_id))
         if job is None or job.status in _TERMINAL:
             return "skip"
+        # TimestampMixin.created_at is stored tz-naive; make it aware so the patient-wait math below
+        # (now(UTC) - created_at) never raises and strands the job as "running".
         created_at = job.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
         job.status = "running"
         job.started_at = datetime.now(UTC)
         await db.commit()
