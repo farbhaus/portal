@@ -297,6 +297,7 @@ async def complete_file(
     token: str,
     session_id: str,
     file_id: str,
+    background: BackgroundTasks,
     db: AsyncSession = Depends(get_session),
 ) -> CompleteFileResult:
     link = await _get_link(db, token)
@@ -312,11 +313,21 @@ async def complete_file(
     )
     try:
         await backend.complete_upload(storage_session)
-        return CompleteFileResult(complete=True, failed=False)
     except UploadNotReady:
         return CompleteFileResult(complete=False, failed=False)
     except FrameioError:
         return CompleteFileResult(complete=False, failed=True)
+
+    # This file is finalized on Frame.io — start syncing it NOW rather than waiting for the whole
+    # session to finish. In a large multi-file upload each file mirrors to the NAS as soon as it
+    # lands, overlapping with the remaining uploads. trigger_sync_for_upload dedupes by
+    # (rule, file_id), so the session-complete trigger stays a harmless safety net.
+    dest_cfg = dict(link.destination.config)
+    sync_account = str(dest_cfg.get("account_id") or "")
+    sync_folder = str(dest_cfg.get("folder_id") or "")
+    if sync_account and sync_folder:
+        background.add_task(trigger_sync_for_upload, sync_account, sync_folder, [file_id])
+    return CompleteFileResult(complete=True, failed=False)
 
 
 @router.post("/{token}/sessions/{session_id}/complete", response_model=PasswordVerifyResult)

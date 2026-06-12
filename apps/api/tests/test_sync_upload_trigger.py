@@ -74,6 +74,19 @@ async def test_trigger_dedupes(enqueued: list[uuid.UUID]) -> None:
     assert await _job_count() == 1
 
 
+async def test_per_file_triggers_then_batch_safety_net_no_dupes(
+    enqueued: list[uuid.UUID],
+) -> None:
+    # Real flow: each file is triggered individually as it finalizes, then the session-complete
+    # batch trigger fires for all files — the batch must add nothing (dedup), one job per file.
+    await _make_rule()
+    assert await events.trigger_sync_for_upload("a1", "fld-1", ["f1"]) == 1
+    assert await events.trigger_sync_for_upload("a1", "fld-1", ["f2"]) == 1
+    assert await events.trigger_sync_for_upload("a1", "fld-1", ["f1", "f2"]) == 0
+    assert await _job_count() == 2
+    assert len(enqueued) == 2
+
+
 async def test_trigger_only_matches_same_folder(enqueued: list[uuid.UUID]) -> None:
     await _make_rule(folder_id="other-folder")
     assert await events.trigger_sync_for_upload("a1", "fld-1", ["f1"]) == 0
