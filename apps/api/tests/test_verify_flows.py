@@ -118,6 +118,35 @@ async def test_upload_verify_flow(client: AsyncClient, monkeypatch: Any) -> None
     ).status_code == 200
 
 
+async def test_upload_verify_code_endpoint_unlocks(client: AsyncClient, monkeypatch: Any) -> None:
+    sent = _enable_email(monkeypatch)
+    token = await _make_upload_link()
+
+    async def always(email: str, *, check_mx: bool) -> bool:
+        return True
+
+    monkeypatch.setattr(service, "is_plausible_email", always)
+    await client.post(f"/api/public/links/{token}/request-code", json={"email": "c@x.com"})
+    code = sent["code"]
+
+    wrong = "000000" if code != "000000" else "111111"
+    bad = await client.post(
+        f"/api/public/links/{token}/verify-code", json={"email": "c@x.com", "code": wrong}
+    )
+    assert bad.status_code == 403
+
+    good = await client.post(
+        f"/api/public/links/{token}/verify-code", json={"email": "c@x.com", "code": code}
+    )
+    assert good.status_code == 200 and good.json()["ok"] is True
+    assert "portal_verified" in good.headers.get("set-cookie", "")
+
+    # Device now trusted: a session opens without re-sending a code.
+    assert (
+        await client.post(f"/api/public/links/{token}/sessions", json={"email": "c@x.com"})
+    ).status_code == 200
+
+
 # ── download flow ─────────────────────────────────────────────────────────────────
 
 

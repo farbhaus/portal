@@ -100,6 +100,11 @@ class RequestCodeResult(BaseModel):
     sent: bool
 
 
+class VerifyCodeRequest(BaseModel):
+    email: str
+    code: str
+
+
 @router.post("/{token}/request-code", response_model=RequestCodeResult)
 async def request_code(
     token: str,
@@ -121,6 +126,31 @@ async def request_code(
     except verify.VerificationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return RequestCodeResult(trusted=False, sent=True)
+
+
+@router.post("/{token}/verify-code", response_model=PasswordVerifyResult)
+async def verify_link_code(
+    token: str,
+    body: VerifyCodeRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_session),
+) -> PasswordVerifyResult:
+    """Validate an OTP up front and issue the device-trust cookie, so the UI can unlock the
+    uploader as soon as the code is entered instead of validating only at session start."""
+    link = await _get_link(db, token)
+    _require_usable(link)
+    if not link.verify_email:
+        return PasswordVerifyResult(ok=True)
+    email = body.email.strip()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email is required")
+    if verify.is_trusted(request, email):
+        return PasswordVerifyResult(ok=True)
+    if not await verify.verify_code(db, email, body.code):
+        raise HTTPException(status_code=403, detail="That code is incorrect or expired")
+    verify.issue_trust(response, email)
+    return PasswordVerifyResult(ok=True)
 
 
 @router.post("/{token}/verify-password", response_model=PasswordVerifyResult)

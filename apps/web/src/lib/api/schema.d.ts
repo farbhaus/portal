@@ -390,6 +390,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/links/{token}/verify-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Link Code
+         * @description Validate an OTP up front and issue the device-trust cookie, so the UI can unlock the
+         *     uploader as soon as the code is entered instead of validating only at session start.
+         */
+        post: operations["verify_link_code_api_public_links__token__verify_code_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/links/{token}/verify-password": {
         parameters: {
             query?: never;
@@ -1602,6 +1623,13 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /** VerifyCodeRequest */
+        VerifyCodeRequest: {
+            /** Email */
+            email: string;
+            /** Code */
+            code: string;
+        };
         /** ViewerFields */
         ViewerFields: {
             /**
@@ -2447,6 +2475,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RequestCodeResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_link_code_api_public_links__token__verify_code_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordVerifyResult"];
                 };
             };
             /** @description Validation Error */

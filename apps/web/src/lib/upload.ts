@@ -46,6 +46,16 @@ export async function requestCode(
   return asJson(res);
 }
 
+// Validate the OTP up front; on success the device is trusted and the uploader unlocks.
+export async function verifyCode(token: string, email: string, code: string): Promise<void> {
+  const res = await fetch(`/api/public/links/${token}/verify-code`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code }),
+  });
+  if (!res.ok) throw new Error((await asJson(res)).detail ?? "That code is incorrect or expired");
+}
+
 export async function completeSession(
   token: string,
   sessionId: string,

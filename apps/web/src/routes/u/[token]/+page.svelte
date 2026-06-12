@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fly } from "svelte/transition";
   import {
     fileExtension,
     formatBytes,
@@ -7,6 +8,7 @@
     requestCode,
     runUpload,
     startSession,
+    verifyCode,
     type UploadItem,
   } from "$lib/upload";
 
@@ -22,6 +24,10 @@
   let codeSent = $state(false);
   let verified = $state(false); // device already trusted; no code needed
   let sendingCode = $state(false);
+  let verifying = $state(false);
+
+  // The uploader is gated until the email is verified (for verify_email links).
+  const locked = $derived(link.verify_email && !verified);
 
   let items = $state<UploadItem[]>([]);
   let dragging = $state(false);
@@ -97,6 +103,25 @@
       error = e instanceof Error ? e.message : "Could not send a code.";
     } finally {
       sendingCode = false;
+    }
+  }
+
+  // Validate the code now so the gate can slide away and reveal the uploader.
+  async function verifyAndUnlock() {
+    if (!code.trim()) {
+      error = "Enter the code we emailed you.";
+      return;
+    }
+    verifying = true;
+    error = null;
+    try {
+      await verifyCode(data.token, email, code);
+      verified = true; // gate slides away; device now trusted for the upload
+      code = "";
+    } catch (e) {
+      error = e instanceof Error ? e.message : "That code is incorrect or expired.";
+    } finally {
+      verifying = false;
     }
   }
 
@@ -182,8 +207,13 @@
                 class="w-full rounded-md border border-border px-3 py-2 text-sm" />
             {/if}
             {#if link.uploader_fields_required.email}
-              <input bind:value={email} type="email" placeholder="Your email" disabled={phase === "uploading" || codeSent}
-                class="w-full rounded-md border border-border px-3 py-2 text-sm disabled:bg-surface-2" />
+              <div>
+                <input bind:value={email} type="email" placeholder="Your email" disabled={phase === "uploading" || codeSent}
+                  class="w-full rounded-md border border-border px-3 py-2 text-sm disabled:bg-surface-2" />
+                {#if link.verify_email && verified}
+                  <p class="mt-1 flex items-center gap-1.5 text-xs text-success">✓ Email verified</p>
+                {/if}
+              </div>
             {/if}
             {#if link.uploader_fields_required.message}
               <textarea bind:value={message} placeholder="Message" disabled={phase === "uploading"}
@@ -193,43 +223,72 @@
               <input bind:value={password} type="password" placeholder="Password" disabled={phase === "uploading"}
                 class="w-full rounded-md border border-border px-3 py-2 text-sm" />
             {/if}
-            {#if link.verify_email && verified}
-              <p class="flex items-center gap-1.5 text-xs text-success">✓ Email verified</p>
-            {:else if link.verify_email && codeSent}
-              <div>
-                <input bind:value={code} inputmode="numeric" placeholder="Enter the 6-digit code"
-                  disabled={phase === "uploading"}
-                  class="w-full rounded-md border border-border px-3 py-2 text-sm tracking-widest" />
-                <p class="mt-1 text-xs text-muted">We emailed a code to {email}.
-                  <button type="button" onclick={sendCode} class="underline hover:text-text">Resend</button></p>
-              </div>
-            {/if}
           </div>
         {/if}
 
         {#if phase !== "uploading"}
-          <div
-            role="button" tabindex="0"
-            ondragover={(e) => { e.preventDefault(); dragging = true; }}
-            ondragleave={() => (dragging = false)}
-            ondrop={onDrop}
-            class="rounded-lg border-2 border-dashed p-8 text-center transition-colors {dragging ? 'border-accent bg-surface-2' : 'border-border'}"
-          >
-            <p class="text-sm text-muted">Drag files or folders here</p>
-            <p class="my-2 text-xs text-faint">or</p>
-            <div class="flex justify-center gap-2">
-              <label class="cursor-pointer rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2">
-                Choose files
-                <input type="file" multiple class="hidden" onchange={onPick} />
-              </label>
-              <label class="cursor-pointer rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2">
-                Choose folder
-                <input type="file" webkitdirectory class="hidden" onchange={onPick} />
-              </label>
-            </div>
-            {#if link.allowed_extensions}
-              <p class="mt-3 text-xs text-faint">Allowed: {link.allowed_extensions.join(", ")}</p>
+          <div class="relative">
+            <!-- OTP gate: covers the dropzone until the email is verified, then slides away. -->
+            {#if locked}
+              <div
+                class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-lg border border-accent/40 bg-surface px-6 text-center"
+                transition:fly={{ y: 18, duration: 320 }}
+              >
+                <div>
+                  <p class="text-sm font-medium">Verify your email to upload</p>
+                  <p class="mt-1 text-xs text-muted">
+                    {#if codeSent}Enter the 6-digit code we sent to {email}.{:else}We'll email a one-time passcode to {email || "your email"}.{/if}
+                  </p>
+                </div>
+                {#if codeSent}
+                  <input
+                    bind:value={code}
+                    inputmode="numeric"
+                    placeholder="······"
+                    onkeydown={(e) => e.key === "Enter" && verifyAndUnlock()}
+                    class="w-44 rounded-md border border-border px-3 py-2 text-center text-lg tracking-[0.4em]"
+                  />
+                  <div class="flex items-center gap-3">
+                    <button onclick={verifyAndUnlock} disabled={verifying || !code.trim()}
+                      class="rounded-md px-4 py-2 text-sm font-medium text-on-accent disabled:opacity-50" style="background:{accent}">
+                      {verifying ? "Verifying…" : "Verify & continue"}
+                    </button>
+                    <button type="button" onclick={sendCode} disabled={sendingCode} class="text-xs text-muted underline hover:text-text disabled:opacity-50">
+                      {sendingCode ? "Sending…" : "Resend"}
+                    </button>
+                  </div>
+                {:else}
+                  <button onclick={sendCode} disabled={!email.trim() || sendingCode}
+                    class="rounded-md px-4 py-2 text-sm font-medium text-on-accent disabled:opacity-50" style="background:{accent}">
+                    {sendingCode ? "Sending…" : "Send verification code"}
+                  </button>
+                {/if}
+              </div>
             {/if}
+
+            <div
+              role="button" tabindex="0"
+              ondragover={(e) => { if (!locked) { e.preventDefault(); dragging = true; } }}
+              ondragleave={() => (dragging = false)}
+              ondrop={(e) => { if (!locked) onDrop(e); }}
+              class="rounded-lg border-2 border-dashed p-8 text-center transition-all {dragging ? 'border-accent bg-surface-2' : 'border-border'} {locked ? 'pointer-events-none opacity-30 blur-[1px]' : ''}"
+            >
+              <p class="text-sm text-muted">Drag files or folders here</p>
+              <p class="my-2 text-xs text-faint">or</p>
+              <div class="flex justify-center gap-2">
+                <label class="cursor-pointer rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2">
+                  Choose files
+                  <input type="file" multiple class="hidden" onchange={onPick} />
+                </label>
+                <label class="cursor-pointer rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2">
+                  Choose folder
+                  <input type="file" webkitdirectory class="hidden" onchange={onPick} />
+                </label>
+              </div>
+              {#if link.allowed_extensions}
+                <p class="mt-3 text-xs text-faint">Allowed: {link.allowed_extensions.join(", ")}</p>
+              {/if}
+            </div>
           </div>
         {/if}
 
@@ -260,19 +319,10 @@
               {formatBytes(uploadedBytes)} / {formatBytes(totalBytes)} ({percent.toFixed(0)}%)
             </p>
           </div>
-        {:else if link.verify_email && !verified && !codeSent}
-          <button
-            onclick={sendCode}
-            disabled={!email.trim() || sendingCode}
-            class="w-full rounded-md px-4 py-2.5 text-sm font-medium text-on-accent disabled:opacity-50"
-            style="background:{accent}"
-          >
-            {sendingCode ? "Sending…" : "Send verification code"}
-          </button>
-        {:else}
+        {:else if !locked}
           <button
             onclick={start}
-            disabled={items.length === 0 || (link.verify_email && !verified && !code.trim())}
+            disabled={items.length === 0}
             class="w-full rounded-md px-4 py-2.5 text-sm font-medium text-on-accent disabled:opacity-50"
             style="background:{accent}"
           >
