@@ -17,8 +17,6 @@
 
   let displayName = $state("");
   let subtitle = $state("");
-  let logoUrl = $state("");
-  let accentColor = $state("#111111");
 
   let loading = $state(false);
   let error = $state<string | null>(null);
@@ -146,8 +144,6 @@
             folder_id: currentFolder.id,
           },
           subtitle: subtitle.trim() || null,
-          logo_url: logoUrl.trim() || null,
-          accent_color: accentColor || null,
         }),
       });
       if (!res.ok) {
@@ -162,7 +158,7 @@
   }
 </script>
 
-<div class="max-w-2xl space-y-6">
+<div class="mx-auto max-w-2xl space-y-6">
   <div>
     <a href="/destinations" class="text-sm text-muted hover:text-text">← Destinations</a>
     <h1 class="mt-1 text-2xl font-semibold">New destination</h1>
@@ -248,14 +244,6 @@
     <label class="block text-sm">
       <span class="text-muted">Subtitle</span>
       <input bind:value={subtitle} placeholder="Shown on the upload page" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
-    </label>
-    <label class="block text-sm">
-      <span class="text-muted">Logo URL</span>
-      <input bind:value={logoUrl} placeholder="https://…" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
-    </label>
-    <label class="block text-sm">
-      <span class="text-muted">Accent color</span>
-      <input type="color" bind:value={accentColor} class="mt-1 block h-9 w-16 rounded-md border border-border" />
     </label>
   </div>
 

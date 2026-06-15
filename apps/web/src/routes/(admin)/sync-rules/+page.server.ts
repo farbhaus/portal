@@ -1,4 +1,4 @@
-import { apiFetch } from "$lib/server/api";
+import { redirect } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
 
 export type SyncRule = {
@@ -13,8 +13,6 @@ export type SyncRule = {
   created_at: string;
 };
 
-export const load: PageServerLoad = async ({ request }) => {
-  const res = await apiFetch("/api/sync-rules", request.headers.get("cookie"));
-  const rules: SyncRule[] = res.ok ? await res.json() : [];
-  return { rules };
+export const load: PageServerLoad = async () => {
+  throw redirect(302, "/sync");
 };

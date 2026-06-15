@@ -14,7 +14,14 @@
 
   let { data } = $props();
   const link = $derived(data.link);
-  const accent = $derived(link.accent_color || "#111111");
+  const accent = $derived(link.accent_color || "#f59e0b");
+  function accentText(hex: string): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? "#1a1206" : "#ffffff";
+  }
+  const onAccent = $derived(accentText(accent));
 
   let name = $state("");
   let email = $state("");
@@ -250,7 +257,7 @@
                   />
                   <div class="flex items-center gap-3">
                     <button onclick={verifyAndUnlock} disabled={verifying || !code.trim()}
-                      class="rounded-md px-4 py-2 text-sm font-medium text-on-accent disabled:opacity-50" style="background:{accent}">
+                      class="rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50" style="background:{accent};color:{onAccent}">
                       {verifying ? "Verifying…" : "Verify & continue"}
                     </button>
                     <button type="button" onclick={sendCode} disabled={sendingCode} class="text-xs text-muted underline hover:text-text disabled:opacity-50">
@@ -259,7 +266,7 @@
                   </div>
                 {:else}
                   <button onclick={sendCode} disabled={!email.trim() || sendingCode}
-                    class="rounded-md px-4 py-2 text-sm font-medium text-on-accent disabled:opacity-50" style="background:{accent}">
+                    class="rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50" style="background:{accent};color:{onAccent}">
                     {sendingCode ? "Sending…" : "Send verification code"}
                   </button>
                 {/if}
@@ -323,8 +330,8 @@
           <button
             onclick={start}
             disabled={items.length === 0}
-            class="w-full rounded-md px-4 py-2.5 text-sm font-medium text-on-accent disabled:opacity-50"
-            style="background:{accent}"
+            class="w-full rounded-md px-4 py-2.5 text-sm font-medium disabled:opacity-50"
+            style="background:{accent};color:{onAccent}"
           >
             Upload {items.length > 0 ? `${items.length} file${items.length === 1 ? "" : "s"} (${formatBytes(totalBytes)})` : ""}
           </button>

@@ -6,8 +6,6 @@
 
   let displayName = $state("");
   let subtitle = $state("");
-  let logoUrl = $state("");
-  let accentColor = $state("#111111");
 
   // Seed editable fields from the loaded destination, and re-seed if we navigate to a
   // different one (without clobbering in-progress edits to the same destination).
@@ -17,8 +15,6 @@
       seededId = dest.id;
       displayName = dest.display_name;
       subtitle = dest.subtitle ?? "";
-      logoUrl = dest.logo_url ?? "";
-      accentColor = dest.accent_color ?? "#111111";
     }
   });
 
@@ -38,8 +34,6 @@
         body: JSON.stringify({
           display_name: displayName.trim(),
           subtitle: subtitle.trim() || null,
-          logo_url: logoUrl.trim() || null,
-          accent_color: accentColor || null,
         }),
       });
       if (!res.ok) {
@@ -60,7 +54,7 @@
   }
 </script>
 
-<div class="max-w-2xl space-y-6">
+<div class="mx-auto max-w-2xl space-y-6">
   <div>
     <a href="/destinations" class="text-sm text-muted hover:text-text">← Destinations</a>
     <h1 class="mt-1 text-2xl font-semibold">Edit destination</h1>
@@ -89,14 +83,6 @@
     <label class="block text-sm">
       <span class="text-muted">Subtitle</span>
       <input bind:value={subtitle} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
-    </label>
-    <label class="block text-sm">
-      <span class="text-muted">Logo URL</span>
-      <input bind:value={logoUrl} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
-    </label>
-    <label class="block text-sm">
-      <span class="text-muted">Accent color</span>
-      <input type="color" bind:value={accentColor} class="mt-1 block h-9 w-16 rounded-md border border-border" />
     </label>
   </div>
 

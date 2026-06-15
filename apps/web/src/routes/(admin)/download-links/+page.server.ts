@@ -1,4 +1,4 @@
-import { apiFetch } from "$lib/server/api";
+import { redirect } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
 
 export type DownloadLink = {
@@ -22,8 +22,6 @@ export type DownloadLink = {
   created_at: string;
 };
 
-export const load: PageServerLoad = async ({ request }) => {
-  const res = await apiFetch("/api/download-links", request.headers.get("cookie"));
-  const links: DownloadLink[] = res.ok ? await res.json() : [];
-  return { links };
+export const load: PageServerLoad = async () => {
+  throw redirect(302, "/links");
 };

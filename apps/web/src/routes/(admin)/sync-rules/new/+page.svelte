@@ -178,7 +178,7 @@
   }
 </script>
 
-<div class="max-w-2xl space-y-6">
+<div class="mx-auto max-w-2xl space-y-6">
   <div>
     <a href="/sync-rules" class="text-sm text-muted hover:text-text">← Sync rules</a>
     <h1 class="mt-1 text-2xl font-semibold">New sync rule</h1>

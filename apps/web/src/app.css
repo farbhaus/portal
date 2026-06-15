@@ -1,11 +1,25 @@
 @import "tailwindcss";
 
+/* Self-hosted Inter (latin subset, variable font, weights 100–900) */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* ---------------------------------------------------------------------------
-   Portal design system — single dark theme, amber accent (FARBHAUS).
-   Tokens below generate Tailwind utilities: bg-surface, text-muted,
-   border-border, bg-accent, ring-accent, etc.
+   Portal design system — single dark theme, amber accent.
+   Tokens generate Tailwind utilities: bg-surface, text-muted, border-border,
+   bg-accent, ring-accent, etc.
 --------------------------------------------------------------------------- */
 @theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
   --color-bg: #0e0f12;
   --color-surface: #16181d;
   --color-surface-2: #1c1f26;
@@ -30,6 +44,16 @@
   --radius-card: 0.75rem;
 }
 
+/* View transitions: smooth 150ms crossfade between pages */
+@view-transition {
+  navigation: auto;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 150ms;
+  animation-timing-function: ease-out;
+}
+
 html,
 body {
   height: 100%;
@@ -39,6 +63,9 @@ body {
   background-color: var(--color-bg);
   color: var(--color-text);
   color-scheme: dark;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: 'cv05', 'cv08', 'cv10';
+  letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -98,4 +125,21 @@ a:focus-visible {
 }
 .animate-pulse-dot {
   animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+/* Skeleton shimmer for loading states */
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position:  200% 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-2) 25%,
+    var(--color-surface-3) 50%,
+    var(--color-surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 4px;
 }

@@ -7,6 +7,11 @@
   const email = $derived(data.email);
   const frameio = $derived(data.frameio);
 
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    await goto("/login");
+  }
+
   const flash = $derived(page.url.searchParams.get("frameio"));
 
   // --- Frame.io connection ---------------------------------------------------
@@ -85,7 +90,7 @@
     "rounded-md border border-border bg-surface-2 px-3 py-2 text-sm placeholder:text-faint";
 </script>
 
-<div class="max-w-2xl space-y-6">
+<div class="mx-auto max-w-2xl space-y-6">
   <PageHeader title="Settings" subtitle="Connection, email, account, and general configuration." />
 
   {#if flash === "connected"}
@@ -169,5 +174,15 @@
       <span class="font-mono text-xs">{data.general.base_url}</span>
     </div>
     <p class="text-xs text-faint">Set via <code class="rounded bg-surface-2 px-1">BASE_URL</code> in <code class="rounded bg-surface-2 px-1">.env</code>. Branding is per destination and per link.</p>
+  </Card>
+
+  <!-- Session -->
+  <Card class="space-y-3">
+    <h2 class="font-medium">Session</h2>
+    <div class="flex items-center justify-between text-sm">
+      <span class="text-muted">Signed in as</span>
+      <span class="font-mono text-xs">{data.user.email}</span>
+    </div>
+    <Button variant="ghost" size="sm" onclick={logout}>Sign out</Button>
   </Card>
 </div>

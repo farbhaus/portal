@@ -1,4 +1,4 @@
-import { apiFetch } from "$lib/server/api";
+import { redirect } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
 
 export type Destination = {
@@ -12,8 +12,6 @@ export type Destination = {
   updated_at: string;
 };
 
-export const load: PageServerLoad = async ({ request }) => {
-  const res = await apiFetch("/api/destinations", request.headers.get("cookie"));
-  const destinations: Destination[] = res.ok ? await res.json() : [];
-  return { destinations };
+export const load: PageServerLoad = async () => {
+  throw redirect(302, "/sync");
 };

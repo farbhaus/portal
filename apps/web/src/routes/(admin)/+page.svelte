@@ -9,10 +9,16 @@
   const recent = $derived(data.transfers.recent as RecentTransfer[]);
   const health = $derived(data.transfers.sync_health);
 
+  let refreshing = $state(false);
+
   // Live-refresh the feed while something is uploading, then go quiet.
   $effect(() => {
     if (active.length === 0) return;
-    const t = setInterval(() => invalidateAll(), 4000);
+    const t = setInterval(async () => {
+      refreshing = true;
+      await invalidateAll();
+      refreshing = false;
+    }, 4000);
     return () => clearInterval(t);
   });
 
@@ -81,20 +87,29 @@
 
   <!-- Sync health strip -->
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-    {#snippet stat(label: string, value: number, tone: string)}
-      <div class="rounded-card border border-border bg-surface px-4 py-3">
-        <div class="text-2xl font-semibold {tone}">{value}</div>
-        <div class="mt-0.5 text-xs text-muted">{label}</div>
-      </div>
-    {/snippet}
-    {@render stat("Synced (24h)", health.done_24h, "text-text")}
-    {@render stat("In progress", health.running, health.running ? "text-info" : "text-text")}
-    {@render stat("Waiting", health.waiting, health.waiting ? "text-warning" : "text-text")}
-    {@render stat("Failed", health.dead_letter, health.dead_letter ? "text-danger" : "text-text")}
+    {#if refreshing}
+      {#each [0, 1, 2, 3] as _}
+        <div class="rounded-card border border-border bg-surface px-4 py-3">
+          <div class="skeleton h-8 w-10 mb-1.5"></div>
+          <div class="skeleton h-3 w-20"></div>
+        </div>
+      {/each}
+    {:else}
+      {#snippet stat(label: string, value: number, tone: string)}
+        <div class="rounded-card border border-border bg-surface px-4 py-3">
+          <div class="text-2xl font-semibold {tone}">{value}</div>
+          <div class="mt-0.5 text-xs text-muted">{label}</div>
+        </div>
+      {/snippet}
+      {@render stat("Synced (24h)", health.done_24h, "text-text")}
+      {@render stat("In progress", health.running, health.running ? "text-info" : "text-text")}
+      {@render stat("Waiting", health.waiting, health.waiting ? "text-warning" : "text-text")}
+      {@render stat("Failed", health.dead_letter, health.dead_letter ? "text-danger" : "text-text")}
+    {/if}
   </div>
 
   {#if health.dead_letter > 0}
-    <a href="/sync-rules" class="block rounded-card border border-danger/40 bg-danger/10 px-4 py-2.5 text-sm text-danger hover:bg-danger/15">
+    <a href="/sync" class="block rounded-card border border-danger/40 bg-danger/10 px-4 py-2.5 text-sm text-danger hover:bg-danger/15">
       {health.dead_letter} sync job{health.dead_letter > 1 ? "s" : ""} failed and need attention →
     </a>
   {/if}

@@ -10,7 +10,14 @@
 
   let { data } = $props();
   const link = $derived(data.link);
-  const accent = $derived(link.accent_color || "#111111");
+  const accent = $derived(link.accent_color || "#f59e0b");
+  function accentText(hex: string): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? "#1a1206" : "#ffffff";
+  }
+  const onAccent = $derived(accentText(accent));
 
   let name = $state("");
   let email = $state("");
@@ -163,7 +170,7 @@
               {/if}
             </div>
           {/if}
-          <button onclick={open} disabled={opening} class="w-full rounded-md px-4 py-2.5 text-sm font-medium text-on-accent disabled:opacity-50" style="background:{accent}">
+          <button onclick={open} disabled={opening} class="w-full rounded-md px-4 py-2.5 text-sm font-medium disabled:opacity-50" style="background:{accent};color:{onAccent}">
             {opening
               ? link.verify_email && !codeSent
                 ? "Sending…"
@@ -176,7 +183,7 @@
           <div class="flex items-center justify-between">
             <span class="text-sm text-muted">{files.length} file{files.length === 1 ? "" : "s"}</span>
             {#if files.length > 1}
-              <button onclick={all} disabled={allProgress !== null} class="rounded-md px-3 py-1.5 text-sm font-medium text-on-accent disabled:opacity-50" style="background:{accent}">
+              <button onclick={all} disabled={allProgress !== null} class="rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50" style="background:{accent};color:{onAccent}">
                 {allProgress ? `Downloading ${allProgress}…` : "Download all"}
               </button>
             {/if}
@@ -191,7 +198,11 @@
                   {#if link.allow_preview && f.thumbnail_url}
                     <img src={f.thumbnail_url} alt="" class="h-10 w-14 rounded object-cover" />
                   {:else}
-                    <div class="flex h-10 w-14 items-center justify-center rounded bg-surface-2 text-faint">📄</div>
+                    <div class="flex h-10 w-14 items-center justify-center rounded bg-surface-2 text-faint">
+                      <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
+                      </svg>
+                    </div>
                   {/if}
                   <div class="min-w-0 flex-1">
                     <div class="truncate text-sm">{f.name}</div>

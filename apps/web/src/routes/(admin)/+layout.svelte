@@ -1,16 +1,20 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
+  import { onNavigate } from "$app/navigation";
   import { page } from "$app/state";
 
-  let { data, children } = $props();
+  let { children } = $props();
 
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    await goto("/login");
-  }
+  // View transitions API — crossfade between pages
+  onNavigate((navigation) => {
+    if (!document.startViewTransition) return;
+    return new Promise((resolve) => {
+      document.startViewTransition(async () => {
+        resolve();
+        await navigation.complete;
+      });
+    });
+  });
 
-  // Each section owns one or more route prefixes; the sidebar highlights by prefix
-  // so e.g. both /upload-links and /download-links light up "Links".
   type Section = { label: string; href: string; match: string[]; icon: string };
   const sections: Section[] = [
     {
@@ -27,14 +31,14 @@
     },
     {
       label: "Links",
-      href: "/upload-links",
-      match: ["/upload-links", "/download-links"],
+      href: "/links",
+      match: ["/links", "/upload-links", "/download-links"],
       icon: "M9 15l6-6M10 6l1-1a4 4 0 0 1 6 6l-1 1M14 18l-1 1a4 4 0 0 1-6-6l1-1",
     },
     {
       label: "Sync",
-      href: "/destinations",
-      match: ["/destinations", "/sync-rules"],
+      href: "/sync",
+      match: ["/sync", "/destinations", "/sync-rules"],
       icon: "M4 8a8 8 0 0 1 14-3l2 2M20 16a8 8 0 0 1-14 3l-2-2M18 4v3h-3M6 20v-3h3",
     },
     {
@@ -48,57 +52,42 @@
   function active(s: Section): boolean {
     const p = page.url.pathname;
     if (s.href === "/") return p === "/" || s.match.some((m) => p.startsWith(m));
-    return p === s.href || [s.href, ...s.match].some((m) => p.startsWith(m + "/") || p === m);
+    return p === s.href || [s.href, ...s.match].some((m) => p === m || p.startsWith(m + "/"));
   }
 </script>
 
-<div class="flex min-h-full">
-  <aside
-    class="sticky top-0 flex h-screen w-56 shrink-0 flex-col border-r border-border bg-surface px-3 py-4"
-  >
-    <a href="/" class="mb-6 flex items-center gap-2 px-2">
-      <span class="grid h-7 w-7 place-items-center rounded-md bg-accent text-on-accent font-bold">P</span>
-      <span class="text-base font-semibold tracking-tight">Portal</span>
-    </a>
-
-    <nav class="flex flex-1 flex-col gap-1">
-      {#each sections as s (s.label)}
-        <a
-          href={s.href}
-          class="flex items-center gap-3 rounded-md px-2.5 py-2 text-sm font-medium transition-colors {active(
-            s,
-          )
-            ? 'bg-surface-3 text-text'
-            : 'text-muted hover:bg-surface-2 hover:text-text'}"
-        >
-          <svg
-            class="h-[18px] w-[18px] {active(s) ? 'text-accent' : ''}"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.7"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d={s.icon} />
-          </svg>
-          {s.label}
-        </a>
-      {/each}
-    </nav>
-
-    <div class="mt-4 border-t border-border pt-3">
-      <div class="truncate px-2.5 text-xs text-faint" title={data.user.email}>{data.user.email}</div>
-      <button
-        onclick={logout}
-        class="mt-1.5 w-full rounded-md px-2.5 py-1.5 text-left text-sm text-muted hover:bg-surface-2 hover:text-text"
-      >
-        Sign out
-      </button>
-    </div>
-  </aside>
-
-  <main class="min-w-0 flex-1 px-8 py-7">
+<div class="min-h-full">
+  <main class="mx-auto max-w-7xl px-6 py-7 pb-28">
     {@render children()}
   </main>
+
+  <!-- Floating pill navigation -->
+  <nav
+    class="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-border bg-surface/85 px-1.5 py-1.5 shadow-xl backdrop-blur-md"
+    aria-label="Main navigation"
+  >
+    {#each sections as s (s.label)}
+      <a
+        href={s.href}
+        class="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors {active(s)
+          ? 'bg-surface-3 text-accent'
+          : 'text-muted hover:bg-surface-2 hover:text-text'}"
+        aria-current={active(s) ? 'page' : undefined}
+      >
+        <svg
+          class="h-[18px] w-[18px] shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d={s.icon} />
+        </svg>
+        <span class="hidden sm:inline">{s.label}</span>
+      </a>
+    {/each}
+  </nav>
 </div>

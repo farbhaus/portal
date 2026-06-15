@@ -201,7 +201,7 @@
   }
 </script>
 
-<div class="max-w-2xl space-y-6">
+<div class="mx-auto max-w-2xl space-y-6">
   <div>
     <a href="/download-links" class="text-sm text-muted hover:text-text">← Download links</a>
     <h1 class="mt-1 text-2xl font-semibold">New download link</h1>
