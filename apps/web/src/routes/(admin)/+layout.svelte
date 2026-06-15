@@ -57,25 +57,25 @@
 </script>
 
 <div class="min-h-full">
-  <main class="mx-auto max-w-7xl px-6 py-7 pb-28">
+  <main class="mx-auto max-w-7xl px-4 py-7 pb-28 sm:px-6">
     {@render children()}
   </main>
 
-  <!-- Floating pill navigation -->
+  <!-- Floating pill navigation — stretches to device width on mobile -->
   <nav
-    class="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-border bg-surface/85 px-1.5 py-1.5 shadow-xl backdrop-blur-md"
+    class="fixed bottom-5 left-4 right-4 z-50 flex items-center rounded-full border border-border bg-surface/85 px-2 py-2 shadow-xl backdrop-blur-md sm:left-1/2 sm:right-auto sm:w-auto sm:-translate-x-1/2"
     aria-label="Main navigation"
   >
     {#each sections as s (s.label)}
       <a
         href={s.href}
-        class="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors {active(s)
+        class="flex flex-1 items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium transition-colors sm:flex-none {active(s)
           ? 'bg-surface-3 text-accent'
           : 'text-muted hover:bg-surface-2 hover:text-text'}"
         aria-current={active(s) ? 'page' : undefined}
       >
         <svg
-          class="h-[18px] w-[18px] shrink-0"
+          class="h-5 w-5 shrink-0"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"

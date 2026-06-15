@@ -44,14 +44,21 @@
   --radius-card: 0.75rem;
 }
 
-/* View transitions: smooth 150ms crossfade between pages */
+/* View transitions: pure opacity crossfade, no zoom */
 @view-transition {
   navigation: auto;
 }
-::view-transition-old(root),
+@keyframes vt-fade-out {
+  to { opacity: 0; }
+}
+@keyframes vt-fade-in {
+  from { opacity: 0; }
+}
+::view-transition-old(root) {
+  animation: 120ms ease-out both vt-fade-out;
+}
 ::view-transition-new(root) {
-  animation-duration: 150ms;
-  animation-timing-function: ease-out;
+  animation: 120ms ease-out both vt-fade-in;
 }
 
 html,

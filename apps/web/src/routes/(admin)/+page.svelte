@@ -40,6 +40,10 @@
     return `${Math.floor(h / 24)}d ago`;
   }
 
+  function shortUrl(url: string): string {
+    try { return new URL(url).pathname; } catch { return url; }
+  }
+
   const kindMeta: Record<string, { label: string; cls: string }> = {
     upload: { label: "↑ Upload", cls: "text-info" },
     download: { label: "↓ Download", cls: "text-accent" },
@@ -133,10 +137,10 @@
                   <span class="truncate">{r.label ?? "—"}</span>
                   {#if r.who}<span class="hidden truncate text-muted sm:inline">· {r.who}</span>{/if}
                 </div>
-                <div class="flex shrink-0 items-center gap-3">
-                  <span class="text-xs text-faint">{fmtBytes(r.bytes)}</span>
-                  {#if r.kind === "sync"}<StatusPill status={r.status} />{/if}
-                  <span class="w-16 text-right text-xs text-faint">{timeAgo(r.at)}</span>
+                <div class="flex shrink-0 items-center gap-2">
+                  <span class="hidden text-xs text-faint sm:inline">{fmtBytes(r.bytes)}</span>
+                  {#if r.kind === "sync"}<span class="hidden sm:block"><StatusPill status={r.status} /></span>{/if}
+                  <span class="text-right text-xs text-faint">{timeAgo(r.at)}</span>
                 </div>
               </div>
             {/each}
@@ -161,7 +165,7 @@
                 <div class="flex items-center justify-between gap-2 px-5 py-2.5">
                   <div class="min-w-0">
                     <div class="truncate text-sm font-medium">{l.brand_display_name ?? "Untitled"}</div>
-                    <CopyButton value={l.public_url} class="text-xs" />
+                    <CopyButton value={l.public_url} label={shortUrl(l.public_url)} class="text-xs" />
                   </div>
                   <Button href={l.public_url} target="_blank" rel="noopener" variant="ghost" size="sm">Open</Button>
                 </div>

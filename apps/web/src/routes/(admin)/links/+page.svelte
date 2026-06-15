@@ -9,6 +9,10 @@
 
   let busy = $state<string | null>(null);
 
+  function shortUrl(url: string): string {
+    try { return new URL(url).pathname; } catch { return url; }
+  }
+
   function sourceLabel(source: Record<string, unknown>): string {
     if (source.type === "file") return "1 file";
     if (source.type === "folder") return source.recursive ? "Folder (recursive)" : "Folder";
@@ -82,13 +86,13 @@
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2">
-                    <span class="truncate font-medium text-sm">{link.brand_display_name ?? "Untitled"}</span>
+                    <a href="/upload-links/{link.id}" class="truncate font-medium text-sm hover:text-accent">{link.brand_display_name ?? "Untitled"}</a>
                     <StatusPill status={link.state} />
                   </div>
                   <div class="mt-0.5 text-xs text-muted">{link.destination_name}</div>
-                  <CopyButton value={link.public_url} class="mt-1 text-xs" />
+                  <CopyButton value={link.public_url} label={shortUrl(link.public_url)} class="mt-1 text-xs" />
                 </div>
-                <div class="flex shrink-0 items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div class="hidden sm:flex shrink-0 items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <a href={link.public_url} target="_blank" rel="noopener" class="text-xs text-muted hover:text-text">Open</a>
                   <a href="/upload-links/{link.id}" class="text-xs text-muted hover:text-text">Edit</a>
                   {#if link.state === "ok"}
@@ -125,16 +129,16 @@
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2">
-                    <span class="truncate font-medium text-sm">{link.brand_display_name ?? "Untitled"}</span>
+                    <a href="/download-links/{link.id}" class="truncate font-medium text-sm hover:text-accent">{link.brand_display_name ?? "Untitled"}</a>
                     <StatusPill status={link.state} />
                   </div>
                   <div class="mt-0.5 text-xs text-muted">
                     {sourceLabel(link.source)}
                     {#if link.max_downloads}· {link.downloads_count}/{link.max_downloads} downloads{:else if link.downloads_count}· {link.downloads_count} downloads{/if}
                   </div>
-                  <CopyButton value={link.public_url} class="mt-1 text-xs" />
+                  <CopyButton value={link.public_url} label={shortUrl(link.public_url)} class="mt-1 text-xs" />
                 </div>
-                <div class="flex shrink-0 items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div class="hidden sm:flex shrink-0 items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <a href={link.public_url} target="_blank" rel="noopener" class="text-xs text-muted hover:text-text">Open</a>
                   <a href="/download-links/{link.id}" class="text-xs text-muted hover:text-text">Edit</a>
                   {#if link.state === "ok"}
