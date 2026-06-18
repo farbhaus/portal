@@ -57,13 +57,13 @@
 </script>
 
 <div class="min-h-full">
-  <main class="mx-auto max-w-7xl px-4 py-7 pb-28 sm:px-6">
+  <main class="mx-auto max-w-7xl px-4 py-7 pb-28 sm:px-6 sm:pb-7 sm:pt-24">
     {@render children()}
   </main>
 
-  <!-- Floating pill navigation — stretches to device width on mobile -->
+  <!-- Floating pill navigation — full-width at the bottom on mobile, centered at the top on desktop -->
   <nav
-    class="fixed bottom-5 left-4 right-4 z-50 flex items-center rounded-full border border-border bg-surface/85 px-2 py-2 shadow-xl backdrop-blur-md sm:left-1/2 sm:right-auto sm:w-auto sm:-translate-x-1/2"
+    class="fixed bottom-5 left-4 right-4 z-50 flex items-center rounded-full border border-border bg-surface/85 px-2 py-2 shadow-xl backdrop-blur-md sm:bottom-auto sm:left-1/2 sm:right-auto sm:top-5 sm:w-auto sm:-translate-x-1/2"
     aria-label="Main navigation"
   >
     {#each sections as s (s.label)}
