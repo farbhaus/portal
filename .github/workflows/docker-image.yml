@@ -9,33 +9,30 @@ on:
     branches: [ "main", "dev" ]
   pull_request:
     branches: [ "main", "dev" ]
-
   workflow_dispatch:
 
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v2
-
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
+      uses: docker/setup-buildx-action@v3
 
     - name: Log in to GitHub Container Registry (only on main)
       if: github.ref == 'refs/heads/main'
-      uses: docker/login-action@v2
+      uses: docker/login-action@v3
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build and (optionally) push API image
-      uses: docker/build-push-action@v4
+      uses: docker/build-push-action@v6
       with:
         context: ./apps/api
         file: ./apps/api/Dockerfile
@@ -47,7 +44,7 @@ jobs:
         cache-to: type=gha,mode=max
 
     - name: Build and (optionally) push Web image
-      uses: docker/build-push-action@v4
+      uses: docker/build-push-action@v6
       with:
         context: ./apps/web
         file: ./apps/web/Dockerfile

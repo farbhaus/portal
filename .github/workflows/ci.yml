@@ -1,6 +1,5 @@
-# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
-
+# Lint, type-check, test the backend and build + check the frontend.
+# Backend uses uv with the committed uv.lock so CI matches the deployed image.
 name: CI
 
 on:
@@ -10,13 +9,14 @@ on:
     branches: [ "main", "dev" ]
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
-    name: Backend — tests & lint
+    name: Backend — lint, types & tests
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12"]
     services:
       postgres:
         image: postgres:15
@@ -39,32 +39,23 @@ jobs:
       REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-      - name: Install system utilities for health checks
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client redis-tools
-      - name: Wait for Postgres & Redis
-        run: |
-          for i in {1..60}; do pg_isready -h localhost -p 5432 -U portal && redis-cli -h localhost ping && break || sleep 1; done
-      - name: Install Python dependencies
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - name: Install dependencies (locked, incl. dev group)
         working-directory: apps/api
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .
-          python -m pip install pytest pytest-asyncio httpx ruff mypy
+        run: uv sync --frozen
       - name: Lint with ruff
         working-directory: apps/api
-        run: |
-          ruff check .
+        run: uv run ruff check .
+      - name: Type-check with mypy
+        working-directory: apps/api
+        run: uv run mypy src
       - name: Run tests
         working-directory: apps/api
-        run: |
-          pytest -q
+        run: uv run pytest -q
 
   frontend:
     name: Frontend — build & check
@@ -76,12 +67,13 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-      - name: Install and build
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install
         working-directory: apps/web
-        run: |
-          npm ci
-          npm run build
-      - name: Optional run svelte check
+        run: npm ci
+      - name: Build
         working-directory: apps/web
-        run: |
-          npm run check || true
+        run: npm run build
+      - name: Svelte check
+        working-directory: apps/web
+        run: npm run check
