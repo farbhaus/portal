@@ -81,7 +81,7 @@ jobs:
         run: |
           npm ci
           npm run build
-      - name: Optional: run svelte check
+      - name: Optional run svelte check
         working-directory: apps/web
         run: |
           npm run check || true
