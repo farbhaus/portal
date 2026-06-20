@@ -475,7 +475,7 @@ async def test_completion_schedules_email(client: AsyncClient, monkeypatch) -> N
     _use_upload_stub(monkeypatch)
     calls: list[dict] = []
 
-    async def capture(**kwargs: object) -> None:
+    async def capture(config: object, **kwargs: object) -> None:
         calls.append(kwargs)
 
     monkeypatch.setattr(public_routes, "send_upload_completion", capture)

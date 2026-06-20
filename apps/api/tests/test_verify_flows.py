@@ -27,20 +27,31 @@ async def _clear() -> None:
 
 
 def _enable_email(monkeypatch: Any) -> dict[str, str]:
-    from portal.lib.config import get_settings
+    from portal.services.runtime_config import EmailConfig
 
-    s = get_settings()
-    monkeypatch.setattr(s, "smtp_host", "smtp.test")
-    monkeypatch.setattr(s, "smtp_from", "portal@test")
+    cfg = EmailConfig(
+        smtp_host="smtp.test",
+        smtp_port=587,
+        smtp_username="",
+        smtp_password="",
+        smtp_from="portal@test",
+        smtp_use_tls=False,
+        smtp_starttls=True,
+        notify_email="",
+    )
     sent: dict[str, str] = {}
 
-    async def fake_send(to: str, code: str, ttl: int) -> None:
+    async def fake_get_email_config(db: Any) -> EmailConfig:
+        return cfg
+
+    async def fake_send(config: Any, to: str, code: str, ttl: int, brand: Any = None) -> None:
         sent["to"] = to
         sent["code"] = code
 
     async def plausible(email: str, *, check_mx: bool) -> bool:
         return True
 
+    monkeypatch.setattr(service, "get_email_config", fake_get_email_config)
     monkeypatch.setattr(service, "send_verification_code", fake_send)
     monkeypatch.setattr(service, "is_plausible_email", plausible)
     return sent

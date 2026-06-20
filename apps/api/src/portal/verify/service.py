@@ -14,6 +14,8 @@ from portal.db.models import EmailVerification
 from portal.lib.config import get_settings
 from portal.lib.logging import get_logger
 from portal.notify.email import send_verification_code
+from portal.services.app_settings import email_brand
+from portal.services.runtime_config import get_email_config
 from portal.verify.email_check import is_plausible_email
 
 log = get_logger("verify.service")
@@ -51,7 +53,8 @@ def _hash(code: str) -> str:
 async def request_code(db: AsyncSession, email: str) -> None:
     """Validate the address, enforce the resend cooldown, email a fresh code, and store its hash."""
     settings = get_settings()
-    if not settings.email_configured:
+    email_config = await get_email_config(db)
+    if not email_config.configured:
         raise VerificationUnavailable()
 
     email = _norm(email)
@@ -69,8 +72,11 @@ async def request_code(db: AsyncSession, email: str) -> None:
 
     code = f"{secrets.randbelow(1_000_000):06d}"
     expires = now + timedelta(seconds=settings.verify_code_ttl_seconds)
+    brand = await email_brand(db, settings.base_url)
     # Send first; only persist if the email actually went out (no orphan codes on SMTP failure).
-    await send_verification_code(email, code, settings.verify_code_ttl_seconds // 60)
+    await send_verification_code(
+        email_config, email, code, settings.verify_code_ttl_seconds // 60, brand
+    )
 
     if existing is None:
         db.add(

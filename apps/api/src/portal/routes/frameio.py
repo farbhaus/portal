@@ -20,6 +20,7 @@ from portal.frameio.client import (
 )
 from portal.lib.config import get_settings
 from portal.lib.logging import get_logger
+from portal.services.runtime_config import get_oauth_config
 
 log = get_logger("routes.frameio")
 router = APIRouter(prefix="/frameio", tags=["frameio"])
@@ -41,10 +42,17 @@ def _web_redirect(suffix: str) -> RedirectResponse:
 
 
 @router.get("/oauth/connect")
-async def connect(request: Request, _: User = Depends(require_admin)) -> RedirectResponse:
+async def connect(
+    request: Request,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+) -> RedirectResponse:
+    oauth_config = await get_oauth_config(db)
+    if not oauth_config.configured:
+        return _web_redirect("/settings?frameio=unconfigured")
     state = secrets.token_urlsafe(32)
     request.session[_STATE_SESSION_KEY] = state
-    return RedirectResponse(url=oauth.build_authorize_url(state), status_code=302)
+    return RedirectResponse(url=oauth.build_authorize_url(oauth_config, state), status_code=302)
 
 
 @router.get("/oauth/callback")
@@ -63,7 +71,8 @@ async def callback(
         log.warning("frameio.callback.rejected", has_code=bool(code), state_ok=state == expected)
         return _web_redirect("/settings?frameio=error")
     try:
-        tokens = await oauth.exchange_code(code)
+        oauth_config = await get_oauth_config(db)
+        tokens = await oauth.exchange_code(oauth_config, code)
         identity = await oauth.fetch_identity(tokens.access_token)
         await conn_svc.upsert_connection(db, user.id, tokens, identity)
     except oauth.FrameioOAuthError:

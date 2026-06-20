@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from portal.db.models import AppSettings
+from portal.notify.email import EmailBrand
 
 
 async def get_app_settings(db: AsyncSession) -> AppSettings | None:
@@ -38,4 +39,17 @@ async def resolve_branding(
         logo_url(row, base_url),
         row.brand_display_name if row else None,
         row.brand_accent_color if row else None,
+    )
+
+
+async def email_brand(db: AsyncSession, base_url: str) -> EmailBrand:
+    """Branding for outgoing emails, falling back to the EmailBrand defaults when unset."""
+    row = await get_app_settings(db)
+    defaults = EmailBrand()
+    return EmailBrand(
+        name=(row.brand_display_name if row and row.brand_display_name else defaults.name),
+        accent_color=(
+            row.brand_accent_color if row and row.brand_accent_color else defaults.accent_color
+        ),
+        logo_url=logo_url(row, base_url),
     )

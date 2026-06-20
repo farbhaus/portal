@@ -63,7 +63,7 @@ async def test_get_valid_access_token_refreshes_when_expired(monkeypatch) -> Non
         )
         await db.commit()
 
-    async def fake_refresh(refresh_token: str) -> oauth.TokenSet:
+    async def fake_refresh(config: object, refresh_token: str) -> oauth.TokenSet:
         assert refresh_token == "the-refresh"
         return oauth.TokenSet(
             access_token="new-access",
@@ -98,7 +98,7 @@ async def test_get_valid_access_token_no_refresh_when_fresh(monkeypatch) -> None
         )
         await db.commit()
 
-    async def boom(refresh_token: str) -> oauth.TokenSet:
+    async def boom(config: object, refresh_token: str) -> oauth.TokenSet:
         raise AssertionError("refresh should not be called for a fresh token")
 
     monkeypatch.setattr(oauth, "refresh_tokens", boom)
@@ -113,9 +113,26 @@ async def test_get_valid_access_token_no_refresh_when_fresh(monkeypatch) -> None
 
 async def test_connect_redirects_to_ims(client: AsyncClient) -> None:
     await _login(client)
+    # Frame.io client credentials must be configured for /connect to start the OAuth flow.
+    await client.post(
+        "/api/settings/frameio-config",
+        json={"client_id": "client-abc", "client_secret": "secret-xyz"},
+    )
     resp = await client.get("/api/frameio/oauth/connect")
     assert resp.status_code == 302
     assert resp.headers["location"].startswith(IMS_AUTHORIZE_URL)
+
+
+async def test_connect_unconfigured_redirects_to_settings(client: AsyncClient) -> None:
+    await _login(client)
+    # Clear any client credentials a prior test may have saved (app_settings persists per session).
+    await client.post(
+        "/api/settings/frameio-config",
+        json={"client_id": "", "clear_secret": True},
+    )
+    resp = await client.get("/api/frameio/oauth/connect")
+    assert resp.status_code == 302
+    assert resp.headers["location"].endswith("/settings?frameio=unconfigured")
 
 
 async def test_callback_rejects_bad_state(client: AsyncClient) -> None:

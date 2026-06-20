@@ -25,7 +25,8 @@ from portal.lib.errors import NotFoundError
 from portal.lib.logging import get_logger
 from portal.lib.ratelimit import limit
 from portal.notify.email import UploadedFile, send_upload_completion
-from portal.services.app_settings import resolve_branding
+from portal.services.app_settings import email_brand, resolve_branding
+from portal.services.runtime_config import get_email_config
 from portal.storage.base import DestinationConfig, UploadNotReady
 from portal.storage.base import UploadSession as StorageUploadSession
 from portal.storage.frameio_backend import FrameioStorageBackend
@@ -423,12 +424,16 @@ async def complete_session(
     sync_account = str(dest_cfg.get("account_id") or "")
     sync_folder = str(dest_cfg.get("folder_id") or "")
     uploaded_file_ids = [str(e["file_id"]) for e in entries if e.get("file_id")]
+    # Resolve email config + branding now — the request session is gone by background-task time.
+    email_config = await get_email_config(db)
+    brand = await email_brand(db, get_settings().base_url)
 
     await db.commit()
     log.info("public.upload.session_completed", session_id=session_id)
 
     background.add_task(
         send_upload_completion,
+        email_config,
         link_name=link_name,
         uploader_name=uploader[0],
         uploader_email=uploader[1],
@@ -436,6 +441,7 @@ async def complete_session(
         files=files,
         total_bytes=total_bytes,
         duration_seconds=duration,
+        brand=brand,
     )
     # Portal's own sync trigger: mirror client-uploaded files to any matching sync rule's NAS
     # destination immediately, instead of waiting on a Frame.io webhook (which self-serve plans

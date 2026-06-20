@@ -45,6 +45,16 @@
       else await invalidateAll();
     } finally { busy = null; }
   }
+
+  async function removeRule(r: SyncRule) {
+    if (!confirm(`Delete sync rule "${r.name}"? Its webhook and job history will be removed.`)) return;
+    deleting = r.id; note = null;
+    try {
+      const res = await fetch(`/api/sync-rules/${r.id}`, { method: "DELETE" });
+      if (!res.ok) note = (await res.json().catch(() => ({}))).detail ?? `Could not delete (${res.status}).`;
+      else await invalidateAll();
+    } finally { deleting = null; }
+  }
 </script>
 
 <div class="space-y-5">
@@ -142,6 +152,10 @@
                   <Button variant="ghost" size="sm" onclick={() => toggle(r)} disabled={busy === r.id}>
                     {r.enabled ? "Disable" : "Enable"}
                   </Button>
+                  <a href="/sync-rules/{r.id}" class="text-xs text-muted hover:text-text">Edit</a>
+                  <button onclick={() => removeRule(r)} disabled={deleting === r.id} class="text-xs text-danger hover:opacity-80 disabled:opacity-50">
+                    {deleting === r.id ? "Deleting…" : "Delete"}
+                  </button>
                 </div>
               </div>
             </div>

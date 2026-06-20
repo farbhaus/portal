@@ -195,7 +195,7 @@
   </div>
 
   <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
-    <h2 class="font-medium">Branding</h2>
+    <h2 class="font-medium">Details</h2>
     <label class="block text-sm">
       <span class="text-muted">Display name <span class="text-danger">*</span></span>
       <input bind:value={displayName} placeholder="e.g. DIT Drop — Project X" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />

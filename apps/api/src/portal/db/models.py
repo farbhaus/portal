@@ -73,7 +73,12 @@ class WebauthnCredential(Base, TimestampMixin):
 
 
 class AppSettings(Base, TimestampMixin):
-    """Single-row store for app-wide branding (uploaded logo + brand defaults)."""
+    """Single-row store for app-wide configuration: branding, email (SMTP) and Frame.io linking.
+
+    Email + Frame.io config live here (not .env) so the admin manages them from the Settings page.
+    Secrets (SMTP password, Frame.io client secret) are encrypted at rest with TokenCipher.
+    `config_seeded` guards the one-time import of any pre-existing .env values on first startup.
+    """
 
     __tablename__ = "app_settings"
 
@@ -83,6 +88,23 @@ class AppSettings(Base, TimestampMixin):
     logo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     brand_display_name: Mapped[str | None] = mapped_column(String(255))
     brand_accent_color: Mapped[str | None] = mapped_column(String(32))
+
+    # Email (SMTP). smtp_password_encrypted holds a TokenCipher ciphertext.
+    smtp_host: Mapped[str | None] = mapped_column(String(255))
+    smtp_port: Mapped[int | None] = mapped_column(Integer)
+    smtp_username: Mapped[str | None] = mapped_column(String(255))
+    smtp_password_encrypted: Mapped[str | None] = mapped_column(Text)
+    smtp_from: Mapped[str | None] = mapped_column(String(255))
+    smtp_use_tls: Mapped[bool | None] = mapped_column(Boolean)
+    smtp_starttls: Mapped[bool | None] = mapped_column(Boolean)
+    notify_email: Mapped[str | None] = mapped_column(String(255))
+
+    # Frame.io / Adobe IMS OAuth. frameio_client_secret_encrypted is a TokenCipher ciphertext.
+    frameio_client_id: Mapped[str | None] = mapped_column(String(255))
+    frameio_client_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+
+    # True once any legacy .env email/Frame.io values have been imported into this row.
+    config_seeded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class FrameioConnection(Base, TimestampMixin):
