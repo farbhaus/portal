@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { FolderPicker } from "$lib/components";
 
   let { data } = $props();
   const link = $derived(data.link);
@@ -17,10 +18,15 @@
   let brandDisplayName = $state("");
   let brandSubtitle = $state("");
   let destinationId = $state("");
+  let subfolderTemplate = $state("");
+  let changeFolder = $state(false);
+  let targetFolder = $state<{ id: string; name: string } | null>(null);
 
   let saving = $state(false);
   let error = $state<string | null>(null);
   let saved = $state(false);
+
+  const selectedDest = $derived(data.destinations.find((d) => d.id === destinationId));
 
   let seededId = "";
   $effect(() => {
@@ -37,6 +43,9 @@
       brandDisplayName = link.brand_display_name ?? "";
       brandSubtitle = link.brand_subtitle ?? "";
       destinationId = link.destination_id;
+      subfolderTemplate = link.subfolder_template ?? "";
+      changeFolder = false;
+      targetFolder = null;
       newPassword = "";
       clearPassword = false;
     }
@@ -74,9 +83,17 @@
           : null,
         uploader_fields_required: { name: reqName, email: reqEmail, message: reqMessage },
         verify_email: verifyEmail,
+        subfolder_template: subfolderTemplate.trim() || null,
         brand_display_name: brandDisplayName.trim() || null,
         brand_subtitle: brandSubtitle.trim() || null,
       };
+      // Only touch the base folder when the admin explicitly changed it (avoids clobbering
+      // the saved subfolder on an unrelated edit). Picking the root clears it back to root.
+      if (changeFolder) {
+        const isRoot = !targetFolder || targetFolder.id === selectedDest?.config.folder_id;
+        body.target_folder_id = isRoot ? null : targetFolder!.id;
+        body.target_folder_name = isRoot ? null : targetFolder!.name;
+      }
       if (clearPassword) body.password = "";
       else if (newPassword) body.password = newPassword;
 
@@ -140,13 +157,39 @@
   <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
     <label class="block text-sm">
       <span class="text-muted">Destination</span>
-      <select bind:value={destinationId} class="mt-1 w-full rounded-md border border-border px-2 py-1.5">
+      <select bind:value={destinationId} onchange={() => (changeFolder = true)} class="mt-1 w-full rounded-md border border-border px-2 py-1.5">
         {#each data.destinations as d (d.id)}
           <option value={d.id}>{d.display_name}</option>
         {/each}
       </select>
       <span class="mt-1 block text-xs text-faint">Where new uploads to this link are delivered.</span>
     </label>
+
+    <div class="text-sm">
+      <span class="text-muted">Base subfolder</span>
+      <p class="mt-0.5 text-xs text-faint">Current: <span class="text-text">{link.target_folder_name ?? "Destination root"}</span></p>
+      {#if !changeFolder}
+        <button type="button" onclick={() => (changeFolder = true)} class="mt-1 text-xs text-accent hover:underline">Change folder…</button>
+      {:else if selectedDest?.config.account_id && selectedDest?.config.folder_id}
+        {#key destinationId}
+          <div class="mt-2">
+            <FolderPicker
+              accountId={selectedDest.config.account_id}
+              rootFolderId={selectedDest.config.folder_id}
+              rootName={selectedDest.display_name}
+              bind:value={targetFolder}
+            />
+          </div>
+        {/key}
+      {/if}
+    </div>
+
+    <label class="block text-sm">
+      <span class="text-muted">Path template</span>
+      <input bind:value={subfolderTemplate} placeholder={"e.g. {date}/{uploader_name}"} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 font-mono text-xs" />
+      <span class="mt-1 block text-xs text-faint">{"Folders created per upload beneath the base. Tokens: {date} {year} {month} {day} {uploader_name}."}</span>
+    </label>
+
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <label class="block text-sm">
         <span class="text-muted">Expires</span>

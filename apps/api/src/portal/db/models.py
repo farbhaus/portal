@@ -94,6 +94,11 @@ class UploadLink(Base, TimestampMixin):
     uploader_fields_required: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # When true, the email field is required AND must be verified by a one-time code.
     verify_email: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Optional base subfolder under the destination (a Frame.io folder); null = root.
+    target_folder_id: Mapped[str | None] = mapped_column(String(255))
+    target_folder_name: Mapped[str | None] = mapped_column(String(255))
+    # Optional path template applied beneath the base folder, e.g. "{date}/{uploader_name}".
+    subfolder_template: Mapped[str | None] = mapped_column(Text)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Branding overrides (fall back to destination branding when null)
     brand_logo_url: Mapped[str | None] = mapped_column(Text)

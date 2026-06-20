@@ -28,6 +28,7 @@ from portal.storage.base import DestinationConfig, UploadNotReady
 from portal.storage.base import UploadSession as StorageUploadSession
 from portal.storage.frameio_backend import FrameioStorageBackend
 from portal.sync.events import trigger_sync_for_upload
+from portal.sync.paths import render_session_prefix
 from portal.uploads.links import link_state, merged_branding
 
 log = get_logger("routes.public")
@@ -233,6 +234,15 @@ def _destination_config(destination: Destination) -> DestinationConfig:
     return DestinationConfig(type=str(config.get("type", "frameio")), data=config)
 
 
+def _upload_destination_config(link: UploadLink) -> DestinationConfig:
+    """Destination config for this link's uploads, with the folder overridden to the link's
+    base subfolder when one is set (otherwise the destination's root folder)."""
+    config = dict(link.destination.config)
+    if link.target_folder_id:
+        config["folder_id"] = link.target_folder_id
+    return DestinationConfig(type=str(config.get("type", "frameio")), data=config)
+
+
 async def _load_session(db: AsyncSession, link: UploadLink, session_id: str) -> UploadSession:
     try:
         sid = uuid.UUID(session_id)
@@ -304,10 +314,19 @@ async def request_file_upload(
     if link.max_file_size is not None and body.size > link.max_file_size:
         raise HTTPException(status_code=400, detail="File exceeds the maximum allowed size")
 
+    # Place the file under the link's base subfolder (folder override) + per-session template
+    # prefix; the backend mirrors any remaining browser path beneath that, auto-creating folders.
+    prefix = render_session_prefix(
+        link.subfolder_template,
+        uploader_name=session.uploader_name or "",
+        when=session.started_at or datetime.now(UTC),
+    )
+    effective_path = f"{prefix}/{body.path}" if prefix else body.path
+
     backend = FrameioStorageBackend(client=get_frameio_client())
     try:
         upload = await backend.create_upload_session(
-            _destination_config(link.destination), filename=body.path, size=body.size
+            _upload_destination_config(link), filename=effective_path, size=body.size
         )
         creds = await backend.get_upload_credentials(upload)
     except FrameioNotConnected as exc:

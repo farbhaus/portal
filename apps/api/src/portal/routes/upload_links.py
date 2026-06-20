@@ -53,6 +53,10 @@ class UploadLinkCreate(BaseModel):
     allowed_extensions: list[str] | None = None
     uploader_fields_required: UploaderFields = UploaderFields()
     verify_email: bool = False
+    # Optional base subfolder under the destination + per-session path template beneath it.
+    target_folder_id: str | None = Field(default=None, max_length=255)
+    target_folder_name: str | None = Field(default=None, max_length=255)
+    subfolder_template: str | None = None
     brand_logo_url: str | None = None
     brand_accent_color: str | None = Field(default=None, max_length=32)
     brand_display_name: str | None = Field(default=None, max_length=255)
@@ -68,6 +72,9 @@ class UploadLinkUpdate(BaseModel):
     allowed_extensions: list[str] | None = None
     uploader_fields_required: UploaderFields | None = None
     verify_email: bool | None = None
+    target_folder_id: str | None = Field(default=None, max_length=255)
+    target_folder_name: str | None = Field(default=None, max_length=255)
+    subfolder_template: str | None = None
     brand_logo_url: str | None = None
     brand_accent_color: str | None = Field(default=None, max_length=32)
     brand_display_name: str | None = Field(default=None, max_length=255)
@@ -87,6 +94,9 @@ class UploadLinkOut(BaseModel):
     allowed_extensions: list[str] | None
     uploader_fields_required: dict[str, bool]
     verify_email: bool
+    target_folder_id: str | None
+    target_folder_name: str | None
+    subfolder_template: str | None
     brand_logo_url: str | None
     brand_accent_color: str | None
     brand_display_name: str | None
@@ -126,6 +136,9 @@ def _to_out(link: UploadLink) -> UploadLinkOut:
             "message": bool(fields.get("message")),
         },
         verify_email=link.verify_email,
+        target_folder_id=link.target_folder_id,
+        target_folder_name=link.target_folder_name,
+        subfolder_template=link.subfolder_template,
         brand_logo_url=link.brand_logo_url,
         brand_accent_color=link.brand_accent_color,
         brand_display_name=link.brand_display_name,
@@ -185,6 +198,9 @@ async def create_link(
             body.uploader_fields_required.model_dump(), body.verify_email
         ),
         verify_email=body.verify_email,
+        target_folder_id=(body.target_folder_id or "").strip() or None,
+        target_folder_name=(body.target_folder_name or "").strip() or None,
+        subfolder_template=(body.subfolder_template or "").strip() or None,
         brand_logo_url=body.brand_logo_url,
         brand_accent_color=body.brand_accent_color,
         brand_display_name=body.brand_display_name,
@@ -237,6 +253,10 @@ async def update_link(
     if "uploader_fields_required" in fields:
         ufr: dict[str, Any] | None = fields.pop("uploader_fields_required")
         link.uploader_fields_required = ufr
+    for key in ("target_folder_id", "target_folder_name", "subfolder_template"):
+        if key in fields:
+            raw = fields.pop(key)
+            setattr(link, key, (raw or "").strip() or None)
 
     for key, value in fields.items():
         setattr(link, key, value)

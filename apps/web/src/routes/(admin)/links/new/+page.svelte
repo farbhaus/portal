@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { onMount } from "svelte";
+  import { FolderPicker, ProjectPicker } from "$lib/components";
 
   let { data } = $props();
 
@@ -27,8 +28,12 @@
   let reqEmail = $state(false);
   let reqMessage = $state(false);
   let verifyEmail = $state(false);
+  let targetFolder = $state<{ id: string; name: string } | null>(null);
+  let subfolderTemplate = $state("");
   let uBrandDisplayName = $state("");
   let uBrandSubtitle = $state("");
+
+  const selectedDest = $derived(data.destinations.find((d) => d.id === destinationId));
 
   async function createUpload() {
     if (!destinationId) { error = "Pick a destination first."; return; }
@@ -45,6 +50,12 @@
       if (restrictExtensions) {
         body.allowed_extensions = extensions.split(",").map((e) => e.trim()).filter(Boolean);
       }
+      // Only record a target subfolder when it differs from the destination root.
+      if (targetFolder && targetFolder.id !== selectedDest?.config.folder_id) {
+        body.target_folder_id = targetFolder.id;
+        body.target_folder_name = targetFolder.name;
+      }
+      if (subfolderTemplate.trim()) body.subfolder_template = subfolderTemplate.trim();
       if (uBrandDisplayName.trim()) body.brand_display_name = uBrandDisplayName.trim();
       if (uBrandSubtitle.trim()) body.brand_subtitle = uBrandSubtitle.trim();
       const res = await fetch("/api/upload-links", {
@@ -61,9 +72,6 @@
   type Project = { id: string; name: string; root_folder_id: string | null };
   type FileItem = { id: string; name: string; file_size: number | null };
 
-  let accounts = $state<Item[]>([]);
-  let workspaces = $state<Item[]>([]);
-  let projects = $state<Project[]>([]);
   let subfolders = $state<Item[]>([]);
   let files = $state<FileItem[]>([]);
   let accountId = $state("");
@@ -101,28 +109,13 @@
     finally { loadingFrameio = false; }
   }
 
-  $effect(() => {
-    if (linkType === "download" && accounts.length === 0) {
-      loadFrameio(async () => { accounts = await getJSON<Item[]>("/api/frameio/accounts"); });
-    }
-  });
-
-  async function onAccount() {
-    workspaceId = projectId = ""; workspaces = projects = subfolders = files = []; folderPath = [];
-    if (!accountId) return;
-    await loadFrameio(async () => { workspaces = await getJSON<Item[]>(`/api/frameio/workspaces?account_id=${accountId}`); });
+  function onScopeReset() {
+    projectId = ""; subfolders = files = []; folderPath = []; clearSource();
   }
-  async function onWorkspace() {
-    projectId = ""; projects = subfolders = files = []; folderPath = [];
-    if (!workspaceId) return;
-    await loadFrameio(async () => {
-      projects = await getJSON<Project[]>(`/api/frameio/projects?account_id=${accountId}&workspace_id=${workspaceId}`);
-    });
-  }
-  async function onProject() {
-    subfolders = files = []; folderPath = [];
-    const proj = projects.find((p) => p.id === projectId);
-    if (!proj?.root_folder_id) return;
+  async function onProjectSelect(proj: Project) {
+    projectId = proj.id;
+    subfolders = files = []; folderPath = []; clearSource();
+    if (!proj.root_folder_id) return;
     folderPath = [{ id: proj.root_folder_id, name: `${proj.name} (root)` }];
     await loadFolder();
   }
@@ -285,6 +278,28 @@
         </fieldset>
       </div>
 
+      {#if selectedDest?.config.account_id && selectedDest?.config.folder_id}
+        <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
+          <h2 class="font-medium">Where uploads land <span class="text-xs font-normal text-faint">(optional)</span></h2>
+          <div>
+            <p class="mb-2 text-sm text-muted">Pick a base subfolder under the destination (defaults to its root).</p>
+            {#key destinationId}
+              <FolderPicker
+                accountId={selectedDest.config.account_id}
+                rootFolderId={selectedDest.config.folder_id}
+                rootName={selectedDest.display_name}
+                bind:value={targetFolder}
+              />
+            {/key}
+          </div>
+          <label class="block text-sm">
+            <span class="text-muted">Path template (optional)</span>
+            <input bind:value={subfolderTemplate} placeholder={"e.g. {date}/{uploader_name}"} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 font-mono text-xs" />
+            <span class="mt-1 block text-xs text-faint">{"Folders created per upload beneath the base. Tokens: {date} {year} {month} {day} {uploader_name}."}</span>
+          </label>
+        </div>
+      {/if}
+
       <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
         <h2 class="font-medium">Branding <span class="text-xs font-normal text-faint">(optional — falls back to the destination)</span></h2>
         <label class="block text-sm">
@@ -315,29 +330,13 @@
 
     <div class="space-y-5 rounded-xl border border-border bg-surface p-6">
       <h2 class="font-medium">Source</h2>
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <label class="block text-sm">
-          <span class="text-muted">Account</span>
-          <select bind:value={accountId} onchange={onAccount} class="mt-1 w-full rounded-md border border-border px-2 py-1.5">
-            <option value="">Select…</option>
-            {#each accounts as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
-          </select>
-        </label>
-        <label class="block text-sm">
-          <span class="text-muted">Workspace</span>
-          <select bind:value={workspaceId} onchange={onWorkspace} disabled={!accountId} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 disabled:bg-surface-2">
-            <option value="">Select…</option>
-            {#each workspaces as w (w.id)}<option value={w.id}>{w.name}</option>{/each}
-          </select>
-        </label>
-        <label class="block text-sm">
-          <span class="text-muted">Project</span>
-          <select bind:value={projectId} onchange={onProject} disabled={!workspaceId} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 disabled:bg-surface-2">
-            <option value="">Select…</option>
-            {#each projects as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
-          </select>
-        </label>
-      </div>
+      <ProjectPicker
+        bind:accountId
+        bind:workspaceId
+        selectedProjectId={projectId}
+        onselect={onProjectSelect}
+        onscopechange={onScopeReset}
+      />
 
       {#if folderPath.length > 0}
         <div class="rounded-md border border-border bg-surface-2 p-3">
