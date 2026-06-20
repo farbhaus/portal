@@ -1,0 +1,87 @@
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+name: CI
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main", "dev" ]
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: Backend — tests & lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: portal
+          POSTGRES_PASSWORD: portal
+          POSTGRES_DB: portal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval=10s --health-timeout=5s --health-retries=5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=5
+    env:
+      DATABASE_URL: postgresql+asyncpg://portal:portal@localhost:5432/portal
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      - name: Install system utilities for health checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client redis-tools
+      - name: Wait for Postgres & Redis
+        run: |
+          for i in {1..60}; do pg_isready -h localhost -p 5432 -U portal && redis-cli -h localhost ping && break || sleep 1; done
+      - name: Install Python dependencies
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install pytest pytest-asyncio httpx ruff mypy
+      - name: Lint with ruff
+        working-directory: apps/api
+        run: |
+          ruff check .
+      - name: Run tests
+        working-directory: apps/api
+        run: |
+          pytest -q
+
+  frontend:
+    name: Frontend — build & check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install and build
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run build
+      - name: Optional: run svelte check
+        working-directory: apps/web
+        run: |
+          npm run check || true
