@@ -20,10 +20,12 @@ from portal.auth.passwords import verify_password
 from portal.db.models import Destination, UploadLink, UploadSession
 from portal.db.session import get_session
 from portal.frameio.client import FrameioError, FrameioNotConnected, get_frameio_client
+from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError
 from portal.lib.logging import get_logger
 from portal.lib.ratelimit import limit
 from portal.notify.email import UploadedFile, send_upload_completion
+from portal.services.app_settings import resolve_branding
 from portal.storage.base import DestinationConfig, UploadNotReady
 from portal.storage.base import UploadSession as StorageUploadSession
 from portal.storage.frameio_backend import FrameioStorageBackend
@@ -74,13 +76,14 @@ async def _get_link(db: AsyncSession, token: str) -> UploadLink:
 async def resolve_link(token: str, db: AsyncSession = Depends(get_session)) -> PublicLinkOut:
     link = await _get_link(db, token)
     branding = merged_branding(link, link.destination)
+    app_logo, app_name, app_accent = await resolve_branding(db, get_settings().base_url)
     fields = link.uploader_fields_required or {}
     return PublicLinkOut(
         state=link_state(link),
-        display_name=branding["display_name"] or "Upload",
+        display_name=branding["display_name"] or app_name or "Upload",
         subtitle=branding["subtitle"],
-        logo_url=branding["logo_url"],
-        accent_color=branding["accent_color"],
+        logo_url=app_logo,
+        accent_color=branding["accent_color"] or app_accent,
         password_required=link.password_hash is not None,
         max_file_size=link.max_file_size,
         allowed_extensions=link.allowed_extensions,

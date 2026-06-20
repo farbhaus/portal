@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = Field(default=True)
     session_cookie_name: str = Field(default="portal_session")
 
+    # WebAuthn / passkeys. RP id defaults to the base_url host; RP name shows in the OS prompt.
+    webauthn_rp_id: str = Field(default="")
+    webauthn_rp_name: str = Field(default="Portal")
+    # Max size of an uploaded brand logo (.png), in bytes.
+    branding_logo_max_bytes: int = Field(default=2 * 1024 * 1024)
+
     # Frame.io / Adobe IMS OAuth
     frameio_client_id: str = Field(default="")
     frameio_client_secret: str = Field(default="")

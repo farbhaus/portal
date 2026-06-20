@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     func,
@@ -37,10 +38,51 @@ class User(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # TOTP 2FA (opt-in second factor for password logins). Secret is AES-GCM encrypted at rest.
+    totp_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # One-time recovery codes, stored as sha256 hashes; entries are removed as they're used.
+    totp_recovery_codes: Mapped[list[Any] | None] = mapped_column(JSONB)
 
     frameio_connections: Mapped[list["FrameioConnection"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    webauthn_credentials: Mapped[list["WebauthnCredential"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class WebauthnCredential(Base, TimestampMixin):
+    """A registered passkey (WebAuthn credential) for passwordless login."""
+
+    __tablename__ = "webauthn_credentials"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # Base64url-encoded credential id (the authenticator's handle), unique per credential.
+    credential_id: Mapped[str] = mapped_column(String(512), unique=True, index=True, nullable=False)
+    public_key: Mapped[str] = mapped_column(Text, nullable=False)  # base64
+    sign_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    transports: Mapped[list[Any] | None] = mapped_column(JSONB)
+    name: Mapped[str | None] = mapped_column(String(255))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship(back_populates="webauthn_credentials")
+
+
+class AppSettings(Base, TimestampMixin):
+    """Single-row store for app-wide branding (uploaded logo + brand defaults)."""
+
+    __tablename__ = "app_settings"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    logo_png: Mapped[bytes | None] = mapped_column(LargeBinary)
+    logo_content_type: Mapped[str | None] = mapped_column(String(64))
+    logo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    brand_display_name: Mapped[str | None] = mapped_column(String(255))
+    brand_accent_color: Mapped[str | None] = mapped_column(String(32))
 
 
 class FrameioConnection(Base, TimestampMixin):

@@ -22,9 +22,11 @@ from portal.db.models import DownloadEvent, DownloadLink, DownloadSession
 from portal.db.session import get_session
 from portal.downloads.links import branding, resolve_source
 from portal.frameio.client import FrameioError, FrameioNotConnected, get_frameio_client
+from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError
 from portal.lib.logging import get_logger
 from portal.lib.ratelimit import limit
+from portal.services.app_settings import resolve_branding
 from portal.storage.base import DestinationConfig
 from portal.storage.frameio_backend import FrameioStorageBackend
 from portal.uploads.links import link_state
@@ -107,13 +109,14 @@ async def _load_session(db: AsyncSession, link: DownloadLink, session_id: str) -
 async def resolve_link(token: str, db: AsyncSession = Depends(get_session)) -> DownloadPageOut:
     link = await _get_link(db, token)
     b = branding(link)
+    app_logo, app_name, app_accent = await resolve_branding(db, get_settings().base_url)
     fields = link.viewer_fields_required or {}
     return DownloadPageOut(
         state=link_state(link),
-        display_name=b["display_name"] or "Download",
+        display_name=b["display_name"] or app_name or "Download",
         subtitle=b["subtitle"],
-        logo_url=b["logo_url"],
-        accent_color=b["accent_color"],
+        logo_url=app_logo,
+        accent_color=b["accent_color"] or app_accent,
         password_required=link.password_hash is not None,
         viewer_fields_required={
             "name": bool(fields.get("name")),

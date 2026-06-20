@@ -1,11 +1,14 @@
 <script lang="ts">
   import { goto, invalidateAll } from "$app/navigation";
   import { page } from "$app/state";
-  import { Card, Button, StatusPill, PageHeader } from "$lib/components";
+  import { Card, Button, StatusPill, PageHeader, Modal } from "$lib/components";
+  import { registerPasskey } from "$lib/webauthn";
 
   let { data } = $props();
   const email = $derived(data.email);
   const frameio = $derived(data.frameio);
+  const security = $derived(data.security);
+  const branding = $derived(data.branding);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -84,6 +87,125 @@
     } finally {
       savingPw = false;
     }
+  }
+
+  // --- Passkeys --------------------------------------------------------------
+  let pkBusy = $state(false);
+  let pkError = $state<string | null>(null);
+  async function addPasskey() {
+    const name = prompt("Name this passkey (e.g. 'MacBook Touch ID'):", "Passkey");
+    if (name === null) return;
+    pkError = null;
+    pkBusy = true;
+    try {
+      await registerPasskey(name || "Passkey");
+      await invalidateAll();
+    } catch (e) {
+      pkError = e instanceof Error ? e.message : "Could not add passkey";
+    } finally {
+      pkBusy = false;
+    }
+  }
+  async function removePasskey(id: string) {
+    if (!confirm("Remove this passkey?")) return;
+    await fetch(`/api/auth/passkeys/${id}`, { method: "DELETE" });
+    await invalidateAll();
+  }
+
+  // --- TOTP ------------------------------------------------------------------
+  let totpOpen = $state(false);
+  let totpStep = $state<"qr" | "codes">("qr");
+  let totpData = $state<{ secret: string; otpauth_uri: string; qr_svg: string } | null>(null);
+  let totpCode = $state("");
+  let totpError = $state<string | null>(null);
+  let recoveryCodes = $state<string[]>([]);
+  let totpBusy = $state(false);
+
+  async function startTotp() {
+    totpError = null;
+    totpCode = "";
+    recoveryCodes = [];
+    totpStep = "qr";
+    totpBusy = true;
+    try {
+      const res = await fetch("/api/settings/totp/begin", { method: "POST" });
+      if (!res.ok) {
+        totpError = (await res.json().catch(() => ({}))).detail ?? "Failed to start setup";
+        return;
+      }
+      totpData = await res.json();
+      totpOpen = true;
+    } finally {
+      totpBusy = false;
+    }
+  }
+  async function confirmTotp() {
+    totpError = null;
+    totpBusy = true;
+    try {
+      const res = await fetch("/api/settings/totp/enable", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: totpCode }),
+      });
+      if (!res.ok) {
+        totpError = (await res.json().catch(() => ({}))).detail ?? "Invalid code";
+        return;
+      }
+      recoveryCodes = (await res.json()).recovery_codes;
+      totpStep = "codes";
+      await invalidateAll();
+    } finally {
+      totpBusy = false;
+    }
+  }
+  async function disableTotp() {
+    const pw = prompt("Enter your current password to disable two-factor:");
+    if (!pw) return;
+    const res = await fetch("/api/settings/totp/disable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pw }),
+    });
+    if (!res.ok) {
+      alert((await res.json().catch(() => ({}))).detail ?? "Could not disable");
+      return;
+    }
+    await invalidateAll();
+  }
+
+  // --- Branding --------------------------------------------------------------
+  let logoBusy = $state(false);
+  let logoError = $state<string | null>(null);
+  let logoVersion = $state(0); // cache-busts the preview after an upload/remove
+  const logoSrc = $derived(`/api/branding/logo?v=${branding.logo_updated_at ?? ""}${logoVersion}`);
+
+  async function uploadLogo(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    logoError = null;
+    logoBusy = true;
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/settings/branding/logo", { method: "POST", body: fd });
+      if (!res.ok) {
+        logoError = (await res.json().catch(() => ({}))).detail ?? "Upload failed";
+        return;
+      }
+      logoVersion = Date.now();
+      await invalidateAll();
+    } finally {
+      logoBusy = false;
+      input.value = "";
+    }
+  }
+  async function removeLogo() {
+    if (!confirm("Remove the logo?")) return;
+    await fetch("/api/settings/branding/logo", { method: "DELETE" });
+    logoVersion = Date.now();
+    await invalidateAll();
   }
 
   const fieldCls =
@@ -166,6 +288,81 @@
     </div>
   </Card>
 
+  <!-- Security: passkeys + TOTP -->
+  <Card class="space-y-5">
+    <h2 class="font-medium">Security</h2>
+
+    <!-- Passkeys -->
+    <div class="space-y-2">
+      <div class="flex items-center justify-between">
+        <span class="text-sm font-medium">Passkeys</span>
+        <Button size="sm" variant="ghost" onclick={addPasskey} disabled={pkBusy}>
+          {pkBusy ? "Waiting…" : "＋ Add passkey"}
+        </Button>
+      </div>
+      <p class="text-xs text-faint">Sign in without a password, using Touch ID, Windows Hello, or a security key.</p>
+      {#if pkError}<p class="text-xs text-danger">{pkError}</p>{/if}
+      {#if security.passkeys.length === 0}
+        <p class="text-sm text-muted">No passkeys yet.</p>
+      {:else}
+        <ul class="divide-y divide-border/60 rounded-md border border-border">
+          {#each security.passkeys as pk (pk.id)}
+            <li class="flex items-center justify-between px-3 py-2 text-sm">
+              <div>
+                <div class="font-medium">{pk.name ?? "Passkey"}</div>
+                <div class="text-xs text-faint">
+                  Added {new Date(pk.created_at).toLocaleDateString()}
+                  {#if pk.last_used_at}· last used {new Date(pk.last_used_at).toLocaleDateString()}{/if}
+                </div>
+              </div>
+              <button onclick={() => removePasskey(pk.id)} class="text-xs text-faint hover:text-danger">Remove</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+
+    <!-- TOTP -->
+    <div class="space-y-2 border-t border-border pt-4">
+      <div class="flex items-center justify-between">
+        <span class="text-sm font-medium">Two-factor (authenticator app)</span>
+        <StatusPill status={security.totp_enabled ? "connected" : "revoked"} label={security.totp_enabled ? "On" : "Off"} />
+      </div>
+      <p class="text-xs text-faint">A 6-digit code from an app like 1Password or Authy, required after your password.</p>
+      {#if security.totp_enabled}
+        <Button size="sm" variant="ghost" onclick={disableTotp}>Disable two-factor</Button>
+      {:else}
+        <Button size="sm" onclick={startTotp} disabled={totpBusy}>{totpBusy ? "…" : "Enable two-factor"}</Button>
+        {#if totpError && !totpOpen}<span class="ml-2 text-sm text-danger">{totpError}</span>{/if}
+      {/if}
+    </div>
+  </Card>
+
+  <!-- Branding -->
+  <Card class="space-y-4">
+    <h2 class="font-medium">Branding</h2>
+    <p class="text-xs text-faint">A PNG logo shown on your upload &amp; download link pages and the sign-in screen.</p>
+    <div class="flex items-center gap-4">
+      <div class="flex h-16 w-32 items-center justify-center rounded-md border border-border bg-surface-2">
+        {#if branding.has_logo}
+          <img src={logoSrc} alt="Current logo" class="max-h-12 max-w-28 object-contain" />
+        {:else}
+          <span class="text-xs text-faint">No logo</span>
+        {/if}
+      </div>
+      <div class="space-y-2">
+        <label class="inline-flex cursor-pointer items-center rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2">
+          {logoBusy ? "Uploading…" : "Upload .png"}
+          <input type="file" accept="image/png,.png" class="hidden" onchange={uploadLogo} disabled={logoBusy} />
+        </label>
+        {#if branding.has_logo}
+          <button onclick={removeLogo} class="ml-2 text-xs text-faint hover:text-danger">Remove</button>
+        {/if}
+        {#if logoError}<p class="text-xs text-danger">{logoError}</p>{/if}
+      </div>
+    </div>
+  </Card>
+
   <!-- General -->
   <Card class="space-y-2 text-sm">
     <h2 class="font-medium">General</h2>
@@ -186,3 +383,32 @@
     <Button variant="ghost" size="sm" onclick={logout}>Sign out</Button>
   </Card>
 </div>
+
+<Modal bind:open={totpOpen} title="Set up two-factor">
+  {#if totpStep === "qr" && totpData}
+    <div class="space-y-3 text-sm">
+      <p class="text-muted">Scan this with your authenticator app, then enter the 6-digit code to confirm.</p>
+      <div class="mx-auto flex w-40 justify-center rounded-md bg-white p-3">
+        {@html totpData.qr_svg}
+      </div>
+      <p class="break-all text-xs text-faint">Or enter this key manually: <span class="font-mono text-text">{totpData.secret}</span></p>
+      <input bind:value={totpCode} inputmode="numeric" autocomplete="one-time-code" placeholder="123456" class="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-center text-lg tracking-widest" />
+      {#if totpError}<p class="text-sm text-danger">{totpError}</p>{/if}
+    </div>
+  {:else if totpStep === "codes"}
+    <div class="space-y-3 text-sm">
+      <p class="text-muted">Two-factor is on. Save these recovery codes somewhere safe — each works once if you lose your authenticator.</p>
+      <ul class="grid grid-cols-2 gap-1 rounded-md border border-border bg-surface-2 p-3 font-mono text-xs">
+        {#each recoveryCodes as c}<li>{c}</li>{/each}
+      </ul>
+    </div>
+  {/if}
+  {#snippet footer()}
+    {#if totpStep === "qr"}
+      <Button variant="ghost" size="sm" onclick={() => (totpOpen = false)} disabled={totpBusy}>Cancel</Button>
+      <Button size="sm" onclick={confirmTotp} disabled={totpBusy || totpCode.length < 6}>{totpBusy ? "Verifying…" : "Confirm"}</Button>
+    {:else}
+      <Button size="sm" onclick={() => (totpOpen = false)}>Done</Button>
+    {/if}
+  {/snippet}
+</Modal>
