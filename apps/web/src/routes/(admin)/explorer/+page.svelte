@@ -409,7 +409,7 @@
       {/if}
 
       <!-- Browser listing -->
-      <div class="divide-y divide-border/60">
+      <div class="divide-y divide-border/60 {level === 'projects' ? 'max-h-[calc(100vh-28rem)] overflow-y-auto' : ''}">
         {#if loading}
           <p class="px-4 py-8 text-center text-sm text-faint">Loading…</p>
         {:else if level === "projects"}
