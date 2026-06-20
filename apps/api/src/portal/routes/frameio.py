@@ -1,4 +1,5 @@
 import secrets
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -13,6 +14,8 @@ from portal.frameio import oauth
 from portal.frameio.client import (
     FrameioError,
     FrameioNotConnected,
+    FrameioNotFound,
+    FrameioRateLimited,
     get_frameio_client,
 )
 from portal.lib.config import get_settings
@@ -116,6 +119,10 @@ class ProjectItemOut(BaseModel):
 def _picker_error(exc: Exception) -> HTTPException:
     if isinstance(exc, FrameioNotConnected):
         return HTTPException(status_code=409, detail="Frame.io is not connected")
+    if isinstance(exc, FrameioRateLimited):
+        return HTTPException(status_code=503, detail="Frame.io is busy, try again in a moment")
+    if isinstance(exc, FrameioNotFound):
+        return HTTPException(status_code=404, detail="Frame.io item not found")
     return HTTPException(status_code=502, detail="Frame.io request failed")
 
 
@@ -150,6 +157,41 @@ async def list_projects(
     return [
         ProjectItemOut(id=i.id, name=i.name, root_folder_id=i.root_folder_id) for i in items
     ]
+
+
+class CreateProjectRequest(BaseModel):
+    account_id: str
+    workspace_id: str
+    name: str
+    restricted: bool = False
+
+
+@router.post("/projects", response_model=ProjectItemOut)
+async def create_project(
+    body: CreateProjectRequest, _: User = Depends(require_admin)
+) -> ProjectItemOut:
+    """Create a project in a workspace (explorer New-project action)."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Project name is required")
+    try:
+        item = await get_frameio_client().create_project(
+            body.account_id, body.workspace_id, name=name, restricted=body.restricted
+        )
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+    return ProjectItemOut(id=item.id, name=item.name, root_folder_id=item.root_folder_id)
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+async def delete_project(
+    project_id: str, account_id: str, _: User = Depends(require_admin)
+) -> None:
+    """Delete a project and all its contents from Frame.io (explorer)."""
+    try:
+        await get_frameio_client().delete_project(account_id, project_id)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
 
 
 @router.get("/folders", response_model=list[PickerItemOut])
@@ -244,3 +286,121 @@ async def delete_folder(
         await get_frameio_client().delete_folder(account_id, folder_id)
     except FrameioError as exc:
         raise _picker_error(exc) from exc
+
+
+# ── move / copy (clipboard Cut/Copy → Paste in the explorer) ───────────────────
+
+
+class MoveCopyRequest(BaseModel):
+    account_id: str
+    parent_id: str
+
+
+@router.patch("/files/{file_id}/move", status_code=204)
+async def move_file(
+    file_id: str, body: MoveCopyRequest, _: User = Depends(require_admin)
+) -> None:
+    """Move a file into another folder (Cut → Paste)."""
+    try:
+        await get_frameio_client().move_file(body.account_id, file_id, body.parent_id)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+
+
+@router.post("/files/{file_id}/copy", response_model=FileItemOut)
+async def copy_file(
+    file_id: str, body: MoveCopyRequest, _: User = Depends(require_admin)
+) -> FileItemOut:
+    """Copy a file into another folder (Copy → Paste). Returns the new file."""
+    try:
+        item = await get_frameio_client().copy_file(body.account_id, file_id, body.parent_id)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+    return FileItemOut(
+        id=item.id, name=item.name, file_size=item.file_size, media_type=item.media_type
+    )
+
+
+@router.patch("/folders/{folder_id}/move", status_code=204)
+async def move_folder(
+    folder_id: str, body: MoveCopyRequest, _: User = Depends(require_admin)
+) -> None:
+    """Move a folder (and its contents) into another folder (Cut → Paste)."""
+    try:
+        await get_frameio_client().move_folder(body.account_id, folder_id, body.parent_id)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+
+
+@router.post("/folders/{folder_id}/copy", response_model=PickerItemOut)
+async def copy_folder(
+    folder_id: str, body: MoveCopyRequest, _: User = Depends(require_admin)
+) -> PickerItemOut:
+    """Copy a folder into another folder (Copy → Paste). Returns the new folder."""
+    try:
+        item = await get_frameio_client().copy_folder(body.account_id, folder_id, body.parent_id)
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+    return PickerItemOut(id=item.id, name=item.name)
+
+
+# ── Frame.io share links (native review page over files/folders) ───────────────
+
+
+class CreateShareRequest(BaseModel):
+    account_id: str
+    project_id: str
+    name: str
+    asset_ids: list[str]
+    access: str = "public"
+    downloading_enabled: bool = True
+    expiration: datetime | None = None
+    passphrase: str | None = None
+
+
+class ShareOut(BaseModel):
+    id: str
+    name: str | None = None
+    short_url: str | None = None
+    access: str | None = None
+    passphrase: str | None = None
+    expiration: str | None = None
+    downloading_enabled: bool
+    enabled: bool
+
+
+@router.post("/shares", response_model=ShareOut)
+async def create_share(
+    body: CreateShareRequest, _: User = Depends(require_admin)
+) -> ShareOut:
+    """Create a Frame.io share link over the given files/folders in a project."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Share name is required")
+    if not body.asset_ids:
+        raise HTTPException(status_code=422, detail="Select at least one file or folder to share")
+    if body.access not in ("public", "secure"):
+        raise HTTPException(status_code=422, detail="access must be 'public' or 'secure'")
+    try:
+        share = await get_frameio_client().create_share(
+            body.account_id,
+            body.project_id,
+            name=name,
+            asset_ids=body.asset_ids,
+            access=body.access,
+            downloading_enabled=body.downloading_enabled,
+            expiration=body.expiration,
+            passphrase=body.passphrase or None,
+        )
+    except FrameioError as exc:
+        raise _picker_error(exc) from exc
+    return ShareOut(
+        id=share.id,
+        name=share.name,
+        short_url=share.short_url,
+        access=share.access,
+        passphrase=share.passphrase,
+        expiration=share.expiration,
+        downloading_enabled=share.downloading_enabled,
+        enabled=share.enabled,
+    )

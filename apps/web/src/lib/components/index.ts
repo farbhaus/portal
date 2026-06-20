@@ -6,3 +6,6 @@ export { default as Tabs } from "./Tabs.svelte";
 export { default as CopyButton } from "./CopyButton.svelte";
 export { default as EmptyState } from "./EmptyState.svelte";
 export { default as Table } from "./Table.svelte";
+export { default as Modal } from "./Modal.svelte";
+export { default as FolderPicker } from "./FolderPicker.svelte";
+export { default as ProjectPicker } from "./ProjectPicker.svelte";

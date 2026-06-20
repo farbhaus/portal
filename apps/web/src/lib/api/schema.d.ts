@@ -184,8 +184,32 @@ export interface paths {
         /** List Projects */
         get: operations["list_projects_api_frameio_projects_get"];
         put?: never;
-        post?: never;
+        /**
+         * Create Project
+         * @description Create a project in a workspace (explorer New-project action).
+         */
+        post: operations["create_project_api_frameio_projects_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/frameio/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Project
+         * @description Delete a project and all its contents from Frame.io (explorer).
+         */
+        delete: operations["delete_project_api_frameio_projects__project_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -290,6 +314,106 @@ export interface paths {
          * @description Delete a folder (and its contents) from Frame.io (explorer).
          */
         delete: operations["delete_folder_api_frameio_folders__folder_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/frameio/files/{file_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Move File
+         * @description Move a file into another folder (Cut → Paste).
+         */
+        patch: operations["move_file_api_frameio_files__file_id__move_patch"];
+        trace?: never;
+    };
+    "/api/frameio/files/{file_id}/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy File
+         * @description Copy a file into another folder (Copy → Paste). Returns the new file.
+         */
+        post: operations["copy_file_api_frameio_files__file_id__copy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/frameio/folders/{folder_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Move Folder
+         * @description Move a folder (and its contents) into another folder (Cut → Paste).
+         */
+        patch: operations["move_folder_api_frameio_folders__folder_id__move_patch"];
+        trace?: never;
+    };
+    "/api/frameio/folders/{folder_id}/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy Folder
+         * @description Copy a folder (and its contents) into another folder (Copy → Paste). Returns the new folder.
+         */
+        post: operations["copy_folder_api_frameio_folders__folder_id__copy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/frameio/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Share
+         * @description Create a Frame.io share link over the given files/folders in a project.
+         */
+        post: operations["create_share_api_frameio_shares_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1052,6 +1176,45 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** CreateProjectRequest */
+        CreateProjectRequest: {
+            /** Account Id */
+            account_id: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Restricted
+             * @default false
+             */
+            restricted: boolean;
+        };
+        /** CreateShareRequest */
+        CreateShareRequest: {
+            /** Account Id */
+            account_id: string;
+            /** Project Id */
+            project_id: string;
+            /** Name */
+            name: string;
+            /** Asset Ids */
+            asset_ids: string[];
+            /**
+             * Access
+             * @default public
+             */
+            access: string;
+            /**
+             * Downloading Enabled
+             * @default true
+             */
+            downloading_enabled: boolean;
+            /** Expiration */
+            expiration?: string | null;
+            /** Passphrase */
+            passphrase?: string | null;
+        };
         /** DestinationCreate */
         DestinationCreate: {
             /** Display Name */
@@ -1355,6 +1518,13 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** MoveCopyRequest */
+        MoveCopyRequest: {
+            /** Account Id */
+            account_id: string;
+            /** Parent Id */
+            parent_id: string;
+        };
         /** PasswordChange */
         PasswordChange: {
             /** Current Password */
@@ -1441,6 +1611,25 @@ export interface components {
             trusted: boolean;
             /** Sent */
             sent: boolean;
+        };
+        /** ShareOut */
+        ShareOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name?: string | null;
+            /** Short Url */
+            short_url?: string | null;
+            /** Access */
+            access?: string | null;
+            /** Passphrase */
+            passphrase?: string | null;
+            /** Expiration */
+            expiration?: string | null;
+            /** Downloading Enabled */
+            downloading_enabled: boolean;
+            /** Enabled */
+            enabled: boolean;
         };
         /** SummaryOut */
         SummaryOut: {
@@ -1582,6 +1771,12 @@ export interface components {
              * @default false
              */
             verify_email: boolean;
+            /** Target Folder Id */
+            target_folder_id?: string | null;
+            /** Target Folder Name */
+            target_folder_name?: string | null;
+            /** Subfolder Template */
+            subfolder_template?: string | null;
             /** Brand Logo Url */
             brand_logo_url?: string | null;
             /** Brand Accent Color */
@@ -1619,6 +1814,12 @@ export interface components {
             };
             /** Verify Email */
             verify_email: boolean;
+            /** Target Folder Id */
+            target_folder_id: string | null;
+            /** Target Folder Name */
+            target_folder_name: string | null;
+            /** Subfolder Template */
+            subfolder_template: string | null;
             /** Brand Logo Url */
             brand_logo_url: string | null;
             /** Brand Accent Color */
@@ -1647,6 +1848,12 @@ export interface components {
             uploader_fields_required?: components["schemas"]["UploaderFields"] | null;
             /** Verify Email */
             verify_email?: boolean | null;
+            /** Target Folder Id */
+            target_folder_id?: string | null;
+            /** Target Folder Name */
+            target_folder_name?: string | null;
+            /** Subfolder Template */
+            subfolder_template?: string | null;
             /** Brand Logo Url */
             brand_logo_url?: string | null;
             /** Brand Accent Color */
@@ -2060,6 +2267,70 @@ export interface operations {
             };
         };
     };
+    create_project_api_frameio_projects_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectItemOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_project_api_frameio_projects__project_id__delete: {
+        parameters: {
+            query: {
+                account_id: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_folders_api_frameio_folders_get: {
         parameters: {
             query: {
@@ -2240,6 +2511,175 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_file_api_frameio_files__file_id__move_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveCopyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    copy_file_api_frameio_files__file_id__copy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveCopyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileItemOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_folder_api_frameio_folders__folder_id__move_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveCopyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    copy_folder_api_frameio_folders__folder_id__copy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveCopyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PickerItemOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_share_api_frameio_shares_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateShareRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareOut"];
+                };
             };
             /** @description Validation Error */
             422: {
