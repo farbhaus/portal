@@ -1,4 +1,4 @@
-# Build the API and web images and scan them with Trivy for OS/library CVEs.
+# Build the all-in-one farbhaus/portal image and scan it with Trivy for OS/library CVEs.
 # Report-only for now (exit-code 0): results go to the Security tab but don't
 # block merges, since base-image CVEs are often unfixable on our side. Flip
 # exit-code to 1 once the noise is understood to make HIGH/CRITICAL blocking.
@@ -29,12 +29,8 @@ permissions:
 
 jobs:
   scan:
-    name: Trivy (${{ matrix.app }})
+    name: Trivy (farbhaus/portal)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        app: [ api, web ]
     steps:
       - uses: actions/checkout@v7
       - name: Set up Docker Buildx
@@ -42,19 +38,19 @@ jobs:
       - name: Build image (load locally, no push)
         uses: docker/build-push-action@v7
         with:
-          context: ./apps/${{ matrix.app }}
-          file: ./apps/${{ matrix.app }}/Dockerfile
+          context: .
+          file: ./Dockerfile
           push: false
           load: true
-          tags: portal-${{ matrix.app }}:scan
+          tags: farbhaus/portal:scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: portal-${{ matrix.app }}:scan
+          image-ref: farbhaus/portal:scan
           format: sarif
-          output: trivy-${{ matrix.app }}.sarif
+          output: trivy-portal.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: '0'
@@ -62,5 +58,5 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: trivy-${{ matrix.app }}.sarif
-          category: trivy-${{ matrix.app }}
+          sarif_file: trivy-portal.sarif
+          category: trivy-portal

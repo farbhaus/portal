@@ -1,0 +1,24 @@
+# Portal's internal router for the all-in-one image. HTTP only — TLS is terminated by the
+# host's reverse proxy, which forwards a single domain to 127.0.0.1:${PORTAL_PORT}. Unlike the
+# multi-container docker/Caddyfile (which targets the portal_api / portal_web service names),
+# here every process shares the container's loopback, so it routes to 127.0.0.1.
+:80 {
+	# Security headers on every response (HTML comes from the SvelteKit server, not the API, so
+	# setting them here covers both). `Set` semantics replace any upstream value. HSTS is left to
+	# the host proxy that terminates TLS. CSP is limited to frame-ancestors (clickjacking + the
+	# admin QR @html sink) so it can't break SvelteKit's inline hydration.
+	header {
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "frame-ancestors 'none'"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8000
+	}
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+}

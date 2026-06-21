@@ -55,10 +55,9 @@ def link_state(link: UploadLink | DownloadLink, now: datetime | None = None) -> 
 
 
 def merged_branding(link: UploadLink, destination: Destination) -> dict[str, str | None]:
-    """Per-link branding overrides with destination branding as the fallback."""
+    """Per-link text with destination text as the fallback. The logo and accent come from
+    global branding, resolved separately at the call site."""
     return {
         "display_name": link.brand_display_name or destination.display_name,
         "subtitle": link.brand_subtitle or destination.subtitle,
-        "logo_url": link.brand_logo_url or destination.logo_url,
-        "accent_color": link.brand_accent_color or destination.accent_color,
     }

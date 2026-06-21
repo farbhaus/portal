@@ -49,14 +49,13 @@ async def test_create_destination(client: AsyncClient, monkeypatch) -> None:
         json={
             "display_name": "DIT Drop",
             "config": VALID_CONFIG,
-            "accent_color": "#ff3300",
             "subtitle": "Send camera originals here",
         },
     )
     assert resp.status_code == 201
     body = resp.json()
     assert body["display_name"] == "DIT Drop"
-    assert body["accent_color"] == "#ff3300"
+    assert body["subtitle"] == "Send camera originals here"
     # Folder name resolved from Frame.io and cached in config.
     assert body["config"]["folder_name"] == "Camera Originals"
     assert body["config"]["folder_id"] == "f1"

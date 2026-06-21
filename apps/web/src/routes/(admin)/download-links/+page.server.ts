@@ -14,8 +14,6 @@ export type DownloadLink = {
   viewer_fields_required: { name: boolean; email: boolean };
   verify_email: boolean;
   allow_preview: boolean;
-  brand_logo_url: string | null;
-  brand_accent_color: string | null;
   brand_display_name: string | null;
   brand_subtitle: string | null;
   revoked_at: string | null;

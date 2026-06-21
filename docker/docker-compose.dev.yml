@@ -1,0 +1,9 @@
+# Dev overlay: build the all-in-one image from source instead of pulling the published one.
+# Layered on top of docker-compose.yml, so everything else (port, env_file, volume) is inherited
+# unchanged — `make dev` is just `make deploy` built locally.
+#
+#   make dev   (= docker compose -f docker-compose.yml -f docker/docker-compose.dev.yml up -d --build)
+services:
+  portal:
+    build:
+      context: .
