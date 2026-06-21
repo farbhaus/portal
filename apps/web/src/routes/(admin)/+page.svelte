@@ -152,7 +152,7 @@
     {#if recent.length === 0}
       <p class="px-5 py-10 text-center text-sm text-muted">Nothing yet. Transfers will show up here.</p>
     {:else}
-      <div class="max-h-[calc(100vh-26rem)] divide-y divide-border/60 overflow-y-auto">
+      <div class="max-h-[calc(100vh-30rem)] divide-y divide-border/60 overflow-y-auto">
         {#each recent as r (r.kind + r.id)}
           <div class="flex items-center justify-between gap-4 px-5 py-2.5 text-sm">
             <div class="flex min-w-0 items-center gap-3">
