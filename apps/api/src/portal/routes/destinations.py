@@ -3,9 +3,9 @@
 A destination is a logical upload target, currently always a Frame.io folder. The folder is
 picked at create time (via the picker endpoints) and validated against Frame.io so we never
 store a destination pointing at a folder we can't reach; its resolved name is cached in the
-config for display. Branding (display name, logo, accent color, subtitle) is editable; the
-folder binding is fixed once created. The `config` JSONB is type-tagged so phase-2 S3
-destinations slot in additively.
+config for display. The display name and subtitle are editable (the logo and accent come from
+global branding); the folder binding is fixed once created. The `config` JSONB is type-tagged so
+phase-2 S3 destinations slot in additively.
 """
 
 import uuid
@@ -22,7 +22,6 @@ from portal.db.session import get_session
 from portal.frameio.client import FrameioError, FrameioNotConnected, get_frameio_client
 from portal.lib.errors import NotFoundError
 from portal.lib.logging import get_logger
-from portal.lib.validators import HexColor
 
 log = get_logger("routes.destinations")
 router = APIRouter(prefix="/destinations", tags=["destinations"])
@@ -39,15 +38,11 @@ class FrameioConfigIn(BaseModel):
 class DestinationCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=255)
     config: FrameioConfigIn
-    logo_url: str | None = None
-    accent_color: HexColor = None
     subtitle: str | None = None
 
 
 class DestinationUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
-    logo_url: str | None = None
-    accent_color: HexColor = None
     subtitle: str | None = None
 
 
@@ -55,8 +50,6 @@ class DestinationOut(BaseModel):
     id: str
     display_name: str
     config: dict[str, Any]
-    logo_url: str | None
-    accent_color: str | None
     subtitle: str | None
     created_at: str
     updated_at: str
@@ -67,8 +60,6 @@ def _to_out(dest: Destination) -> DestinationOut:
         id=str(dest.id),
         display_name=dest.display_name,
         config=dest.config,
-        logo_url=dest.logo_url,
-        accent_color=dest.accent_color,
         subtitle=dest.subtitle,
         created_at=dest.created_at.isoformat(),
         updated_at=dest.updated_at.isoformat(),
@@ -114,8 +105,6 @@ async def create_destination(
     dest = Destination(
         display_name=body.display_name,
         config=config,
-        logo_url=body.logo_url,
-        accent_color=body.accent_color,
         subtitle=body.subtitle,
     )
     db.add(dest)

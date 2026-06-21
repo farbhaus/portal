@@ -38,8 +38,6 @@ async def _make_destination(**kw: object) -> str:
                 "folder_id": "f1",
                 "folder_name": "Shorts",
             },
-            logo_url=kw.get("logo_url"),
-            accent_color=kw.get("accent_color"),
             subtitle=kw.get("subtitle"),
         )
         db.add(dest)
@@ -76,14 +74,11 @@ def test_link_state() -> None:
 
 
 def test_merged_branding_prefers_link_override() -> None:
-    dest = Destination(
-        display_name="Dest Name", subtitle="dest sub", logo_url="d.png", accent_color="#000"
-    )
-    link = UploadLink(brand_display_name="Link Name", brand_logo_url=None)
+    dest = Destination(display_name="Dest Name", subtitle="dest sub")
+    link = UploadLink(brand_display_name="Link Name", brand_subtitle=None)
     merged = merged_branding(link, dest)
     assert merged["display_name"] == "Link Name"  # override wins
     assert merged["subtitle"] == "dest sub"  # falls back to destination
-    assert merged["logo_url"] == "d.png"
 
 
 # ── admin CRUD ────────────────────────────────────────────────────────────────
@@ -213,7 +208,7 @@ async def test_admin_routes_require_auth(client: AsyncClient) -> None:
 
 async def test_public_resolve_merges_branding_and_hides_internals(client: AsyncClient) -> None:
     await _login(client)
-    dest_id = await _make_destination(subtitle="dest subtitle", accent_color="#222222")
+    dest_id = await _make_destination(subtitle="dest subtitle")
     link = (
         await client.post(
             "/api/upload-links",

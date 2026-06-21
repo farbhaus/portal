@@ -17,8 +17,6 @@ export type UploadLink = {
   target_folder_id: string | null;
   target_folder_name: string | null;
   subfolder_template: string | null;
-  brand_logo_url: string | null;
-  brand_accent_color: string | null;
   brand_display_name: string | null;
   brand_subtitle: string | null;
   revoked_at: string | null;

@@ -81,10 +81,9 @@ def file_in_source(resolved: ResolvedSource, file_id: str) -> bool:
 
 
 def branding(link: DownloadLink) -> dict[str, str | None]:
-    """Self-contained branding for a download link (no destination fallback in v1)."""
+    """Per-link text for a download link. The logo and accent come from global branding,
+    resolved separately at the call site."""
     return {
         "display_name": link.brand_display_name or "Download",
         "subtitle": link.brand_subtitle,
-        "logo_url": link.brand_logo_url,
-        "accent_color": link.brand_accent_color,
     }
