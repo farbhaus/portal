@@ -36,10 +36,11 @@ def main() -> None:
     """One-shot entrypoint: run seeding once before the API workers start."""
     import asyncio
 
-    from portal.lib.config import get_settings
+    from portal.lib.config import get_settings, require_secure_secrets
     from portal.lib.logging import configure_logging
 
     configure_logging(get_settings().log_level)
+    require_secure_secrets()  # fail before seeding an admin with the placeholder password
 
     async def _run() -> None:
         await seed_admin()

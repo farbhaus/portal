@@ -29,6 +29,7 @@ from portal.downloads.links import validate_source
 from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError, PortalError
 from portal.lib.logging import get_logger
+from portal.lib.validators import HexColor
 from portal.uploads.links import generate_token, link_state
 
 log = get_logger("routes.download_links")
@@ -54,7 +55,7 @@ class DownloadLinkCreate(BaseModel):
     verify_email: bool = False
     allow_preview: bool = True
     brand_logo_url: str | None = None
-    brand_accent_color: str | None = Field(default=None, max_length=32)
+    brand_accent_color: HexColor = None
     brand_display_name: str | None = Field(default=None, max_length=255)
     brand_subtitle: str | None = None
 
@@ -67,7 +68,7 @@ class DownloadLinkUpdate(BaseModel):
     verify_email: bool | None = None
     allow_preview: bool | None = None
     brand_logo_url: str | None = None
-    brand_accent_color: str | None = Field(default=None, max_length=32)
+    brand_accent_color: HexColor = None
     brand_display_name: str | None = Field(default=None, max_length=255)
     brand_subtitle: str | None = None
 

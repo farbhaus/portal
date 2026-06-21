@@ -1,8 +1,9 @@
 """Redis-backed fixed-window rate limiting for public (unauthenticated) endpoints.
 
-Keyed by (kind, token, client IP). Behind the host Caddy the socket peer is the proxy, so we read
-the real client from X-Forwarded-For. Per-file upload/download endpoints are deliberately left
-unlimited — they fire many times within one legitimate transfer.
+Keyed by (kind, token, client IP). Behind the proxy chain the socket peer is the nearest proxy, so
+we read the real client from X-Forwarded-For — but from the trusted hop, not the spoofable leftmost
+entry (see _client_ip). Per-file upload/download endpoints are deliberately left unlimited — they
+fire many times within one legitimate transfer.
 """
 
 from __future__ import annotations
@@ -19,9 +20,19 @@ Kind = Literal["default", "strict"]
 
 
 def _client_ip(request: Request) -> str:
+    """Resolve the real client IP for rate-limit keying.
+
+    Each trusted proxy appends the address it received the request from to X-Forwarded-For, so
+    with N trusted hops the genuine client is the Nth entry from the right; everything to its left
+    is client-supplied and untrusted. Reading the leftmost entry (the old behaviour) let a client
+    forge X-Forwarded-For and land in a fresh bucket per request, bypassing the limiter entirely.
+    """
+    hops = get_settings().trusted_proxy_hops
     xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
+    if xff and hops > 0:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if len(parts) >= hops:
+            return parts[-hops]
     return request.client.host if request.client else "unknown"
 
 

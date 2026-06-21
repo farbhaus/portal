@@ -23,6 +23,7 @@ from portal.db.models import SyncJob, SyncRule
 from portal.db.session import get_sessionmaker
 from portal.lib.config import get_settings
 from portal.lib.logging import configure_logging, get_logger
+from portal.services.retention import purge_expired
 from portal.storage.frameio_backend import FrameioStorageBackend
 from portal.sync.events import process_event
 from portal.sync.queue import RUN_SYNC_JOB
@@ -140,6 +141,12 @@ async def reconcile_all(ctx: dict[str, Any]) -> int:
     return total
 
 
+async def retention_sweep(ctx: dict[str, Any]) -> dict[str, int]:
+    """Daily cron: prune expired history rows (sync jobs excluded — see services.retention)."""
+    async with get_sessionmaker()() as db:
+        return await purge_expired(db)
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     configure_logging(get_settings().log_level)
     ctx["http"] = httpx.AsyncClient(
@@ -177,7 +184,10 @@ class WorkerSettings:
         run_sync_job,
         reconcile_rule_task,
     ]
-    cron_jobs = [cron(reconcile_all, minute=_reconcile_minutes)]
+    cron_jobs = [
+        cron(reconcile_all, minute=_reconcile_minutes),
+        cron(retention_sweep, hour=3, minute=30),  # daily off-peak history prune
+    ]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

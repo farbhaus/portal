@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { accentText } from "$lib/format";
 
   type Variant = "primary" | "ghost" | "danger" | "subtle";
   type Size = "sm" | "md";
@@ -13,6 +14,7 @@
     target = undefined,
     rel = undefined,
     onclick = undefined,
+    accent = undefined,
     class: klass = "",
     children,
   }: {
@@ -24,6 +26,9 @@
     target?: string;
     rel?: string;
     onclick?: (e: MouseEvent) => void;
+    // Optional hex colour for a primary button — used by branded public pages so a link's accent
+    // drives the CTA instead of the app amber. Ignored for non-primary variants.
+    accent?: string;
     class?: string;
     children: Snippet;
   } = $props();
@@ -40,11 +45,13 @@
     subtle: "text-muted hover:text-text hover:bg-surface-2",
     danger: "border border-border text-danger hover:bg-danger/10 hover:border-danger/40",
   };
-  const cls = $derived(`${base} ${sizes[size]} ${variants[variant]} ${klass}`);
+  const branded = $derived(variant === "primary" && !!accent);
+  const cls = $derived(`${base} ${sizes[size]} ${branded ? "" : variants[variant]} ${klass}`);
+  const style = $derived(branded ? `background:${accent};color:${accentText(accent!)}` : undefined);
 </script>
 
 {#if href}
-  <a {href} {target} {rel} class={cls}>{@render children()}</a>
+  <a {href} {target} {rel} class={cls} {style}>{@render children()}</a>
 {:else}
-  <button {type} {disabled} {onclick} class={cls}>{@render children()}</button>
+  <button {type} {disabled} {onclick} class={cls} {style}>{@render children()}</button>
 {/if}

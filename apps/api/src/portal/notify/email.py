@@ -60,8 +60,11 @@ def _html_shell(*, brand: EmailBrand, heading: str, body_html: str) -> str:
     )
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width,initial-scale=1"></head>'
-        '<body style="margin:0;padding:0;background:#f4f4f5;'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        # Pin the light scheme so Gmail/Outlook dark-mode don't invert this hand-tuned design.
+        '<meta name="color-scheme" content="light">'
+        '<meta name="supported-color-schemes" content="light"></head>'
+        '<body style="margin:0;padding:0;color-scheme:light;background:#f4f4f5;'
         "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,"
         'Helvetica,Arial,sans-serif">'
         '<div style="max-width:560px;margin:0 auto;padding:24px 16px">'
@@ -211,14 +214,14 @@ def render_upload_completion(
     body_html = (
         f'<p style="margin:0 0 16px">A new upload completed on '
         f'<strong>{escape(link_name)}</strong>.</p>'
-        '<table style="border-collapse:collapse;margin:0 0 16px;width:100%">'
+        '<table role="presentation" style="border-collapse:collapse;margin:0 0 16px;width:100%">'
         + _meta_row("Uploader", uploader_name or "—")
         + _meta_row("Email", uploader_email or "—")
         + _meta_row("Message", uploader_message or "—")
         + "</table>"
         f'<p style="margin:0 0 4px;font-weight:600;color:#18181b">Files ({count})</p>'
         f'<ul style="margin:0 0 16px;padding-left:18px">{file_rows}</ul>'
-        '<table style="border-collapse:collapse;width:100%">'
+        '<table role="presentation" style="border-collapse:collapse;width:100%">'
         + _meta_row("Total", _format_bytes(total_bytes))
         + _meta_row("Duration", _format_duration(duration_seconds))
         + "</table>"

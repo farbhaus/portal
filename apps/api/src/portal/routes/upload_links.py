@@ -23,6 +23,7 @@ from portal.db.session import get_session
 from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError, PortalError
 from portal.lib.logging import get_logger
+from portal.lib.validators import HexColor
 from portal.uploads.links import (
     MEDIA_EXTENSIONS_PRESET,
     generate_token,
@@ -58,7 +59,7 @@ class UploadLinkCreate(BaseModel):
     target_folder_name: str | None = Field(default=None, max_length=255)
     subfolder_template: str | None = None
     brand_logo_url: str | None = None
-    brand_accent_color: str | None = Field(default=None, max_length=32)
+    brand_accent_color: HexColor = None
     brand_display_name: str | None = Field(default=None, max_length=255)
     brand_subtitle: str | None = None
 
@@ -76,7 +77,7 @@ class UploadLinkUpdate(BaseModel):
     target_folder_name: str | None = Field(default=None, max_length=255)
     subfolder_template: str | None = None
     brand_logo_url: str | None = None
-    brand_accent_color: str | None = Field(default=None, max_length=32)
+    brand_accent_color: HexColor = None
     brand_display_name: str | None = Field(default=None, max_length=255)
     brand_subtitle: str | None = None
 

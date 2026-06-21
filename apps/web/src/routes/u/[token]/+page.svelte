@@ -1,8 +1,9 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
+  import { Button, Card } from "$lib/components";
+  import { formatBytes } from "$lib/format";
   import {
     fileExtension,
-    formatBytes,
     itemsFromDataTransfer,
     itemsFromFileList,
     requestCode,
@@ -15,13 +16,8 @@
   let { data } = $props();
   const link = $derived(data.link);
   const accent = $derived(link.accent_color || "#f59e0b");
-  function accentText(hex: string): string {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? "#1a1206" : "#ffffff";
-  }
-  const onAccent = $derived(accentText(accent));
+  const inputCls =
+    "w-full rounded-md border border-border px-3 py-2 text-sm outline-none focus:border-accent";
 
   let name = $state("");
   let email = $state("");
@@ -38,6 +34,8 @@
 
   let items = $state<UploadItem[]>([]);
   let dragging = $state(false);
+  let filesInput = $state<HTMLInputElement>();
+  let folderInput = $state<HTMLInputElement>();
   let phase = $state<"select" | "uploading" | "done" | "error">("select");
   let error = $state<string | null>(null);
   let uploadedBytes = $state(0);
@@ -176,33 +174,41 @@
 
 <svelte:head><title>{link.display_name}</title></svelte:head>
 
-<div class="flex min-h-screen flex-col items-center bg-surface-2 px-4 py-12">
+<div class="flex min-h-screen flex-col items-center justify-center bg-bg px-4 py-12">
   <div class="w-full max-w-xl">
     <div class="mb-6 text-center">
       {#if link.logo_url}
         <img src={link.logo_url} alt="" class="mx-auto mb-4 h-12 object-contain" />
       {/if}
-      <h1 class="text-2xl font-semibold">{link.display_name}</h1>
+      <h1 class="text-2xl font-semibold tracking-tight">{link.display_name}</h1>
       {#if link.subtitle}<p class="mt-1 text-muted">{link.subtitle}</p>{/if}
     </div>
 
     {#if link.state !== "ok"}
-      <div class="rounded-xl border border-border bg-surface p-8 text-center">
+      <Card class="text-center">
         <p class="text-muted">
           {link.state === "expired"
             ? "This upload link has expired."
             : "This upload link is no longer active."}
         </p>
-      </div>
+      </Card>
     {:else if phase === "done"}
-      <div class="rounded-xl border border-success/30 bg-surface p-8 text-center">
-        <p class="text-lg font-medium text-success">Upload complete 🎉</p>
+      <Card class="text-center">
+        <div
+          class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-success/15 text-success"
+        >
+          <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        </div>
+        <p class="text-lg font-medium">Upload complete</p>
         <p class="mt-1 text-sm text-muted">
           {items.length} file{items.length === 1 ? "" : "s"} ({formatBytes(totalBytes)}) delivered.
         </p>
-      </div>
+      </Card>
     {:else}
-      <div class="space-y-5 rounded-xl border border-border bg-surface p-6">
+      <Card class="space-y-5">
         {#if error}
           <p class="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
         {/if}
@@ -210,25 +216,22 @@
         {#if link.uploader_fields_required.name || link.uploader_fields_required.email || link.uploader_fields_required.message || link.password_required}
           <div class="space-y-3">
             {#if link.uploader_fields_required.name}
-              <input bind:value={name} placeholder="Your name" disabled={phase === "uploading"}
-                class="w-full rounded-md border border-border px-3 py-2 text-sm" />
+              <input bind:value={name} placeholder="Your name" disabled={phase === "uploading"} class={inputCls} />
             {/if}
             {#if link.uploader_fields_required.email}
               <div>
-                <input bind:value={email} type="email" placeholder="Your email" disabled={phase === "uploading" || codeSent}
-                  class="w-full rounded-md border border-border px-3 py-2 text-sm disabled:bg-surface-2" />
+                <input bind:value={email} type="email" placeholder="Your email"
+                  disabled={phase === "uploading" || codeSent} class="{inputCls} disabled:bg-surface-2" />
                 {#if link.verify_email && verified}
                   <p class="mt-1 flex items-center gap-1.5 text-xs text-success">✓ Email verified</p>
                 {/if}
               </div>
             {/if}
             {#if link.uploader_fields_required.message}
-              <textarea bind:value={message} placeholder="Message" disabled={phase === "uploading"}
-                class="w-full rounded-md border border-border px-3 py-2 text-sm"></textarea>
+              <textarea bind:value={message} placeholder="Message" disabled={phase === "uploading"} class={inputCls}></textarea>
             {/if}
             {#if link.password_required}
-              <input bind:value={password} type="password" placeholder="Password" disabled={phase === "uploading"}
-                class="w-full rounded-md border border-border px-3 py-2 text-sm" />
+              <input bind:value={password} type="password" placeholder="Password" disabled={phase === "uploading"} class={inputCls} />
             {/if}
           </div>
         {/if}
@@ -238,7 +241,7 @@
             <!-- OTP gate: covers the dropzone until the email is verified, then slides away. -->
             {#if locked}
               <div
-                class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-lg border border-accent/40 bg-surface px-6 text-center"
+                class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-lg border border-border bg-surface px-6 text-center"
                 transition:fly={{ y: 18, duration: 320 }}
               >
                 <div>
@@ -253,44 +256,41 @@
                     inputmode="numeric"
                     placeholder="······"
                     onkeydown={(e) => e.key === "Enter" && verifyAndUnlock()}
-                    class="w-44 rounded-md border border-border px-3 py-2 text-center text-lg tracking-[0.4em]"
+                    class="w-44 rounded-md border border-border px-3 py-2 text-center text-lg tracking-[0.4em] outline-none focus:border-accent"
                   />
                   <div class="flex items-center gap-3">
-                    <button onclick={verifyAndUnlock} disabled={verifying || !code.trim()}
-                      class="rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50" style="background:{accent};color:{onAccent}">
+                    <Button {accent} onclick={verifyAndUnlock} disabled={verifying || !code.trim()}>
                       {verifying ? "Verifying…" : "Verify & continue"}
-                    </button>
-                    <button type="button" onclick={sendCode} disabled={sendingCode} class="text-xs text-muted underline hover:text-text disabled:opacity-50">
+                    </Button>
+                    <Button variant="subtle" size="sm" onclick={sendCode} disabled={sendingCode}>
                       {sendingCode ? "Sending…" : "Resend"}
-                    </button>
+                    </Button>
                   </div>
                 {:else}
-                  <button onclick={sendCode} disabled={!email.trim() || sendingCode}
-                    class="rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50" style="background:{accent};color:{onAccent}">
+                  <Button {accent} onclick={sendCode} disabled={!email.trim() || sendingCode}>
                     {sendingCode ? "Sending…" : "Send verification code"}
-                  </button>
+                  </Button>
                 {/if}
               </div>
             {/if}
 
+            <!-- Drag-drop is a mouse enhancement; the buttons below are the keyboard-accessible
+                 path (they open the hidden inputs), so the zone itself is a labelled group. -->
             <div
-              role="button" tabindex="0"
+              role="group"
+              aria-label="Upload files"
               ondragover={(e) => { if (!locked) { e.preventDefault(); dragging = true; } }}
               ondragleave={() => (dragging = false)}
               ondrop={(e) => { if (!locked) onDrop(e); }}
-              class="rounded-lg border-2 border-dashed p-8 text-center transition-all {dragging ? 'border-accent bg-surface-2' : 'border-border'} {locked ? 'pointer-events-none opacity-30 blur-[1px]' : ''}"
+              class="rounded-card border-2 border-dashed p-8 text-center transition-all {dragging ? 'border-accent bg-surface-2' : 'border-border'} {locked ? 'pointer-events-none opacity-30 blur-[1px]' : ''}"
             >
               <p class="text-sm text-muted">Drag files or folders here</p>
               <p class="my-2 text-xs text-faint">or</p>
               <div class="flex justify-center gap-2">
-                <label class="cursor-pointer rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2">
-                  Choose files
-                  <input type="file" multiple class="hidden" onchange={onPick} />
-                </label>
-                <label class="cursor-pointer rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2">
-                  Choose folder
-                  <input type="file" webkitdirectory class="hidden" onchange={onPick} />
-                </label>
+                <Button variant="ghost" size="sm" onclick={() => filesInput?.click()}>Choose files</Button>
+                <Button variant="ghost" size="sm" onclick={() => folderInput?.click()}>Choose folder</Button>
+                <input bind:this={filesInput} type="file" multiple class="hidden" onchange={onPick} />
+                <input bind:this={folderInput} type="file" webkitdirectory class="hidden" onchange={onPick} />
               </div>
               {#if link.allowed_extensions}
                 <p class="mt-3 text-xs text-faint">Allowed: {link.allowed_extensions.join(", ")}</p>
@@ -309,7 +309,7 @@
                   {#if doneFiles.has(it.path)}<span class="text-success">✓</span>
                   {:else if currentFile === it.path}<span class="text-muted">…</span>
                   {:else if phase === "select"}
-                    <button onclick={() => removeItem(it.path)} class="text-faint hover:text-danger">✕</button>
+                    <button onclick={() => removeItem(it.path)} class="text-faint hover:text-danger" aria-label="Remove {it.path}">✕</button>
                   {/if}
                 </span>
               </div>
@@ -327,16 +327,11 @@
             </p>
           </div>
         {:else if !locked}
-          <button
-            onclick={start}
-            disabled={items.length === 0}
-            class="w-full rounded-md px-4 py-2.5 text-sm font-medium disabled:opacity-50"
-            style="background:{accent};color:{onAccent}"
-          >
+          <Button {accent} onclick={start} disabled={items.length === 0} class="w-full">
             Upload {items.length > 0 ? `${items.length} file${items.length === 1 ? "" : "s"} (${formatBytes(totalBytes)})` : ""}
-          </button>
+          </Button>
         {/if}
-      </div>
+      </Card>
     {/if}
 
     <p class="mt-6 text-center text-xs text-faint">Powered by Portal</p>

@@ -307,6 +307,9 @@ class DownloadSession(Base, TimestampMixin):
     viewer_email: Mapped[str | None] = mapped_column(String(255))
     ip: Mapped[str | None] = mapped_column(String(64))
     user_agent: Mapped[str | None] = mapped_column(Text)
+    # Snapshot of the link's resolved files at session start ([{id, name, size}, ...]) so minting a
+    # per-file download URL needs no extra Frame.io calls (and folder sources aren't re-listed).
+    files: Mapped[list[Any] | None] = mapped_column(JSONB)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     download_link: Mapped[DownloadLink] = relationship(back_populates="sessions")

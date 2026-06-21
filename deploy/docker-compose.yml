@@ -2,7 +2,8 @@ name: portal
 
 services:
   portal_postgres:
-    image: postgres:16
+    # Digest-pinned for reproducibility (tag kept for readability); Dependabot bumps both.
+    image: postgres:16@sha256:ab47a724d0e37131ac950b98ff2beeb3fdb3bfcc592d73c6cc4b4e7626649671
     container_name: portal_postgres
     restart: unless-stopped
     environment:
@@ -20,7 +21,7 @@ services:
       - portal_net
 
   portal_redis:
-    image: redis:7
+    image: redis:7@sha256:33d7c9a245edd95e6703a0addbeaa48fe40c3b3b4783627a72085155462ebfdb
     container_name: portal_redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
@@ -73,6 +74,11 @@ services:
       - .env
     environment:
       REDIS_URL: ${REDIS_URL}
+    # The image defaults to non-root (uid/gid 10001), but this NFS export squashes non-root uids
+    # (verified: uid 10001 is denied writes to the sync mount), so the worker — which writes synced
+    # files — runs as root. It has no inbound network, so this is low risk; the internet-facing web
+    # and the api stay non-root. If your share grants a specific uid instead, set that here.
+    user: "0:0"
     volumes:
       # Sync destinations live on the host (local disk or NAS mounts). Bind the mount root with
       # rslave propagation so any filesystem mounted under it on the host (e.g. an fstab NAS mount)
@@ -109,7 +115,7 @@ services:
       - portal_net
 
   portal_caddy:
-    image: caddy:2
+    image: caddy:2@sha256:cfeb0b281bc44a5a51fecde39e9e577c60d863c0b6196e6bbdf58fd00960887f
     container_name: portal_caddy
     restart: unless-stopped
     ports:

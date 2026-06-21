@@ -19,6 +19,7 @@ from portal.db.session import get_session
 from portal.lib.config import get_settings
 from portal.lib.crypto import TokenCipher
 from portal.lib.logging import get_logger
+from portal.lib.validators import HexColor
 from portal.services.app_settings import get_app_settings, get_or_create_app_settings
 
 log = get_logger("routes.security")
@@ -216,7 +217,7 @@ async def delete_logo(
 
 class BrandingUpdate(BaseModel):
     brand_display_name: str | None = Field(default=None, max_length=255)
-    brand_accent_color: str | None = Field(default=None, max_length=32)
+    brand_accent_color: HexColor = None
 
 
 @router.post("/branding", response_model=BrandingStatus)

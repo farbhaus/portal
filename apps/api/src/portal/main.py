@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
 from portal.frameio.client import close_frameio_client
-from portal.lib.config import get_settings
+from portal.lib.config import get_settings, require_secure_secrets
 from portal.lib.errors import install_exception_handlers
 from portal.lib.logging import RequestIdMiddleware, configure_logging, get_logger
 from portal.routes import (
@@ -46,6 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    require_secure_secrets(settings)
     configure_logging(settings.log_level)
 
     app = FastAPI(

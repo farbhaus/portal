@@ -22,6 +22,7 @@ from portal.db.session import get_session
 from portal.frameio.client import FrameioError, FrameioNotConnected, get_frameio_client
 from portal.lib.errors import NotFoundError
 from portal.lib.logging import get_logger
+from portal.lib.validators import HexColor
 
 log = get_logger("routes.destinations")
 router = APIRouter(prefix="/destinations", tags=["destinations"])
@@ -39,14 +40,14 @@ class DestinationCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=255)
     config: FrameioConfigIn
     logo_url: str | None = None
-    accent_color: str | None = Field(default=None, max_length=32)
+    accent_color: HexColor = None
     subtitle: str | None = None
 
 
 class DestinationUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
     logo_url: str | None = None
-    accent_color: str | None = Field(default=None, max_length=32)
+    accent_color: HexColor = None
     subtitle: str | None = None
 
 

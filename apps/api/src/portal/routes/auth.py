@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from portal.auth import totp as totp_svc
 from portal.auth import webauthn as webauthn_svc
-from portal.auth.passwords import verify_password
+from portal.auth.passwords import verify_dummy, verify_password
 from portal.auth.session import (
     clear_session,
     login_session,
@@ -21,6 +21,7 @@ from portal.db.models import AuditLog, User, WebauthnCredential
 from portal.db.session import get_session
 from portal.lib.errors import AuthError
 from portal.lib.logging import get_logger
+from portal.lib.ratelimit import limit
 
 log = get_logger("routes.auth")
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -30,7 +31,14 @@ _REG_CHALLENGE = "webauthn_reg_challenge"
 _AUTH_CHALLENGE = "webauthn_auth_challenge"
 _TOTP_PENDING_UID = "totp_pending_uid"
 _TOTP_PENDING_TS = "totp_pending_ts"
+_TOTP_PENDING_ATTEMPTS = "totp_pending_attempts"
 _TOTP_PENDING_TTL = 300  # seconds the password step stays valid before the code is required again
+_TOTP_MAX_ATTEMPTS = 5  # wrong codes allowed per password step before re-auth is forced
+
+
+def _clear_totp_pending(request: Request) -> None:
+    for key in (_TOTP_PENDING_UID, _TOTP_PENDING_TS, _TOTP_PENDING_ATTEMPTS):
+        request.session.pop(key, None)
 
 
 class LoginRequest(BaseModel):
@@ -50,17 +58,21 @@ class LoginResult(BaseModel):
     email: str | None = None
 
 
-@router.post("/login", response_model=LoginResult)
+@router.post("/login", response_model=LoginResult, dependencies=[limit("strict")])
 async def login(
     body: LoginRequest, request: Request, db: AsyncSession = Depends(get_session)
 ) -> LoginResult:
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
-    if user is None or not user.is_active or not verify_password(body.password, user.password_hash):
+    if user is None or not user.is_active:
+        verify_dummy(body.password)  # constant-time: don't leak which emails exist
+        raise AuthError("Invalid email or password")
+    if not verify_password(body.password, user.password_hash):
         raise AuthError("Invalid email or password")
     if user.totp_enabled:
         request.session[_TOTP_PENDING_UID] = str(user.id)
         request.session[_TOTP_PENDING_TS] = int(time.time())
+        request.session[_TOTP_PENDING_ATTEMPTS] = 0
         return LoginResult(totp_required=True)
     login_session(request, user)
     return LoginResult(id=str(user.id), email=user.email)
@@ -70,15 +82,14 @@ class TotpLoginRequest(BaseModel):
     code: str
 
 
-@router.post("/login/totp", response_model=UserOut)
+@router.post("/login/totp", response_model=UserOut, dependencies=[limit("strict")])
 async def login_totp(
     body: TotpLoginRequest, request: Request, db: AsyncSession = Depends(get_session)
 ) -> UserOut:
     uid = request.session.get(_TOTP_PENDING_UID)
     ts = request.session.get(_TOTP_PENDING_TS)
     if not uid or not ts or (time.time() - int(ts)) > _TOTP_PENDING_TTL:
-        request.session.pop(_TOTP_PENDING_UID, None)
-        request.session.pop(_TOTP_PENDING_TS, None)
+        _clear_totp_pending(request)
         raise AuthError("Your login session expired — start again")
     user = await db.get(User, uuid.UUID(uid))
     if user is None or not user.totp_enabled or not user.totp_secret_encrypted:
@@ -95,10 +106,16 @@ async def login_totp(
             user.totp_recovery_codes = remaining
             ok = True
     if not ok:
+        # Cap guesses per password step so the 6-digit code can't be brute-forced within the
+        # 300s window; once exhausted, the password must be re-entered to get a fresh window.
+        attempts = int(request.session.get(_TOTP_PENDING_ATTEMPTS, 0)) + 1
+        request.session[_TOTP_PENDING_ATTEMPTS] = attempts
+        if attempts >= _TOTP_MAX_ATTEMPTS:
+            _clear_totp_pending(request)
+            raise AuthError("Too many incorrect codes — sign in again")
         raise AuthError("Invalid code")
 
-    request.session.pop(_TOTP_PENDING_UID, None)
-    request.session.pop(_TOTP_PENDING_TS, None)
+    _clear_totp_pending(request)
     login_session(request, user)
     await db.commit()
     return UserOut(id=str(user.id), email=user.email)
