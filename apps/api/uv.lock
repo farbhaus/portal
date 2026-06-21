@@ -973,7 +973,7 @@ requires-dist = [
     { name = "redis", specifier = ">=5.2" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.51" },
     { name = "structlog", specifier = ">=24.4" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.49.0" },
     { name = "webauthn", specifier = ">=2.8.0" },
 ]
 
