@@ -25,9 +25,20 @@ class Settings(BaseSettings):
     admin_email: str = Field(default="admin@example.com")
     admin_password: str = Field(default="change-me")
 
+    # Escape hatch for throwaway local runs only: allow booting with the placeholder secrets
+    # above. Production must leave this false so a misconfigured deploy fails fast (see
+    # require_secure_secrets) instead of running with forgeable cookies / weakly-keyed secrets.
+    allow_insecure_defaults: bool = Field(default=False)
+
     # Session cookie
     session_cookie_secure: bool = Field(default=True)
     session_cookie_name: str = Field(default="portal_session")
+
+    # WebAuthn / passkeys. RP id defaults to the base_url host; RP name shows in the OS prompt.
+    webauthn_rp_id: str = Field(default="")
+    webauthn_rp_name: str = Field(default="Portal")
+    # Max size of an uploaded brand logo (.png), in bytes.
+    branding_logo_max_bytes: int = Field(default=2 * 1024 * 1024)
 
     # Frame.io / Adobe IMS OAuth
     frameio_client_id: str = Field(default="")
@@ -98,6 +109,19 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = Field(default=True)
     rate_limit_default_per_minute: int = Field(default=120)
     rate_limit_strict_per_minute: int = Field(default=12)
+    # Number of trusted reverse proxies in front of the API. Each appends the address it saw
+    # to X-Forwarded-For, so the real client is the Nth entry from the right. The deploy chain
+    # is host Caddy → internal Caddy (2 hops); set to 0 when no proxy sits in front (the socket
+    # peer is then the client). Taking the leftmost XFF entry instead would let a client spoof
+    # the header and dodge the rate limiter, so this must match the real topology.
+    trusted_proxy_hops: int = Field(default=2)
+
+    # Data retention (days). A daily worker cron deletes history rows older than these; 0 disables a
+    # given sweep. Sync jobs are deliberately NOT pruned — reconcile treats a job's existence as the
+    # copy-once record for a file, so deleting them would re-download already-synced files.
+    retention_webhook_events_days: int = Field(default=90)
+    retention_sessions_days: int = Field(default=365)  # upload + download sessions (+ their events)
+    retention_audit_log_days: int = Field(default=0)  # 0 = keep the audit trail indefinitely
 
     log_level: str = Field(default="INFO")
 
@@ -118,3 +142,34 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+# The placeholder values shipped in .env.example. Booting with any of these means the deployer
+# never set a real secret.
+_INSECURE_DEFAULTS = {
+    "session_secret": "change-me-session-secret",
+    "token_encryption_key": "change-me-token-encryption-key",
+    "admin_password": "change-me",
+}
+
+
+def require_secure_secrets(settings: Settings | None = None) -> None:
+    """Refuse to start if any secret is still the .env.example placeholder.
+
+    Left at their defaults, ``session_secret`` makes session cookies forgeable (full admin
+    takeover) and ``token_encryption_key`` weakly keys every secret-at-rest, so failing fast is
+    far safer than running. Set ``ALLOW_INSECURE_DEFAULTS=true`` only for disposable local runs.
+    """
+    settings = settings or get_settings()
+    if settings.allow_insecure_defaults:
+        return
+    offenders = [
+        name for name, default in _INSECURE_DEFAULTS.items() if getattr(settings, name) == default
+    ]
+    if offenders:
+        raise RuntimeError(
+            "Refusing to start with default secret(s): "
+            + ", ".join(sorted(offenders))
+            + ". Set strong values in .env (see deploy/.env.example), or set "
+            "ALLOW_INSECURE_DEFAULTS=true for local-only use."
+        )

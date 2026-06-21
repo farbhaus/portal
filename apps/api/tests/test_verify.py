@@ -12,7 +12,6 @@ from sqlalchemy import delete
 
 from portal.db.models import EmailVerification
 from portal.db.session import get_sessionmaker
-from portal.lib.config import get_settings
 from portal.verify import email_check, service, trust
 
 
@@ -95,18 +94,31 @@ def test_issue_trust_sets_cookie() -> None:
 
 
 def _enable_email(monkeypatch: Any) -> dict[str, str]:
-    s = get_settings()
-    monkeypatch.setattr(s, "smtp_host", "smtp.test")
-    monkeypatch.setattr(s, "smtp_from", "portal@test")
+    from portal.services.runtime_config import EmailConfig
+
+    cfg = EmailConfig(
+        smtp_host="smtp.test",
+        smtp_port=587,
+        smtp_username="",
+        smtp_password="",
+        smtp_from="portal@test",
+        smtp_use_tls=False,
+        smtp_starttls=True,
+        notify_email="",
+    )
     sent: dict[str, str] = {}
 
-    async def fake_send(to: str, code: str, ttl: int) -> None:
+    async def fake_get_email_config(db: Any) -> EmailConfig:
+        return cfg
+
+    async def fake_send(config: Any, to: str, code: str, ttl: int, brand: Any = None) -> None:
         sent["to"] = to
         sent["code"] = code
 
     async def always_plausible(email: str, *, check_mx: bool) -> bool:
         return True
 
+    monkeypatch.setattr(service, "get_email_config", fake_get_email_config)
     monkeypatch.setattr(service, "send_verification_code", fake_send)
     monkeypatch.setattr(service, "is_plausible_email", always_plausible)
     return sent
@@ -150,8 +162,23 @@ async def test_request_invalid_email(monkeypatch: Any) -> None:
             await service.request_code(db, "ze@ze.ze")
 
 
-async def test_request_unavailable_when_email_unconfigured() -> None:
-    # No SMTP patched → email_configured is false in the test env.
+async def test_request_unavailable_when_email_unconfigured(monkeypatch: Any) -> None:
+    # Email config resolves to "not configured" → request_code refuses up front.
+    from portal.services.runtime_config import EmailConfig
+
+    async def unconfigured(db: Any) -> EmailConfig:
+        return EmailConfig(
+            smtp_host="",
+            smtp_port=587,
+            smtp_username="",
+            smtp_password="",
+            smtp_from="",
+            smtp_use_tls=False,
+            smtp_starttls=True,
+            notify_email="",
+        )
+
+    monkeypatch.setattr(service, "get_email_config", unconfigured)
     async with get_sessionmaker()() as db:
         with pytest.raises(service.VerificationUnavailable):
             await service.request_code(db, "ze@x.com")

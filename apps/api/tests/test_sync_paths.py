@@ -4,11 +4,35 @@ from pathlib import Path
 from portal.sync.paths import (
     PathContext,
     render_path_template,
+    render_session_prefix,
     resolve_conflict,
     resolve_destination,
 )
 
 WHEN = datetime(2026, 6, 10, 14, 30)
+
+
+def test_render_session_prefix_empty() -> None:
+    assert render_session_prefix(None, uploader_name="X") == ""
+    assert render_session_prefix("   ", uploader_name="X") == ""
+
+
+def test_render_session_prefix_tokens() -> None:
+    assert (
+        render_session_prefix("{date}/{uploader_name}", uploader_name="DIT", when=WHEN)
+        == "2026-06-10/DIT"
+    )
+    assert render_session_prefix("{year}/{month}/{day}", when=WHEN) == "2026/06/10"
+
+
+def test_render_session_prefix_drops_inapplicable_tokens() -> None:
+    # No filename is appended (directory-only); filename tokens render empty → nothing.
+    assert render_session_prefix("{filename}", uploader_name="X") == ""
+
+
+def test_render_session_prefix_cannot_escape_root() -> None:
+    out = render_session_prefix("{uploader_name}", uploader_name="../../etc")
+    assert ".." not in out
 
 
 def test_no_template_uses_basename() -> None:

@@ -45,15 +45,25 @@
       else await invalidateAll();
     } finally { busy = null; }
   }
+
+  async function removeRule(r: SyncRule) {
+    if (!confirm(`Delete sync rule "${r.name}"? Its webhook and job history will be removed.`)) return;
+    deleting = r.id; note = null;
+    try {
+      const res = await fetch(`/api/sync-rules/${r.id}`, { method: "DELETE" });
+      if (!res.ok) note = (await res.json().catch(() => ({}))).detail ?? `Could not delete (${res.status}).`;
+      else await invalidateAll();
+    } finally { deleting = null; }
+  }
 </script>
 
 <div class="space-y-5">
-  <div class="flex items-start justify-between gap-4">
-    <div>
+  <div class="flex flex-wrap items-start justify-between gap-4">
+    <div class="min-w-0">
       <h1 class="text-xl font-semibold tracking-tight">Sync</h1>
       <p class="mt-0.5 text-sm text-muted">Destinations and rules for syncing Frame.io to local storage.</p>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center gap-2">
       <Button href="/destinations/new" variant="ghost">New destination</Button>
       <Button href="/sync-rules/new">New rule</Button>
     </div>
@@ -89,10 +99,10 @@
                     {/if}
                     <span class="truncate font-medium text-sm">{dest.display_name}</span>
                   </div>
-                  {#if dest.subtitle}<div class="mt-0.5 text-xs text-muted">{dest.subtitle}</div>{/if}
-                  <div class="mt-0.5 text-xs text-faint">{dest.config.folder_name ?? dest.config.folder_id}</div>
+                  {#if dest.subtitle}<div class="mt-0.5 truncate text-xs text-muted">{dest.subtitle}</div>{/if}
+                  <div class="mt-0.5 truncate text-xs text-faint">{dest.config.folder_name ?? dest.config.folder_id}</div>
                 </div>
-                <div class="flex shrink-0 items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div class="flex shrink-0 items-center gap-2 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
                   <a href="/destinations/{dest.id}" class="text-xs text-muted hover:text-text">Edit</a>
                   <button onclick={() => removeDestination(dest.id, dest.display_name)} disabled={deleting === dest.id} class="text-xs text-danger hover:opacity-80 disabled:opacity-50">
                     {deleting === dest.id ? "Deleting…" : "Delete"}
@@ -127,21 +137,25 @@
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2">
-                    <a href="/sync-rules/{r.id}" class="truncate font-medium text-sm hover:text-accent">{r.name}</a>
+                    <span class="truncate font-medium text-sm">{r.name}</span>
                     {#if r.enabled}
                       <StatusPill status="ok" label={r.subscription_active ? "enabled" : "enabled (no webhook)"} />
                     {:else}
                       <StatusPill status="revoked" label="disabled" />
                     {/if}
                   </div>
-                  <div class="mt-0.5 text-xs text-muted">{sourceLabel(r)}</div>
-                  <div class="mt-0.5 font-mono text-xs text-faint">{r.destination_path}</div>
+                  <div class="mt-0.5 truncate text-xs text-muted">{sourceLabel(r)}</div>
+                  <div class="mt-0.5 truncate font-mono text-xs text-faint">{r.destination_path}</div>
                 </div>
-                <div class="flex shrink-0 items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
                   <Button variant="ghost" size="sm" onclick={() => run(r)} disabled={busy === r.id}>Run</Button>
                   <Button variant="ghost" size="sm" onclick={() => toggle(r)} disabled={busy === r.id}>
                     {r.enabled ? "Disable" : "Enable"}
                   </Button>
+                  <a href="/sync-rules/{r.id}" class="text-xs text-muted hover:text-text">Edit</a>
+                  <button onclick={() => removeRule(r)} disabled={deleting === r.id} class="text-xs text-danger hover:opacity-80 disabled:opacity-50">
+                    {deleting === r.id ? "Deleting…" : "Delete"}
+                  </button>
                 </div>
               </div>
             </div>

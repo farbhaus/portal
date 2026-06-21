@@ -1,6 +1,8 @@
 // Recipient-side download helpers. Portal only mints short-lived signed URLs; the browser
 // fetches bytes directly from Frame.io's storage — nothing flows through Portal.
 
+import { formatBytes as fmtBytes } from "$lib/format";
+
 export type DownloadFile = {
   id: string;
   name: string;
@@ -82,15 +84,7 @@ export async function downloadAll(
   }
 }
 
+// Null-aware wrapper (a file size can be unknown); core formatting lives in format.ts.
 export function formatBytes(n: number | null): string {
-  if (n === null) return "";
-  if (n < 1024) return `${n} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let v = n / 1024;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(1)} ${units[i]}`;
+  return n === null ? "" : fmtBytes(n);
 }

@@ -1,17 +1,16 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { ProjectPicker } from "$lib/components";
 
   type Item = { id: string; name: string };
   type Project = { id: string; name: string; root_folder_id: string | null };
 
-  let accounts = $state<Item[]>([]);
-  let workspaces = $state<Item[]>([]);
-  let projects = $state<Project[]>([]);
   let subfolders = $state<Item[]>([]);
 
   let accountId = $state("");
   let workspaceId = $state("");
   let projectId = $state("");
+  let projectName = $state("");
   let folderPath = $state<Item[]>([]);
   let chosenFolder = $state<Item | null>(null);
 
@@ -46,40 +45,20 @@
     }
   }
 
-  $effect(() => {
-    load(async () => {
-      accounts = await getJSON<Item[]>("/api/frameio/accounts");
-    });
-  });
-
-  async function onAccount() {
-    workspaceId = projectId = "";
-    workspaces = projects = subfolders = [];
-    folderPath = [];
-    chosenFolder = null;
-    if (!accountId) return;
-    await load(async () => {
-      workspaces = await getJSON<Item[]>(`/api/frameio/workspaces?account_id=${accountId}`);
-    });
-  }
-  async function onWorkspace() {
+  function onScopeReset() {
     projectId = "";
-    projects = subfolders = [];
-    folderPath = [];
-    chosenFolder = null;
-    if (!workspaceId) return;
-    await load(async () => {
-      projects = await getJSON<Project[]>(
-        `/api/frameio/projects?account_id=${accountId}&workspace_id=${workspaceId}`,
-      );
-    });
-  }
-  async function onProject() {
+    projectName = "";
     subfolders = [];
     folderPath = [];
     chosenFolder = null;
-    const proj = projects.find((p) => p.id === projectId);
-    if (!proj?.root_folder_id) return;
+  }
+  async function onProjectSelect(proj: Project) {
+    projectId = proj.id;
+    projectName = proj.name;
+    subfolders = [];
+    folderPath = [];
+    chosenFolder = null;
+    if (!proj.root_folder_id) return;
     folderPath = [{ id: proj.root_folder_id, name: `${proj.name} (root)` }];
     await loadFolder();
   }
@@ -143,7 +122,6 @@
     saving = true;
     error = null;
     try {
-      const projectName = projects.find((p) => p.id === projectId)?.name ?? "";
       const body = {
         name: name.trim() || chosenFolder.name,
         source: {
@@ -188,29 +166,13 @@
 
   <div class="space-y-5 rounded-xl border border-border bg-surface p-6">
     <h2 class="font-medium">Source folder</h2>
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-      <label class="block text-sm">
-        <span class="text-muted">Account</span>
-        <select bind:value={accountId} onchange={onAccount} class="mt-1 w-full rounded-md border border-border px-2 py-1.5">
-          <option value="">Select…</option>
-          {#each accounts as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
-        </select>
-      </label>
-      <label class="block text-sm">
-        <span class="text-muted">Workspace</span>
-        <select bind:value={workspaceId} onchange={onWorkspace} disabled={!accountId} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 disabled:bg-surface-2">
-          <option value="">Select…</option>
-          {#each workspaces as w (w.id)}<option value={w.id}>{w.name}</option>{/each}
-        </select>
-      </label>
-      <label class="block text-sm">
-        <span class="text-muted">Project</span>
-        <select bind:value={projectId} onchange={onProject} disabled={!workspaceId} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 disabled:bg-surface-2">
-          <option value="">Select…</option>
-          {#each projects as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
-        </select>
-      </label>
-    </div>
+    <ProjectPicker
+      bind:accountId
+      bind:workspaceId
+      selectedProjectId={projectId}
+      onselect={onProjectSelect}
+      onscopechange={onScopeReset}
+    />
 
     {#if folderPath.length > 0}
       <div class="rounded-md border border-border bg-surface-2 p-3">

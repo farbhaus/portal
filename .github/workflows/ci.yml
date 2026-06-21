@@ -1,0 +1,79 @@
+# Lint, type-check, test the backend and build + check the frontend.
+# Backend uses uv with the committed uv.lock so CI matches the deployed image.
+name: CI
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main", "dev" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend — lint, types & tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16  # match the production database major version
+        env:
+          POSTGRES_USER: portal
+          POSTGRES_PASSWORD: portal
+          POSTGRES_DB: portal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval=10s --health-timeout=5s --health-retries=5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=5
+    env:
+      DATABASE_URL: postgresql+asyncpg://portal:portal@localhost:5432/portal
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - name: Install dependencies (locked, incl. dev group)
+        working-directory: apps/api
+        run: uv sync --frozen
+      - name: Lint with ruff
+        working-directory: apps/api
+        run: uv run ruff check .
+      - name: Type-check with mypy
+        working-directory: apps/api
+        run: uv run mypy src
+      - name: Run tests
+        working-directory: apps/api
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend — build & check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install
+        working-directory: apps/web
+        run: npm ci
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+      - name: Svelte check
+        working-directory: apps/web
+        run: npm run check

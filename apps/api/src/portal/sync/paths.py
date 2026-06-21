@@ -77,6 +77,25 @@ def render_path_template(template: str | None, ctx: PathContext) -> str:
     return str(PurePosixPath(*segments))
 
 
+def render_session_prefix(
+    template: str | None, *, uploader_name: str = "", when: datetime | None = None
+) -> str:
+    """Render a template into a sanitized relative *directory* path (no filename appended).
+
+    Used by upload links to place uploads under a per-session subfolder, e.g.
+    ``{date}/{uploader_name}`` → ``2026-06-19/Berlin DIT``. Tokens that don't apply to uploads
+    (``{filename}``/``{project}``/…) render empty and their segments drop out. Empty/whitespace
+    template → ``""``. Every segment is sanitized so a template or uploader name can't escape root.
+    """
+    if not template or not template.strip():
+        return ""
+    ctx = PathContext(filename="", uploader_name=uploader_name, when=when)
+    tokens = _tokens(ctx)
+    rendered = _TOKEN.sub(lambda m: tokens.get(m.group(1), ""), template)
+    segments = [_sanitize_segment(s) for s in rendered.replace("\\", "/").split("/") if s.strip()]
+    return str(PurePosixPath(*segments)) if segments else ""
+
+
 def resolve_destination(root: str, template: str | None, ctx: PathContext) -> Path:
     """Absolute destination path under ``root`` for a file, before conflict resolution."""
     relative = render_path_template(template, ctx)

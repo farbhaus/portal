@@ -9,7 +9,11 @@ export type UploadStats = {
   last_activity: string | null;
 };
 
-export type DestinationOption = { id: string; display_name: string };
+export type DestinationOption = {
+  id: string;
+  display_name: string;
+  config: Record<string, string>;
+};
 
 export const load: PageServerLoad = async ({ params, request }) => {
   const cookie = request.headers.get("cookie");

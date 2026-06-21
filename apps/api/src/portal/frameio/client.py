@@ -22,12 +22,19 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 from frameio import (
     AsyncFrameio,
+    CreateShareParamsData_Asset,
+    FileCopyParamsData,
     FileCreateLocalUploadParamsData,
+    FileMoveParamsData,
+    FolderCopyParamsData,
     FolderCreateParamsData,
+    FolderMoveParamsData,
+    ProjectParamsData,
     WebhookCreateParamsData,
 )
 
@@ -136,6 +143,20 @@ class WebhookSubscription:
     secret: str
 
 
+@dataclass(frozen=True)
+class ShareLink:
+    """A Frame.io share (its own hosted review page). `short_url` is the public link."""
+
+    id: str
+    name: str | None
+    short_url: str | None
+    access: str | None
+    passphrase: str | None
+    expiration: str | None
+    downloading_enabled: bool
+    enabled: bool
+
+
 async def _provide_token() -> str:
     """Return a valid bearer token for the primary connection, refreshing if needed."""
     async with get_sessionmaker()() as db:
@@ -242,6 +263,35 @@ class FrameioClient:
 
         return await self._guard("list_projects", run)
 
+    async def create_project(
+        self, account_id: str, workspace_id: str, *, name: str, restricted: bool = False
+    ) -> ProjectItem:
+        """Create a project in a workspace (the explorer's New-project action)."""
+
+        async def run() -> ProjectItem:
+            resp = await self._client.projects.create(
+                account_id,
+                workspace_id,
+                data=ProjectParamsData(name=name, restricted=restricted),
+                request_options=_REQ_OPTS,
+            )
+            p = resp.data
+            return ProjectItem(
+                id=p.id,
+                name=getattr(p, "name", None) or name,
+                root_folder_id=getattr(p, "root_folder_id", None),
+            )
+
+        return await self._guard("create_project", run)
+
+    async def delete_project(self, account_id: str, project_id: str) -> None:
+        """Delete a project and everything in it. Used by the in-Portal file explorer."""
+
+        async def run() -> None:
+            await self._client.projects.delete(account_id, project_id, request_options=_REQ_OPTS)
+
+        await self._guard("delete_project", run)
+
     async def list_subfolders(self, account_id: str, folder_id: str) -> list[PickerItem]:
         """Direct child folders of `folder_id` (start from a project's root_folder_id)."""
 
@@ -309,6 +359,67 @@ class FrameioClient:
             await self._client.folders.delete(account_id, folder_id, request_options=_REQ_OPTS)
 
         await self._guard("delete_folder", run)
+
+    async def move_file(self, account_id: str, file_id: str, parent_id: str) -> None:
+        """Move a file into another folder (clipboard Cut→Paste in the explorer)."""
+
+        async def run() -> None:
+            await self._client.files.move(
+                account_id,
+                file_id,
+                data=FileMoveParamsData(parent_id=parent_id),
+                request_options=_REQ_OPTS,
+            )
+
+        await self._guard("move_file", run)
+
+    async def copy_file(self, account_id: str, file_id: str, parent_id: str) -> FileItem:
+        """Copy a file into another folder, returning the new file (clipboard Copy→Paste)."""
+
+        async def run() -> FileItem:
+            resp = await self._client.files.copy(
+                account_id,
+                file_id,
+                data=FileCopyParamsData(parent_id=parent_id),
+                request_options=_REQ_OPTS,
+            )
+            f = resp.data
+            return FileItem(
+                id=f.id,
+                name=getattr(f, "name", None) or f.id,
+                file_size=getattr(f, "file_size", None),
+                media_type=getattr(f, "media_type", None),
+            )
+
+        return await self._guard("copy_file", run)
+
+    async def move_folder(self, account_id: str, folder_id: str, parent_id: str) -> None:
+        """Move a folder (and its contents) into another folder."""
+
+        async def run() -> None:
+            await self._client.folders.move(
+                account_id,
+                folder_id,
+                data=FolderMoveParamsData(parent_id=parent_id),
+                request_options=_REQ_OPTS,
+            )
+
+        await self._guard("move_folder", run)
+
+    async def copy_folder(self, account_id: str, folder_id: str, parent_id: str) -> PickerItem:
+        """Copy a folder (and its contents) into another folder, returning the new folder."""
+
+        async def run() -> PickerItem:
+            resp = await self._client.folders.copy(
+                account_id,
+                folder_id,
+                data=FolderCopyParamsData(parent_id=parent_id),
+                request_options=_REQ_OPTS,
+            )
+            d = resp.data
+            return PickerItem(id=d.id, name=getattr(d, "name", None) or d.id)
+
+        return await self._guard("copy_folder", run)
 
     async def list_files(self, account_id: str, folder_id: str) -> list[FileItem]:
         """Direct child files (not subfolders) of a folder."""
@@ -515,6 +626,56 @@ class FrameioClient:
             await self._client.webhooks.delete(account_id, webhook_id, request_options=_REQ_OPTS)
 
         await self._guard("delete_webhook", run)
+
+    # ── shares (Frame.io's own hosted review page; project-scoped, asset-based) ────
+
+    async def create_share(
+        self,
+        account_id: str,
+        project_id: str,
+        *,
+        name: str,
+        asset_ids: list[str],
+        access: str = "public",
+        downloading_enabled: bool = True,
+        expiration: datetime | None = None,
+        passphrase: str | None = None,
+    ) -> ShareLink:
+        """Create a share over files/folders (assets) in a project. Returns its public short_url.
+
+        `passphrase` may be auto-generated by Frame.io when access requires one — it comes back on
+        the response, so surface it to the admin.
+        """
+
+        async def run() -> ShareLink:
+            resp = await self._client.shares.create(
+                account_id,
+                project_id,
+                data=CreateShareParamsData_Asset(
+                    type="asset",
+                    name=name,
+                    access=access,
+                    asset_ids=asset_ids,
+                    downloading_enabled=downloading_enabled,
+                    expiration=expiration,
+                    passphrase=passphrase,
+                ),
+                request_options=_REQ_OPTS,
+            )
+            d = resp.data
+            exp = getattr(d, "expiration", None)
+            return ShareLink(
+                id=d.id,
+                name=getattr(d, "name", None),
+                short_url=getattr(d, "short_url", None),
+                access=str(getattr(d, "access", "") or "") or None,
+                passphrase=getattr(d, "passphrase", None),
+                expiration=exp.isoformat() if exp else None,
+                downloading_enabled=bool(getattr(d, "downloading_enabled", False)),
+                enabled=bool(getattr(d, "enabled", True)),
+            )
+
+        return await self._guard("create_share", run)
 
     # ── internals ───────────────────────────────────────────────────────────────
 

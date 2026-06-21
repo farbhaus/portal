@@ -14,8 +14,10 @@ from portal.frameio.client import (
     FrameioClient,
     FrameioError,
     FrameioNotConnected,
+    FrameioNotFound,
     PickerItem,
     ProjectItem,
+    ShareLink,
     UploadStatus,
     UploadTarget,
     _provide_token,
@@ -269,6 +271,49 @@ class _StubClient:
     async def delete_folder(self, account_id: str, folder_id: str) -> None:
         return None
 
+    async def create_project(
+        self, account_id: str, workspace_id: str, *, name: str, restricted: bool = False
+    ) -> ProjectItem:
+        return ProjectItem(id="np1", name=name, root_folder_id="nrf1")
+
+    async def delete_project(self, account_id: str, project_id: str) -> None:
+        return None
+
+    async def move_file(self, account_id: str, file_id: str, parent_id: str) -> None:
+        return None
+
+    async def copy_file(self, account_id: str, file_id: str, parent_id: str) -> FileItem:
+        return FileItem(id="cp1", name="copy.mov", file_size=10, media_type="video/quicktime")
+
+    async def move_folder(self, account_id: str, folder_id: str, parent_id: str) -> None:
+        return None
+
+    async def copy_folder(self, account_id: str, folder_id: str, parent_id: str) -> PickerItem:
+        return PickerItem(id="cf1", name="Folder copy")
+
+    async def create_share(
+        self,
+        account_id: str,
+        project_id: str,
+        *,
+        name: str,
+        asset_ids: list[str],
+        access: str = "public",
+        downloading_enabled: bool = True,
+        expiration: object = None,
+        passphrase: str | None = None,
+    ) -> ShareLink:
+        return ShareLink(
+            id="sh1",
+            name=name,
+            short_url="https://f.io/s/sh1",
+            access=access,
+            passphrase=passphrase or "auto-pass",
+            expiration=None,
+            downloading_enabled=downloading_enabled,
+            enabled=True,
+        )
+
 
 async def _login(client: AsyncClient) -> None:
     assert (await client.post("/api/auth/login", json=CREDS)).status_code == 200
@@ -352,12 +397,130 @@ async def test_delete_file_and_folder_routes(client: AsyncClient, monkeypatch) -
     ).status_code == 204
 
 
+async def test_create_project_route(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    resp = await client.post(
+        "/api/frameio/projects",
+        json={"account_id": "a1", "workspace_id": "w1", "name": "Show 2026"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"id": "np1", "name": "Show 2026", "root_folder_id": "nrf1"}
+
+
+async def test_create_project_requires_name(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    resp = await client.post(
+        "/api/frameio/projects",
+        json={"account_id": "a1", "workspace_id": "w1", "name": "  "},
+    )
+    assert resp.status_code == 422
+
+
+async def test_delete_project_route(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    resp = await client.delete("/api/frameio/projects/p1", params={"account_id": "a1"})
+    assert resp.status_code == 204
+
+
+async def test_move_and_copy_routes(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    body = {"account_id": "a1", "parent_id": "dest1"}
+    assert (await client.patch("/api/frameio/files/f1/move", json=body)).status_code == 204
+    assert (await client.patch("/api/frameio/folders/fl1/move", json=body)).status_code == 204
+
+    cf = await client.post("/api/frameio/files/f1/copy", json=body)
+    assert cf.status_code == 200
+    assert cf.json()["id"] == "cp1"
+
+    cfo = await client.post("/api/frameio/folders/fl1/copy", json=body)
+    assert cfo.status_code == 200
+    assert cfo.json() == {"id": "cf1", "name": "Folder copy"}
+
+
+async def test_move_route_maps_not_found_to_404(client: AsyncClient, monkeypatch) -> None:
+    class _NF:
+        async def move_file(self, account_id: str, file_id: str, parent_id: str) -> None:
+            raise FrameioNotFound("gone")
+
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _NF())
+    resp = await client.patch(
+        "/api/frameio/files/f1/move", json={"account_id": "a1", "parent_id": "d1"}
+    )
+    assert resp.status_code == 404
+
+
+async def test_create_share_route(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    resp = await client.post(
+        "/api/frameio/shares",
+        json={
+            "account_id": "a1",
+            "project_id": "p1",
+            "name": "Deliverables",
+            "asset_ids": ["f1", "fl1"],
+            "access": "public",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == "sh1"
+    assert body["short_url"] == "https://f.io/s/sh1"
+
+
+async def test_create_share_requires_assets(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    resp = await client.post(
+        "/api/frameio/shares",
+        json={"account_id": "a1", "project_id": "p1", "name": "x", "asset_ids": []},
+    )
+    assert resp.status_code == 422
+
+
+async def test_create_share_rejects_bad_access(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(frameio_routes, "get_frameio_client", lambda: _StubClient())
+    resp = await client.post(
+        "/api/frameio/shares",
+        json={
+            "account_id": "a1",
+            "project_id": "p1",
+            "name": "x",
+            "asset_ids": ["f1"],
+            "access": "nope",
+        },
+    )
+    assert resp.status_code == 422
+
+
 async def test_explorer_routes_require_auth(client: AsyncClient) -> None:
     assert (
         await client.get("/api/frameio/files/f1/download-url", params={"account_id": "a1"})
     ).status_code == 401
     assert (
         await client.delete("/api/frameio/files/f1", params={"account_id": "a1"})
+    ).status_code == 401
+    assert (
+        await client.post(
+            "/api/frameio/files/f1/copy", json={"account_id": "a1", "parent_id": "d1"}
+        )
+    ).status_code == 401
+    assert (
+        await client.post(
+            "/api/frameio/projects", json={"account_id": "a1", "workspace_id": "w1", "name": "x"}
+        )
+    ).status_code == 401
+    assert (
+        await client.post(
+            "/api/frameio/shares",
+            json={"account_id": "a1", "project_id": "p1", "name": "x", "asset_ids": ["f1"]},
+        )
     ).status_code == 401
 
 

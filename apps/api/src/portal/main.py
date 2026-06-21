@@ -5,12 +5,13 @@ from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
 from portal.frameio.client import close_frameio_client
-from portal.lib.config import get_settings
+from portal.lib.config import get_settings, require_secure_secrets
 from portal.lib.errors import install_exception_handlers
 from portal.lib.logging import RequestIdMiddleware, configure_logging, get_logger
 from portal.routes import (
     activity,
     auth,
+    branding,
     dashboard,
     destinations,
     download_links,
@@ -18,6 +19,7 @@ from portal.routes import (
     health,
     public,
     public_downloads,
+    security,
     sync_rules,
     upload_links,
     webhooks,
@@ -44,6 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    require_secure_secrets(settings)
     configure_logging(settings.log_level)
 
     app = FastAPI(
@@ -75,6 +78,8 @@ def create_app() -> FastAPI:
     app.include_router(download_links.router, prefix="/api")
     app.include_router(public_downloads.router, prefix="/api")
     app.include_router(settings_routes.router, prefix="/api")
+    app.include_router(security.router, prefix="/api")
+    app.include_router(branding.router, prefix="/api")
     app.include_router(webhooks.router, prefix="/api")
     app.include_router(webhooks.admin_router, prefix="/api")
     app.include_router(sync_rules.router, prefix="/api")

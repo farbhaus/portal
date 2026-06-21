@@ -20,14 +20,18 @@ from portal.auth.passwords import verify_password
 from portal.db.models import Destination, UploadLink, UploadSession
 from portal.db.session import get_session
 from portal.frameio.client import FrameioError, FrameioNotConnected, get_frameio_client
+from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError
 from portal.lib.logging import get_logger
 from portal.lib.ratelimit import limit
 from portal.notify.email import UploadedFile, send_upload_completion
+from portal.services.app_settings import email_brand, resolve_branding
+from portal.services.runtime_config import get_email_config
 from portal.storage.base import DestinationConfig, UploadNotReady
 from portal.storage.base import UploadSession as StorageUploadSession
 from portal.storage.frameio_backend import FrameioStorageBackend
 from portal.sync.events import trigger_sync_for_upload
+from portal.sync.paths import render_session_prefix
 from portal.uploads.links import link_state, merged_branding
 
 log = get_logger("routes.public")
@@ -73,13 +77,14 @@ async def _get_link(db: AsyncSession, token: str) -> UploadLink:
 async def resolve_link(token: str, db: AsyncSession = Depends(get_session)) -> PublicLinkOut:
     link = await _get_link(db, token)
     branding = merged_branding(link, link.destination)
+    app_logo, app_name, app_accent = await resolve_branding(db, get_settings().base_url)
     fields = link.uploader_fields_required or {}
     return PublicLinkOut(
         state=link_state(link),
-        display_name=branding["display_name"] or "Upload",
+        display_name=branding["display_name"] or app_name or "Upload",
         subtitle=branding["subtitle"],
-        logo_url=branding["logo_url"],
-        accent_color=branding["accent_color"],
+        logo_url=app_logo,
+        accent_color=branding["accent_color"] or app_accent,
         password_required=link.password_hash is not None,
         max_file_size=link.max_file_size,
         allowed_extensions=link.allowed_extensions,
@@ -233,6 +238,15 @@ def _destination_config(destination: Destination) -> DestinationConfig:
     return DestinationConfig(type=str(config.get("type", "frameio")), data=config)
 
 
+def _upload_destination_config(link: UploadLink) -> DestinationConfig:
+    """Destination config for this link's uploads, with the folder overridden to the link's
+    base subfolder when one is set (otherwise the destination's root folder)."""
+    config = dict(link.destination.config)
+    if link.target_folder_id:
+        config["folder_id"] = link.target_folder_id
+    return DestinationConfig(type=str(config.get("type", "frameio")), data=config)
+
+
 async def _load_session(db: AsyncSession, link: UploadLink, session_id: str) -> UploadSession:
     try:
         sid = uuid.UUID(session_id)
@@ -304,10 +318,19 @@ async def request_file_upload(
     if link.max_file_size is not None and body.size > link.max_file_size:
         raise HTTPException(status_code=400, detail="File exceeds the maximum allowed size")
 
+    # Place the file under the link's base subfolder (folder override) + per-session template
+    # prefix; the backend mirrors any remaining browser path beneath that, auto-creating folders.
+    prefix = render_session_prefix(
+        link.subfolder_template,
+        uploader_name=session.uploader_name or "",
+        when=session.started_at or datetime.now(UTC),
+    )
+    effective_path = f"{prefix}/{body.path}" if prefix else body.path
+
     backend = FrameioStorageBackend(client=get_frameio_client())
     try:
         upload = await backend.create_upload_session(
-            _destination_config(link.destination), filename=body.path, size=body.size
+            _upload_destination_config(link), filename=effective_path, size=body.size
         )
         creds = await backend.get_upload_credentials(upload)
     except FrameioNotConnected as exc:
@@ -401,12 +424,16 @@ async def complete_session(
     sync_account = str(dest_cfg.get("account_id") or "")
     sync_folder = str(dest_cfg.get("folder_id") or "")
     uploaded_file_ids = [str(e["file_id"]) for e in entries if e.get("file_id")]
+    # Resolve email config + branding now — the request session is gone by background-task time.
+    email_config = await get_email_config(db)
+    brand = await email_brand(db, get_settings().base_url)
 
     await db.commit()
     log.info("public.upload.session_completed", session_id=session_id)
 
     background.add_task(
         send_upload_completion,
+        email_config,
         link_name=link_name,
         uploader_name=uploader[0],
         uploader_email=uploader[1],
@@ -414,6 +441,7 @@ async def complete_session(
         files=files,
         total_bytes=total_bytes,
         duration_seconds=duration,
+        brand=brand,
     )
     # Portal's own sync trigger: mirror client-uploaded files to any matching sync rule's NAS
     # destination immediately, instead of waiting on a Frame.io webhook (which self-serve plans

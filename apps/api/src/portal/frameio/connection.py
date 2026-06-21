@@ -17,6 +17,7 @@ from portal.frameio import oauth
 from portal.lib.config import get_settings
 from portal.lib.crypto import TokenCipher
 from portal.lib.logging import get_logger
+from portal.services.runtime_config import get_oauth_config
 
 log = get_logger("frameio.connection")
 
@@ -88,7 +89,8 @@ async def get_valid_access_token(db: AsyncSession, conn: FrameioConnection) -> s
         raise oauth.FrameioOAuthError("No refresh token; reconnect required")
 
     refresh_token = cipher.decrypt(conn.refresh_token_encrypted)
-    tokens = await oauth.refresh_tokens(refresh_token)
+    oauth_config = await get_oauth_config(db)
+    tokens = await oauth.refresh_tokens(oauth_config, refresh_token)
     conn.access_token_encrypted = cipher.encrypt(tokens.access_token)
     if tokens.refresh_token:
         conn.refresh_token_encrypted = cipher.encrypt(tokens.refresh_token)

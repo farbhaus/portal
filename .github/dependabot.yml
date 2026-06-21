@@ -1,0 +1,56 @@
+version: 2
+# Policy: minor + patch updates only. Major bumps (breaking changes) are ignored
+# so a dependency upgrade can't silently break production — do those by hand.
+# GitHub Actions are exempt: their majors are how security fixes ship, and a stale
+# action major is what triggered this whole audit.
+updates:
+  # GitHub Actions — allow majors here (security fixes ship as new majors).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: [ "*" ]
+
+  # Backend Python deps — uv ecosystem reads pyproject.toml + uv.lock directly.
+  - package-ecosystem: uv
+    directory: /apps/api
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: [ "version-update:semver-major" ]
+    groups:
+      python:
+        patterns: [ "*" ]
+        update-types: [ "minor", "patch" ]
+
+  # Frontend Node deps.
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: [ "version-update:semver-major" ]
+    groups:
+      npm:
+        patterns: [ "*" ]
+        update-types: [ "minor", "patch" ]
+
+  # Base images for both Dockerfiles — pin to minor/patch (no major OS/runtime jumps).
+  - package-ecosystem: docker
+    directory: /apps/api
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: [ "version-update:semver-major" ]
+  - package-ecosystem: docker
+    directory: /apps/web
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: [ "version-update:semver-major" ]

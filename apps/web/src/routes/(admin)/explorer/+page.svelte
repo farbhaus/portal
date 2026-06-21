@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import { PageHeader, Button, Card } from "$lib/components";
+  import { PageHeader, Button, Card, Modal, CopyButton } from "$lib/components";
 
   type Item = { id: string; name: string };
   type FileItem = { id: string; name: string; file_size: number | null };
@@ -14,6 +14,9 @@
 
   let accountId = $state("");
   let workspaceId = $state("");
+  // Current project — needed to create Frame.io shares (which are project-scoped).
+  let projectId = $state("");
+  let projectSearch = $state("");
   // level: 'projects' shows the projects list in the browser; 'folders' shows subfolder/file tree
   let level = $state<"projects" | "folders">("projects");
   let folderPath = $state<Item[]>([]);
@@ -25,9 +28,18 @@
   let selectedFiles = $state<Set<string>>(new Set());
   let selectedFolders = $state<Set<string>>(new Set());
 
+  // Cut/Copy → Paste clipboard. Holds whole items (with names) so paste works after navigating.
+  type Clip = { mode: "copy" | "cut"; accountId: string; files: Item[]; folders: Item[] };
+  let clipboard = $state<Clip | null>(null);
+
   const currentFolder = $derived(folderPath.at(-1) ?? null);
   const selCount = $derived(selectedFiles.size + selectedFolders.size);
-  const browserVisible = $derived(level === "projects" ? projects.length > 0 : folderPath.length > 0);
+  const clipCount = $derived(clipboard ? clipboard.files.length + clipboard.folders.length : 0);
+  // Show the browser whenever a workspace is picked (so an empty workspace can still create a project).
+  const browserVisible = $derived(level === "projects" ? !!workspaceId : folderPath.length > 0);
+  const filteredProjects = $derived(
+    projects.filter((p) => p.name.toLowerCase().includes(projectSearch.trim().toLowerCase()))
+  );
 
   async function getJSON<T>(url: string): Promise<T> {
     const res = await fetch(url);
@@ -44,11 +56,11 @@
 
   function clearSelection() { selectedFiles = new Set(); selectedFolders = new Set(); }
 
-  // On mount: load accounts and auto-select if only one
+  // On mount: load accounts and default to the first (main) account + workspace, showing projects.
   $effect(() => {
     doLoad(async () => {
       accounts = await getJSON<Item[]>("/api/frameio/accounts");
-      if (accounts.length === 1) {
+      if (accounts.length > 0) {
         accountId = accounts[0].id;
         await loadWorkspaces();
       }
@@ -57,7 +69,7 @@
 
   async function loadWorkspaces() {
     workspaces = await getJSON<Item[]>(`/api/frameio/workspaces?account_id=${accountId}`);
-    if (workspaces.length === 1) {
+    if (workspaces.length > 0) {
       workspaceId = workspaces[0].id;
       await loadProjects();
     }
@@ -95,6 +107,7 @@
 
   async function openProject(proj: Project) {
     if (!proj.root_folder_id) return;
+    projectId = proj.id;
     folderPath = [{ id: proj.root_folder_id, name: proj.name }];
     level = "folders";
     clearSelection();
@@ -145,6 +158,65 @@
 
   // ── actions ────────────────────────────────────────────────────────────────
   let newFolderName = $state("");
+  let newProjectName = $state("");
+
+  async function createProject() {
+    const name = newProjectName.trim();
+    if (!name || !workspaceId) return;
+    busy = true; error = null;
+    try {
+      const res = await fetch("/api/frameio/projects", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account_id: accountId, workspace_id: workspaceId, name }),
+      });
+      if (!res.ok) { error = (await res.json().catch(() => ({}))).detail ?? `Could not create project (${res.status})`; return; }
+      newProjectName = "";
+      await doLoad(loadProjects);
+    } finally { busy = false; }
+  }
+
+  async function deleteProject(proj: Project, e: Event) {
+    e.stopPropagation();
+    if (!confirm(`Permanently delete project "${proj.name}" and ALL of its contents from Frame.io? This cannot be undone.`)) return;
+    busy = true; error = null;
+    try {
+      const res = await fetch(`/api/frameio/projects/${proj.id}?account_id=${accountId}`, { method: "DELETE" });
+      if (!res.ok) { error = (await res.json().catch(() => ({}))).detail ?? `Could not delete project (${res.status})`; return; }
+      await doLoad(loadProjects);
+    } finally { busy = false; }
+  }
+
+  function setClipboard(mode: "copy" | "cut") {
+    const fileItems = files.filter((f) => selectedFiles.has(f.id)).map((f) => ({ id: f.id, name: f.name }));
+    const folderItems = subfolders.filter((sf) => selectedFolders.has(sf.id));
+    clipboard = { mode, accountId, files: fileItems, folders: folderItems };
+    clearSelection();
+  }
+  function clearClipboard() { clipboard = null; }
+
+  async function pasteItem(kind: "files" | "folders", id: string, move: boolean, target: string): Promise<boolean> {
+    const res = await fetch(`/api/frameio/${kind}/${id}/${move ? "move" : "copy"}`, {
+      method: move ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ account_id: accountId, parent_id: target }),
+    });
+    if (!res.ok) { error = (await res.json().catch(() => ({}))).detail ?? `Paste failed (${res.status})`; return false; }
+    return true;
+  }
+
+  async function paste() {
+    if (!clipboard || !currentFolder) return;
+    if (clipboard.accountId !== accountId) { error = "Can't paste across accounts."; return; }
+    const move = clipboard.mode === "cut";
+    const target = currentFolder.id;
+    busy = true; error = null;
+    try {
+      for (const f of clipboard.files) if (!(await pasteItem("files", f.id, move, target))) return;
+      for (const fo of clipboard.folders) if (!(await pasteItem("folders", fo.id, move, target))) return;
+      if (move) clipboard = null;
+      await doLoad(loadFolder);
+    } finally { busy = false; }
+  }
 
   async function createFolder() {
     const name = newFolderName.trim();
@@ -212,6 +284,58 @@
     if (!currentFolder) return;
     return createLink({ type: "folder", account_id: accountId, folder_id: currentFolder.id, recursive: true });
   }
+
+  // ── Frame.io share links (native review page over files/folders) ─────────────
+  let shareOpen = $state(false);
+  let shareName = $state("");
+  let shareAccess = $state<"public" | "secure">("public");
+  let sharePassphrase = $state("");
+  let shareExpiry = $state("");
+  let shareDownloading = $state(true);
+  let shareAssetIds = $state<string[]>([]);
+  let shareResult = $state<{ short_url: string | null; passphrase: string | null } | null>(null);
+  let shareBusy = $state(false);
+
+  function openShare(assetIds: string[], defaultName: string) {
+    if (assetIds.length === 0) return;
+    shareAssetIds = assetIds;
+    shareName = defaultName;
+    shareAccess = "public";
+    sharePassphrase = "";
+    shareExpiry = "";
+    shareDownloading = true;
+    shareResult = null;
+    shareOpen = true;
+  }
+  function shareFromSelection() {
+    openShare([...selectedFolders, ...selectedFiles], currentFolder?.name ?? "Shared files");
+  }
+  function shareCurrentFolder() {
+    if (currentFolder) openShare([currentFolder.id], currentFolder.name);
+  }
+
+  async function createShare() {
+    if (!projectId) { error = "Open a project first."; return; }
+    const name = shareName.trim();
+    if (!name) return;
+    shareBusy = true; error = null;
+    try {
+      const body: Record<string, unknown> = {
+        account_id: accountId, project_id: projectId, name,
+        asset_ids: shareAssetIds, access: shareAccess, downloading_enabled: shareDownloading,
+      };
+      if (shareExpiry) body.expiration = new Date(shareExpiry).toISOString();
+      if (sharePassphrase.trim()) body.passphrase = sharePassphrase.trim();
+      const res = await fetch("/api/frameio/shares", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { error = (await res.json().catch(() => ({}))).detail ?? `Could not create share (${res.status})`; return; }
+      const share = await res.json();
+      shareResult = { short_url: share.short_url, passphrase: share.passphrase };
+      clearSelection();
+    } finally { shareBusy = false; }
+  }
 </script>
 
 <div class="space-y-5">
@@ -253,10 +377,16 @@
             >{f.name}</button>
           {/each}
           <div class="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="sm" onclick={linkFromCurrentFolder} disabled={busy}>Share folder ↗</Button>
+            {#if clipboard}
+              <Button variant="ghost" size="sm" onclick={paste} disabled={busy}>Paste {clipCount} ({clipboard.mode})</Button>
+              <button onclick={clearClipboard} class="text-xs text-faint hover:text-text" title="Clear clipboard">✕</button>
+            {/if}
+            <Button variant="ghost" size="sm" onclick={shareCurrentFolder} disabled={busy}>Frame.io share</Button>
+            <Button variant="ghost" size="sm" onclick={linkFromCurrentFolder} disabled={busy}>Download link</Button>
           </div>
         {:else}
           <span class="text-sm font-medium text-muted">Projects</span>
+          <input bind:value={projectSearch} placeholder="Search projects…" class="ml-auto w-48 rounded-md border border-border bg-surface px-2 py-1 text-xs" />
         {/if}
       </div>
 
@@ -267,8 +397,11 @@
           <div class="ml-auto flex items-center gap-2">
             {#if selectedFiles.size > 0}
               <Button variant="ghost" size="sm" onclick={downloadSelected} disabled={busy}>Download</Button>
-              <Button variant="ghost" size="sm" onclick={linkFromSelection} disabled={busy}>Create link</Button>
+              <Button variant="ghost" size="sm" onclick={linkFromSelection} disabled={busy}>Download link</Button>
             {/if}
+            <Button variant="ghost" size="sm" onclick={shareFromSelection} disabled={busy}>Frame.io share</Button>
+            <Button variant="ghost" size="sm" onclick={() => setClipboard("copy")} disabled={busy}>Copy</Button>
+            <Button variant="ghost" size="sm" onclick={() => setClipboard("cut")} disabled={busy}>Cut</Button>
             <Button variant="danger" size="sm" onclick={deleteSelected} disabled={busy}>Delete</Button>
             <button onclick={clearSelection} class="text-xs text-faint hover:text-text">clear</button>
           </div>
@@ -276,26 +409,26 @@
       {/if}
 
       <!-- Browser listing -->
-      <div class="divide-y divide-border/60">
+      <div class="divide-y divide-border/60 {level === 'projects' ? 'max-h-[calc(100vh-28rem)] overflow-y-auto' : ''}">
         {#if loading}
           <p class="px-4 py-8 text-center text-sm text-faint">Loading…</p>
         {:else if level === "projects"}
-          {#each projects as proj (proj.id)}
-            <button
-              onclick={() => openProject(proj)}
-              class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-2 transition-colors"
-            >
-              <svg class="h-4 w-4 shrink-0 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
-              </svg>
-              <span class="truncate font-medium">{proj.name}</span>
-              <svg class="ml-auto h-3.5 w-3.5 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="m9 18 6-6-6-6" />
-              </svg>
-            </button>
+          {#each filteredProjects as proj (proj.id)}
+            <div class="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-surface-2 transition-colors">
+              <button onclick={() => openProject(proj)} class="flex flex-1 items-center gap-3 text-left">
+                <svg class="h-4 w-4 shrink-0 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+                </svg>
+                <span class="truncate font-medium">{proj.name}</span>
+                <svg class="h-3.5 w-3.5 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m9 18 6-6-6-6" />
+                </svg>
+              </button>
+              <button onclick={(e) => deleteProject(proj, e)} disabled={busy} class="shrink-0 text-xs text-faint hover:text-danger" title="Delete project">Delete</button>
+            </div>
           {/each}
-          {#if projects.length === 0 && !loading}
-            <p class="px-4 py-8 text-center text-sm text-faint">No projects in this workspace.</p>
+          {#if filteredProjects.length === 0 && !loading}
+            <p class="px-4 py-8 text-center text-sm text-faint">{projects.length === 0 ? "No projects in this workspace." : "No projects match your search."}</p>
           {/if}
         {:else}
           {#each subfolders as sf (sf.id)}
@@ -321,13 +454,20 @@
         {/if}
       </div>
 
-      <!-- New folder (folders level only) -->
+      <!-- New folder / new project footer -->
       {#if level === "folders"}
         <div class="flex items-center gap-2 border-t border-border px-4 py-2.5">
           <input bind:value={newFolderName} placeholder="New subfolder name"
             onkeydown={(e) => e.key === "Enter" && createFolder()}
             class="flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm" />
           <Button variant="ghost" size="sm" onclick={createFolder} disabled={busy || !newFolderName.trim()}>＋ New folder</Button>
+        </div>
+      {:else if level === "projects" && workspaceId}
+        <div class="flex items-center gap-2 border-t border-border px-4 py-2.5">
+          <input bind:value={newProjectName} placeholder="New project name"
+            onkeydown={(e) => e.key === "Enter" && createProject()}
+            class="flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm" />
+          <Button variant="ghost" size="sm" onclick={createProject} disabled={busy || !newProjectName.trim()}>＋ New project</Button>
         </div>
       {/if}
     </Card>
@@ -339,3 +479,55 @@
     <p class="text-sm text-faint">Connecting to Frame.io…</p>
   {/if}
 </div>
+
+<Modal bind:open={shareOpen} title="Create Frame.io share link">
+  {#if shareResult}
+    <div class="space-y-3 text-sm">
+      <p class="text-muted">Share created — this is a Frame.io review page, separate from a Portal download link.</p>
+      {#if shareResult.short_url}
+        <div class="rounded-md border border-border bg-surface-2 px-3 py-2">
+          <CopyButton value={shareResult.short_url} />
+        </div>
+      {:else}
+        <p class="text-faint">No public URL was returned.</p>
+      {/if}
+      {#if shareResult.passphrase}
+        <p class="text-xs text-muted">Passphrase: <span class="font-mono text-text">{shareResult.passphrase}</span></p>
+      {/if}
+    </div>
+  {:else}
+    <div class="space-y-3 text-sm">
+      <label class="block">
+        <span class="text-muted">Name</span>
+        <input bind:value={shareName} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
+      </label>
+      <label class="block">
+        <span class="text-muted">Access</span>
+        <select bind:value={shareAccess} class="mt-1 w-full rounded-md border border-border px-2 py-1.5">
+          <option value="public">Public — anyone with the link</option>
+          <option value="secure">Secure — recipient must sign in</option>
+        </select>
+      </label>
+      <label class="block">
+        <span class="text-muted">Passphrase (optional)</span>
+        <input bind:value={sharePassphrase} placeholder="none" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
+      </label>
+      <label class="block">
+        <span class="text-muted">Expires (optional)</span>
+        <input type="datetime-local" bind:value={shareExpiry} class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
+      </label>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" bind:checked={shareDownloading} /> <span class="text-muted">Allow downloading</span>
+      </label>
+      <p class="text-xs text-faint">Sharing {shareAssetIds.length} item{shareAssetIds.length === 1 ? "" : "s"}.</p>
+    </div>
+  {/if}
+  {#snippet footer()}
+    {#if shareResult}
+      <Button variant="ghost" size="sm" onclick={() => (shareOpen = false)}>Done</Button>
+    {:else}
+      <Button variant="ghost" size="sm" onclick={() => (shareOpen = false)} disabled={shareBusy}>Cancel</Button>
+      <Button size="sm" onclick={createShare} disabled={shareBusy || !shareName.trim()}>{shareBusy ? "Creating…" : "Create share"}</Button>
+    {/if}
+  {/snippet}
+</Modal>

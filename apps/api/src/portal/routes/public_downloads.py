@@ -13,7 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from portal import verify
@@ -21,10 +21,17 @@ from portal.auth.passwords import verify_password
 from portal.db.models import DownloadEvent, DownloadLink, DownloadSession
 from portal.db.session import get_session
 from portal.downloads.links import branding, resolve_source
-from portal.frameio.client import FrameioError, FrameioNotConnected, get_frameio_client
+from portal.frameio.client import (
+    DownloadFile,
+    FrameioError,
+    FrameioNotConnected,
+    get_frameio_client,
+)
+from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError
 from portal.lib.logging import get_logger
 from portal.lib.ratelimit import limit
+from portal.services.app_settings import resolve_branding
 from portal.storage.base import DestinationConfig
 from portal.storage.frameio_backend import FrameioStorageBackend
 from portal.uploads.links import link_state
@@ -107,13 +114,14 @@ async def _load_session(db: AsyncSession, link: DownloadLink, session_id: str) -
 async def resolve_link(token: str, db: AsyncSession = Depends(get_session)) -> DownloadPageOut:
     link = await _get_link(db, token)
     b = branding(link)
+    app_logo, app_name, app_accent = await resolve_branding(db, get_settings().base_url)
     fields = link.viewer_fields_required or {}
     return DownloadPageOut(
         state=link_state(link),
-        display_name=b["display_name"] or "Download",
+        display_name=b["display_name"] or app_name or "Download",
         subtitle=b["subtitle"],
-        logo_url=b["logo_url"],
-        accent_color=b["accent_color"],
+        logo_url=app_logo,
+        accent_color=b["accent_color"] or app_accent,
         password_required=link.password_hash is not None,
         viewer_fields_required={
             "name": bool(fields.get("name")),
@@ -195,6 +203,9 @@ async def start_session(
         viewer_email=body.email,
         ip=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
+        # Snapshot id/name/size so per-file URL mints need no extra Frame.io calls (folder sources
+        # in particular were re-listed on every mint).
+        files=[{"id": f.id, "name": f.name, "size": f.file_size} for f in resolved.files],
         started_at=datetime.now(UTC),
     )
     db.add(session)
@@ -233,8 +244,15 @@ async def get_download_url(
     if link.max_downloads is not None and link.downloads_count >= link.max_downloads:
         raise HTTPException(status_code=429, detail="This link's download limit has been reached")
 
-    # The recipient may only download files that belong to the link's source.
-    if not await _source_contains(link.source, file_id):
+    # The recipient may only download a file that was in their session's resolved listing; that
+    # snapshot also carries the name/size for the download event. Sessions created before the
+    # snapshot column existed fall back to a live resolve.
+    matched = _file_in_session(session, file_id)
+    if matched is None and session.files is None:
+        resolved = await _resolve_file(link.source, file_id)
+        if resolved is not None:
+            matched = {"name": resolved.name, "size": resolved.file_size}
+    if matched is None:
         raise HTTPException(status_code=404, detail="File not found in this link")
 
     account_id = str(link.source["account_id"])
@@ -251,22 +269,73 @@ async def get_download_url(
         log.warning("public.download.url_failed", error=str(exc))
         raise HTTPException(status_code=502, detail="Could not generate the download") from exc
 
+    # Atomically claim one download against the cap so concurrent requests can't exceed it. The URL
+    # is fetched directly from Frame.io by the browser, so minting it *is* the serveable event:
+    # record the name + size and mark it completed (Portal can't observe the direct transfer).
+    if link.max_downloads is not None:
+        claimed = await db.execute(
+            update(DownloadLink)
+            .where(
+                DownloadLink.id == link.id,
+                or_(
+                    DownloadLink.max_downloads.is_(None),
+                    DownloadLink.downloads_count < DownloadLink.max_downloads,
+                ),
+            )
+            .values(downloads_count=DownloadLink.downloads_count + 1)
+            .returning(DownloadLink.id)
+        )
+        if claimed.first() is None:
+            raise HTTPException(
+                status_code=429, detail="This link's download limit has been reached"
+            )
+    else:
+        await db.execute(
+            update(DownloadLink)
+            .where(DownloadLink.id == link.id)
+            .values(downloads_count=DownloadLink.downloads_count + 1)
+        )
+
     db.add(
-        DownloadEvent(download_session_id=session.id, frameio_file_id=file_id, completed=False)
+        DownloadEvent(
+            download_session_id=session.id,
+            frameio_file_id=file_id,
+            file_name=matched.get("name"),
+            bytes_served=matched.get("size"),
+            completed=True,
+        )
     )
-    link.downloads_count += 1
     await db.commit()
     log.info("public.download.url_minted", token=token, file_id=file_id)
     return DownloadUrlResult(url=result.url)
 
 
-async def _source_contains(source: dict[str, Any], file_id: str) -> bool:
+def _file_in_session(session: DownloadSession, file_id: str) -> dict[str, Any] | None:
+    """The cached {id, name, size} for a file in the session's resolved snapshot, or None."""
+    for f in session.files or []:
+        if isinstance(f, dict) and f.get("id") == file_id:
+            return f
+    return None
+
+
+async def _resolve_file(source: dict[str, Any], file_id: str) -> DownloadFile | None:
+    """The file with this id within the link's source, or None if it isn't part of it.
+
+    Beyond gating which files a recipient may fetch, the resolved metadata (name, size) is what the
+    download event — and therefore the dashboard feed — records.
+    """
+    client = get_frameio_client()
+    account_id = str(source["account_id"])
     stype = source.get("type")
     if stype == "file":
-        return file_id == source.get("file_id")
+        if file_id != source.get("file_id"):
+            return None
+        return await client.get_file(account_id, file_id)
     if stype == "selection":
-        return file_id in (source.get("file_ids") or [])
+        if file_id not in (source.get("file_ids") or []):
+            return None
+        return await client.get_file(account_id, file_id)
     if stype == "folder":
-        resolved = await resolve_source(get_frameio_client(), source)
-        return any(f.id == file_id for f in resolved.files)
-    return False
+        resolved = await resolve_source(client, source)
+        return next((f for f in resolved.files if f.id == file_id), None)
+    return None

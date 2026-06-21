@@ -23,7 +23,7 @@ def test_format_duration() -> None:
 
 
 def test_render_upload_completion() -> None:
-    subject, body = render_upload_completion(
+    subject, body, html = render_upload_completion(
         link_name="DIT Drop",
         uploader_name="Berlin DIT",
         uploader_email="dit@example.com",
@@ -39,6 +39,10 @@ def test_render_upload_completion() -> None:
     assert "A-CAM/clip001.mov" in body and "1.0 KB" in body
     assert "audio.wav" in body and "—" in body  # unknown size
     assert "2m 5s" in body
+    # HTML alternative carries the same content, wrapped in the branded shell.
+    assert "<!DOCTYPE html>" in html
+    assert "A-CAM/clip001.mov" in html and "Berlin DIT" in html
+    assert "Upload complete" in html
 
 
 # ── settings endpoints (email not configured in the test env) ─────────────────
@@ -48,8 +52,14 @@ async def _login(client: AsyncClient) -> None:
     assert (await client.post("/api/auth/login", json=CREDS)).status_code == 200
 
 
+async def _clear_email(client: AsyncClient) -> None:
+    # app_settings persists across the test session, so explicitly clear SMTP config first.
+    await client.post("/api/settings/email", json={"clear_password": True})
+
+
 async def test_email_status_not_configured(client: AsyncClient) -> None:
     await _login(client)
+    await _clear_email(client)
     resp = await client.get("/api/settings/email")
     assert resp.status_code == 200
     assert resp.json()["configured"] is False
@@ -57,6 +67,7 @@ async def test_email_status_not_configured(client: AsyncClient) -> None:
 
 async def test_email_test_requires_config(client: AsyncClient) -> None:
     await _login(client)
+    await _clear_email(client)
     resp = await client.post("/api/settings/email/test")
     assert resp.status_code == 400
 

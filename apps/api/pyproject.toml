@@ -23,6 +23,9 @@ dependencies = [
     "frameio>=1.2,<2",
     "aiosmtplib>=3.0",
     "dnspython>=2.8.0",
+    "webauthn>=2.8.0",
+    "pyotp>=2.10.0",
+    "qrcode>=8.2",
 ]
 
 [dependency-groups]
@@ -58,7 +61,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["arq.*", "authlib.*"]
+module = ["arq.*", "authlib.*", "qrcode.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

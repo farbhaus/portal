@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Button, Card } from "$lib/components";
   import {
     downloadAll,
     downloadFile,
@@ -11,13 +12,8 @@
   let { data } = $props();
   const link = $derived(data.link);
   const accent = $derived(link.accent_color || "#f59e0b");
-  function accentText(hex: string): string {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? "#1a1206" : "#ffffff";
-  }
-  const onAccent = $derived(accentText(accent));
+  const inputCls =
+    "w-full rounded-md border border-border px-3 py-2 text-sm outline-none focus:border-accent";
 
   let name = $state("");
   let email = $state("");
@@ -132,45 +128,45 @@
 
 <svelte:head><title>{link.display_name}</title></svelte:head>
 
-<div class="flex min-h-screen flex-col items-center bg-surface-2 px-4 py-12">
+<div class="flex min-h-screen flex-col items-center justify-center bg-bg px-4 py-12">
   <div class="w-full max-w-xl">
     <div class="mb-6 text-center">
       {#if link.logo_url}<img src={link.logo_url} alt="" class="mx-auto mb-4 h-12 object-contain" />{/if}
-      <h1 class="text-2xl font-semibold">{link.display_name}</h1>
+      <h1 class="text-2xl font-semibold tracking-tight">{link.display_name}</h1>
       {#if link.subtitle}<p class="mt-1 text-muted">{link.subtitle}</p>{/if}
     </div>
 
     {#if link.state !== "ok"}
-      <div class="rounded-xl border border-border bg-surface p-8 text-center">
+      <Card class="text-center">
         <p class="text-muted">
           {link.state === "expired" ? "This download link has expired." : "This download link is no longer active."}
         </p>
-      </div>
+      </Card>
     {:else}
-      <div class="space-y-5 rounded-xl border border-border bg-surface p-6">
+      <Card class="space-y-5">
         {#if error}<p class="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>{/if}
 
         {#if sessionId === null}
           {#if needsGate}
             <div class="space-y-3">
               {#if link.viewer_fields_required.name}
-                <input bind:value={name} placeholder="Your name" class="w-full rounded-md border border-border px-3 py-2 text-sm" />
+                <input bind:value={name} placeholder="Your name" class={inputCls} />
               {/if}
               {#if link.viewer_fields_required.email || link.verify_email}
-                <input bind:value={email} type="email" placeholder="Your email" disabled={codeSent} class="w-full rounded-md border border-border px-3 py-2 text-sm disabled:bg-surface-2" />
+                <input bind:value={email} type="email" placeholder="Your email" disabled={codeSent} class="{inputCls} disabled:bg-surface-2" />
               {/if}
               {#if link.password_required}
-                <input bind:value={password} type="password" placeholder="Password" class="w-full rounded-md border border-border px-3 py-2 text-sm" />
+                <input bind:value={password} type="password" placeholder="Password" class={inputCls} />
               {/if}
               {#if link.verify_email && codeSent}
                 <div>
-                  <input bind:value={code} inputmode="numeric" placeholder="Enter the 6-digit code" class="w-full rounded-md border border-border px-3 py-2 text-sm tracking-widest" />
+                  <input bind:value={code} inputmode="numeric" placeholder="Enter the 6-digit code" class="{inputCls} tracking-widest" />
                   <p class="mt-1 text-xs text-muted">We emailed a code to {email}. <button type="button" onclick={resend} class="underline hover:text-text">Resend</button></p>
                 </div>
               {/if}
             </div>
           {/if}
-          <button onclick={open} disabled={opening} class="w-full rounded-md px-4 py-2.5 text-sm font-medium disabled:opacity-50" style="background:{accent};color:{onAccent}">
+          <Button {accent} onclick={open} disabled={opening} class="w-full">
             {opening
               ? link.verify_email && !codeSent
                 ? "Sending…"
@@ -178,14 +174,14 @@
               : link.verify_email && !codeSent
                 ? "Send code"
                 : "View files"}
-          </button>
+          </Button>
         {:else}
           <div class="flex items-center justify-between">
             <span class="text-sm text-muted">{files.length} file{files.length === 1 ? "" : "s"}</span>
             {#if files.length > 1}
-              <button onclick={all} disabled={allProgress !== null} class="rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50" style="background:{accent};color:{onAccent}">
+              <Button {accent} size="sm" onclick={all} disabled={allProgress !== null}>
                 {allProgress ? `Downloading ${allProgress}…` : "Download all"}
-              </button>
+              </Button>
             {/if}
           </div>
 
@@ -199,7 +195,7 @@
                     <img src={f.thumbnail_url} alt="" class="h-10 w-14 rounded object-cover" />
                   {:else}
                     <div class="flex h-10 w-14 items-center justify-center rounded bg-surface-2 text-faint">
-                      <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
                       </svg>
                     </div>
@@ -208,15 +204,15 @@
                     <div class="truncate text-sm">{f.name}</div>
                     <div class="text-xs text-faint">{formatBytes(f.size)}</div>
                   </div>
-                  <button onclick={() => one(f)} disabled={busyFile === f.id} class="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-50">
+                  <Button variant="ghost" size="sm" onclick={() => one(f)} disabled={busyFile === f.id}>
                     {busyFile === f.id ? "…" : "Download"}
-                  </button>
+                  </Button>
                 </div>
               {/each}
             </div>
           {/if}
         {/if}
-      </div>
+      </Card>
     {/if}
 
     <p class="mt-6 text-center text-xs text-faint">Powered by Portal</p>

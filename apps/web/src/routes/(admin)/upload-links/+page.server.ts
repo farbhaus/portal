@@ -14,6 +14,9 @@ export type UploadLink = {
   allowed_extensions: string[] | null;
   uploader_fields_required: { name: boolean; email: boolean; message: boolean };
   verify_email: boolean;
+  target_folder_id: string | null;
+  target_folder_name: string | null;
+  subfolder_template: string | null;
   brand_logo_url: string | null;
   brand_accent_color: string | null;
   brand_display_name: string | null;

@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     func,
@@ -37,10 +38,73 @@ class User(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # TOTP 2FA (opt-in second factor for password logins). Secret is AES-GCM encrypted at rest.
+    totp_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # One-time recovery codes, stored as sha256 hashes; entries are removed as they're used.
+    totp_recovery_codes: Mapped[list[Any] | None] = mapped_column(JSONB)
 
     frameio_connections: Mapped[list["FrameioConnection"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    webauthn_credentials: Mapped[list["WebauthnCredential"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class WebauthnCredential(Base, TimestampMixin):
+    """A registered passkey (WebAuthn credential) for passwordless login."""
+
+    __tablename__ = "webauthn_credentials"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # Base64url-encoded credential id (the authenticator's handle), unique per credential.
+    credential_id: Mapped[str] = mapped_column(String(512), unique=True, index=True, nullable=False)
+    public_key: Mapped[str] = mapped_column(Text, nullable=False)  # base64
+    sign_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    transports: Mapped[list[Any] | None] = mapped_column(JSONB)
+    name: Mapped[str | None] = mapped_column(String(255))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship(back_populates="webauthn_credentials")
+
+
+class AppSettings(Base, TimestampMixin):
+    """Single-row store for app-wide configuration: branding, email (SMTP) and Frame.io linking.
+
+    Email + Frame.io config live here (not .env) so the admin manages them from the Settings page.
+    Secrets (SMTP password, Frame.io client secret) are encrypted at rest with TokenCipher.
+    `config_seeded` guards the one-time import of any pre-existing .env values on first startup.
+    """
+
+    __tablename__ = "app_settings"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    logo_png: Mapped[bytes | None] = mapped_column(LargeBinary)
+    logo_content_type: Mapped[str | None] = mapped_column(String(64))
+    logo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    brand_display_name: Mapped[str | None] = mapped_column(String(255))
+    brand_accent_color: Mapped[str | None] = mapped_column(String(32))
+
+    # Email (SMTP). smtp_password_encrypted holds a TokenCipher ciphertext.
+    smtp_host: Mapped[str | None] = mapped_column(String(255))
+    smtp_port: Mapped[int | None] = mapped_column(Integer)
+    smtp_username: Mapped[str | None] = mapped_column(String(255))
+    smtp_password_encrypted: Mapped[str | None] = mapped_column(Text)
+    smtp_from: Mapped[str | None] = mapped_column(String(255))
+    smtp_use_tls: Mapped[bool | None] = mapped_column(Boolean)
+    smtp_starttls: Mapped[bool | None] = mapped_column(Boolean)
+    notify_email: Mapped[str | None] = mapped_column(String(255))
+
+    # Frame.io / Adobe IMS OAuth. frameio_client_secret_encrypted is a TokenCipher ciphertext.
+    frameio_client_id: Mapped[str | None] = mapped_column(String(255))
+    frameio_client_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+
+    # True once any legacy .env email/Frame.io values have been imported into this row.
+    config_seeded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class FrameioConnection(Base, TimestampMixin):
@@ -94,6 +158,11 @@ class UploadLink(Base, TimestampMixin):
     uploader_fields_required: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # When true, the email field is required AND must be verified by a one-time code.
     verify_email: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Optional base subfolder under the destination (a Frame.io folder); null = root.
+    target_folder_id: Mapped[str | None] = mapped_column(String(255))
+    target_folder_name: Mapped[str | None] = mapped_column(String(255))
+    # Optional path template applied beneath the base folder, e.g. "{date}/{uploader_name}".
+    subfolder_template: Mapped[str | None] = mapped_column(Text)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Branding overrides (fall back to destination branding when null)
     brand_logo_url: Mapped[str | None] = mapped_column(Text)
@@ -238,6 +307,9 @@ class DownloadSession(Base, TimestampMixin):
     viewer_email: Mapped[str | None] = mapped_column(String(255))
     ip: Mapped[str | None] = mapped_column(String(64))
     user_agent: Mapped[str | None] = mapped_column(Text)
+    # Snapshot of the link's resolved files at session start ([{id, name, size}, ...]) so minting a
+    # per-file download URL needs no extra Frame.io calls (and folder sources aren't re-listed).
+    files: Mapped[list[Any] | None] = mapped_column(JSONB)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     download_link: Mapped[DownloadLink] = relationship(back_populates="sessions")

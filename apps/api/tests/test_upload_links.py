@@ -159,6 +159,31 @@ async def test_update_link_change_destination(client: AsyncClient) -> None:
     assert bad.status_code == 400
 
 
+async def test_create_link_with_target_subfolder(client: AsyncClient) -> None:
+    await _login(client)
+    dest_id = await _make_destination()
+    resp = await client.post(
+        "/api/upload-links",
+        json={
+            "destination_id": dest_id,
+            "target_folder_id": "sub123",
+            "target_folder_name": "Dailies",
+            "subfolder_template": "  {date}/{uploader_name}  ",
+        },
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["target_folder_id"] == "sub123"
+    assert body["target_folder_name"] == "Dailies"
+    assert body["subfolder_template"] == "{date}/{uploader_name}"  # trimmed
+
+    # An empty template string clears it back to null.
+    upd = await client.patch(
+        f"/api/upload-links/{body['id']}", json={"subfolder_template": "  "}
+    )
+    assert upd.json()["subfolder_template"] is None
+
+
 async def test_list_and_delete(client: AsyncClient) -> None:
     await _login(client)
     dest_id = await _make_destination()
@@ -323,6 +348,76 @@ async def test_full_upload_session_flow(client: AsyncClient, monkeypatch) -> Non
     assert cs.json()["ok"] is True
 
 
+class _CapturingUploadClient(_StubUploadClient):
+    """Records the root folder + path parts the backend resolves an upload into."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: dict[str, object] = {}
+
+    async def ensure_folder_path(self, account_id: str, root: str, parts: list[str]) -> str:
+        self.calls["root"] = root
+        self.calls["parts"] = parts
+        return "leaf"
+
+    async def create_local_upload(
+        self, account_id: str, folder_id: str, *, name: str, file_size: int
+    ) -> UploadTarget:
+        self.calls["folder_id"] = folder_id
+        self.calls["name"] = name
+        return await super().create_local_upload(
+            account_id, folder_id, name=name, file_size=file_size
+        )
+
+
+async def _open_session_and_request(
+    client: AsyncClient, token: str, *, name: str, path: str
+) -> None:
+    started = await client.post(
+        f"/api/public/links/{token}/sessions", json={"name": name}
+    )
+    sid = started.json()["session_id"]
+    fr = await client.post(
+        f"/api/public/links/{token}/sessions/{sid}/files",
+        json={"path": path, "size": 1000},
+    )
+    assert fr.status_code == 200
+
+
+async def test_upload_applies_target_folder_and_template(
+    client: AsyncClient, monkeypatch
+) -> None:
+    await _login(client)
+    cap = _CapturingUploadClient()
+    monkeypatch.setattr(public_routes, "get_frameio_client", lambda: cap)
+    link = await _make_link(
+        client, target_folder_id="tf99", target_folder_name="ProjectX",
+        subfolder_template="{uploader_name}",
+    )
+    await _open_session_and_request(
+        client, link["token"], name="DIT Berlin", path="A-CAM/clip.mov"
+    )
+    # Folder override → uploads root at the picked base subfolder, not the destination root.
+    assert cap.calls["root"] == "tf99"
+    # Template prefix + browser-supplied subdir, then the bare filename.
+    assert cap.calls["parts"] == ["DIT Berlin", "A-CAM"]
+    assert cap.calls["name"] == "clip.mov"
+
+
+async def test_upload_without_target_uses_destination_root(
+    client: AsyncClient, monkeypatch
+) -> None:
+    await _login(client)
+    cap = _CapturingUploadClient()
+    monkeypatch.setattr(public_routes, "get_frameio_client", lambda: cap)
+    link = await _make_link(client)
+    await _open_session_and_request(
+        client, link["token"], name="DIT", path="A-CAM/clip.mov"
+    )
+    assert cap.calls["root"] == "f1"  # destination's root folder
+    assert cap.calls["parts"] == ["A-CAM"]
+
+
 async def test_start_session_password_required(client: AsyncClient, monkeypatch) -> None:
     await _login(client)
     _use_upload_stub(monkeypatch)
@@ -380,7 +475,7 @@ async def test_completion_schedules_email(client: AsyncClient, monkeypatch) -> N
     _use_upload_stub(monkeypatch)
     calls: list[dict] = []
 
-    async def capture(**kwargs: object) -> None:
+    async def capture(config: object, **kwargs: object) -> None:
         calls.append(kwargs)
 
     monkeypatch.setattr(public_routes, "send_upload_completion", capture)
