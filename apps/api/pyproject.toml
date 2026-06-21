@@ -4,15 +4,15 @@ version = "0.1.0"
 description = "Self-hosted Frame.io-backed file transfer platform for post-production"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.115",
+    "fastapi>=0.138.0",
     "uvicorn[standard]>=0.34",
-    "sqlalchemy[asyncio]>=2.0",
+    "sqlalchemy[asyncio]>=2.0.51",
     "asyncpg>=0.30",
     "alembic>=1.14",
     "pydantic[email]>=2.10",
-    "pydantic-settings>=2.7",
+    "pydantic-settings>=2.14.2",
     "structlog>=24.4",
-    "cryptography>=44.0",
+    "cryptography>=48.0.1",
     "bcrypt>=4.2",
     "itsdangerous>=2.2",
     "redis>=5.2",
@@ -20,8 +20,8 @@ dependencies = [
     "python-multipart>=0.0.20",
     "authlib>=1.4",
     "httpx>=0.28",
-    "frameio>=1.2,<2",
-    "aiosmtplib>=3.0",
+    "frameio>=1.2.3,<2",
+    "aiosmtplib>=5.1.2",
     "dnspython>=2.8.0",
     "webauthn>=2.8.0",
     "pyotp>=2.10.0",
@@ -30,10 +30,10 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3",
+    "pytest>=9.1.1",
     "pytest-asyncio>=0.25",
     "httpx>=0.28",
-    "ruff>=0.9",
+    "ruff>=0.15.18",
     "mypy>=1.14",
 ]
 
