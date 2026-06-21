@@ -5,7 +5,8 @@
 #
 #   docker compose pull && docker compose up -d
 #
-# For local development, `make dev` builds and runs this same image with dev settings.
+# For local development, `make dev` runs this same setup but builds the image from source
+# (via the docker/docker-compose.dev.yml --build overlay) instead of pulling it.
 name: portal
 
 services:

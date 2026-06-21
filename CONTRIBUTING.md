@@ -17,12 +17,12 @@ docker-compose.yml  production single-service deploy; .env.example alongside it
 
 ## Local development
 
-`make dev` builds and runs the all-in-one image from source — the same single container as
-production — with dev-friendly defaults (insecure secrets, HTTP cookies, a separate port and
-volume), so it needs no `.env`:
+`make dev` is the production deploy with a `--build` overlay — it builds the all-in-one image
+from source and runs it from the same `docker-compose.yml` + `.env` (so create `.env` first, e.g.
+`cp .env.example .env`):
 
 ```bash
-make dev      # build + run; then open http://localhost:18099 (admin@example.com / change-me)
+make dev      # docker compose -f docker-compose.yml -f docker/docker-compose.dev.yml up -d --build
 ```
 
 For day-to-day work on a single service you can also run the backend and frontend directly

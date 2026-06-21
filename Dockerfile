@@ -1,7 +1,7 @@
 # All-in-one Portal image (farbhaus/portal). Bundles the api, the sync worker, the SvelteKit web
 # server, Postgres, Redis and an internal Caddy router into one container supervised by
 # supervisord. End-user deployment is a single service + one /data volume behind a host reverse
-# proxy. For local development, `make dev` builds and runs this image with dev settings.
+# proxy. For local development, `make dev` builds and runs this image from source.
 #
 # Build from the repo root:  docker build -t farbhaus/portal:dev .
 

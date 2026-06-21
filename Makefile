@@ -7,18 +7,18 @@
 #   make status    per-process supervisord state inside the container
 #   make backup    dump the database to portal-backup-<timestamp>.sql
 #   make shell     open a shell in the container
-#   make dev       build & run the all-in-one image from source, with dev settings
+#   make dev       same as deploy, but build the image from source instead of pulling it
 #   make build     build the all-in-one image locally
 #   make check     run static checks (ruff, mypy, svelte-check)
 #   make test      run the backend test suite (spins throwaway Postgres/Redis)
 #
-# Both production and `dev` run the single all-in-one image; `dev` builds it from source
-# (docker/docker-compose.dev.yml) on a separate port/volume. See docs/DEPLOY.md.
+# `deploy`/`update` pull the published image; `dev` adds a --build overlay
+# (docker/docker-compose.dev.yml) so the same compose builds from source. See docs/DEPLOY.md.
 
-DEV := docker compose -f docker/docker-compose.dev.yml
+DEV := docker compose -f docker-compose.yml -f docker/docker-compose.dev.yml
 
 .DEFAULT_GOAL := help
-.PHONY: help deploy update down restart logs status backup shell dev dev-down build check test
+.PHONY: help deploy update down restart logs status backup shell dev build check test
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -56,11 +56,8 @@ shell:  ## Open a shell in the container
 
 # --- Development --------------------------------------------------------------
 
-dev:  ## Build & run the all-in-one image from source (dev settings, http://localhost:18099)
+dev:  ## Same as deploy, but build the image from source instead of pulling it
 	$(DEV) up -d --build
-
-dev-down:  ## Stop the dev container
-	$(DEV) down
 
 build:  ## Build the all-in-one image locally (farbhaus/portal:dev)
 	docker build -t farbhaus/portal:dev .
