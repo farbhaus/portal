@@ -1,13 +1,19 @@
 name: CodeQL
 
+# DISABLED until the repo is public. Code scanning (SARIF upload) requires GitHub
+# Advanced Security on private repos, which is not enabled, so the analyze step
+# fails with "Code scanning is not enabled for this repository". Code scanning is
+# free on public repos — when this repo goes public, restore the triggers below
+# (replace the `workflow_dispatch:`-only block) to re-enable automatic runs.
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main", "dev" ]
-  schedule:
-    # Weekly, Monday 06:00 UTC — catches advisories published since the last PR.
-    - cron: '0 6 * * 1'
+  workflow_dispatch:
+  # push:
+  #   branches: [ "main" ]
+  # pull_request:
+  #   branches: [ "main", "dev" ]
+  # schedule:
+  #   # Weekly, Monday 06:00 UTC — catches advisories published since the last PR.
+  #   - cron: '0 6 * * 1'
 
 concurrency:
   group: codeql-${{ github.ref }}
