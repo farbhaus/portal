@@ -132,9 +132,7 @@ class Destination(Base, TimestampMixin):
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     # {"type": "frameio", "account_id", "workspace_id", "project_id", "folder_id"}
     config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    # Branding
-    logo_url: Mapped[str | None] = mapped_column(Text)
-    accent_color: Mapped[str | None] = mapped_column(String(32))
+    # Subtitle line shown on the upload page. The logo and accent come from global branding.
     subtitle: Mapped[str | None] = mapped_column(Text)
 
     upload_links: Mapped[list["UploadLink"]] = relationship(
@@ -164,9 +162,8 @@ class UploadLink(Base, TimestampMixin):
     # Optional path template applied beneath the base folder, e.g. "{date}/{uploader_name}".
     subfolder_template: Mapped[str | None] = mapped_column(Text)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Branding overrides (fall back to destination branding when null)
-    brand_logo_url: Mapped[str | None] = mapped_column(Text)
-    brand_accent_color: Mapped[str | None] = mapped_column(String(32))
+    # Per-link text overrides (fall back to the destination / global branding when null). The
+    # logo and accent come from global branding.
     brand_display_name: Mapped[str | None] = mapped_column(String(255))
     brand_subtitle: Mapped[str | None] = mapped_column(Text)
 
@@ -285,9 +282,7 @@ class DownloadLink(Base, TimestampMixin):
     verify_email: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     allow_preview: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    # Branding (self-contained; no destination to fall back to)
-    brand_logo_url: Mapped[str | None] = mapped_column(Text)
-    brand_accent_color: Mapped[str | None] = mapped_column(String(32))
+    # Per-link text (the logo and accent come from global branding).
     brand_display_name: Mapped[str | None] = mapped_column(String(255))
     brand_subtitle: Mapped[str | None] = mapped_column(Text)
 

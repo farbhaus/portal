@@ -3,7 +3,8 @@
 A link is a branded, shareable token bound to a destination, with optional gating: expiry,
 password, max file size, allowed extensions, and which uploader fields are required. The public
 side (token resolution, uploader page, the actual upload) is in routes/public.py and build
-step 6. Branding can be overridden per link, otherwise it falls back to the destination's.
+step 6. The display name and subtitle can be overridden per link, otherwise they fall back to
+the destination's; the logo and accent come from global branding.
 """
 
 import uuid
@@ -23,7 +24,6 @@ from portal.db.session import get_session
 from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError, PortalError
 from portal.lib.logging import get_logger
-from portal.lib.validators import HexColor
 from portal.uploads.links import (
     MEDIA_EXTENSIONS_PRESET,
     generate_token,
@@ -58,8 +58,6 @@ class UploadLinkCreate(BaseModel):
     target_folder_id: str | None = Field(default=None, max_length=255)
     target_folder_name: str | None = Field(default=None, max_length=255)
     subfolder_template: str | None = None
-    brand_logo_url: str | None = None
-    brand_accent_color: HexColor = None
     brand_display_name: str | None = Field(default=None, max_length=255)
     brand_subtitle: str | None = None
 
@@ -76,8 +74,6 @@ class UploadLinkUpdate(BaseModel):
     target_folder_id: str | None = Field(default=None, max_length=255)
     target_folder_name: str | None = Field(default=None, max_length=255)
     subfolder_template: str | None = None
-    brand_logo_url: str | None = None
-    brand_accent_color: HexColor = None
     brand_display_name: str | None = Field(default=None, max_length=255)
     brand_subtitle: str | None = None
 
@@ -98,8 +94,6 @@ class UploadLinkOut(BaseModel):
     target_folder_id: str | None
     target_folder_name: str | None
     subfolder_template: str | None
-    brand_logo_url: str | None
-    brand_accent_color: str | None
     brand_display_name: str | None
     brand_subtitle: str | None
     revoked_at: str | None
@@ -140,8 +134,6 @@ def _to_out(link: UploadLink) -> UploadLinkOut:
         target_folder_id=link.target_folder_id,
         target_folder_name=link.target_folder_name,
         subfolder_template=link.subfolder_template,
-        brand_logo_url=link.brand_logo_url,
-        brand_accent_color=link.brand_accent_color,
         brand_display_name=link.brand_display_name,
         brand_subtitle=link.brand_subtitle,
         revoked_at=link.revoked_at.isoformat() if link.revoked_at else None,
@@ -202,8 +194,6 @@ async def create_link(
         target_folder_id=(body.target_folder_id or "").strip() or None,
         target_folder_name=(body.target_folder_name or "").strip() or None,
         subfolder_template=(body.subfolder_template or "").strip() or None,
-        brand_logo_url=body.brand_logo_url,
-        brand_accent_color=body.brand_accent_color,
         brand_display_name=body.brand_display_name,
         brand_subtitle=body.brand_subtitle,
     )

@@ -94,7 +94,7 @@ token (~1h lifetime) is refreshed transparently; the refresh token persists the 
 
 Configured via `FRAMEIO_REDIRECT_URI`, defaulting to `{BASE_URL}/api/frameio/oauth/callback`. The
 **exact** value must be registered in the Adobe Developer Console integration (see
-[ADOBE_DEVELOPER_CONSOLE_SETUP.md](../deploy/ADOBE_DEVELOPER_CONSOLE_SETUP.md)). Portal supports
+[ADOBE_DEVELOPER_CONSOLE_SETUP.md](ADOBE_DEVELOPER_CONSOLE_SETUP.md)). Portal supports
 both a loopback URL for local testing and an HTTPS domain for real use; register each one you
 intend to use. Adobe may reject plain-IP or non-HTTPS redirect URIs — if loopback is refused,
 test against the HTTPS domain.

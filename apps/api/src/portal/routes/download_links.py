@@ -29,7 +29,6 @@ from portal.downloads.links import validate_source
 from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError, PortalError
 from portal.lib.logging import get_logger
-from portal.lib.validators import HexColor
 from portal.uploads.links import generate_token, link_state
 
 log = get_logger("routes.download_links")
@@ -54,8 +53,6 @@ class DownloadLinkCreate(BaseModel):
     viewer_fields_required: ViewerFields = ViewerFields()
     verify_email: bool = False
     allow_preview: bool = True
-    brand_logo_url: str | None = None
-    brand_accent_color: HexColor = None
     brand_display_name: str | None = Field(default=None, max_length=255)
     brand_subtitle: str | None = None
 
@@ -67,8 +64,6 @@ class DownloadLinkUpdate(BaseModel):
     viewer_fields_required: ViewerFields | None = None
     verify_email: bool | None = None
     allow_preview: bool | None = None
-    brand_logo_url: str | None = None
-    brand_accent_color: HexColor = None
     brand_display_name: str | None = Field(default=None, max_length=255)
     brand_subtitle: str | None = None
 
@@ -86,8 +81,6 @@ class DownloadLinkOut(BaseModel):
     viewer_fields_required: dict[str, bool]
     verify_email: bool
     allow_preview: bool
-    brand_logo_url: str | None
-    brand_accent_color: str | None
     brand_display_name: str | None
     brand_subtitle: str | None
     revoked_at: str | None
@@ -116,8 +109,6 @@ def _to_out(link: DownloadLink) -> DownloadLinkOut:
         },
         verify_email=link.verify_email,
         allow_preview=link.allow_preview,
-        brand_logo_url=link.brand_logo_url,
-        brand_accent_color=link.brand_accent_color,
         brand_display_name=link.brand_display_name,
         brand_subtitle=link.brand_subtitle,
         revoked_at=link.revoked_at.isoformat() if link.revoked_at else None,
@@ -163,8 +154,6 @@ async def create_link(
         viewer_fields_required=fields,
         verify_email=body.verify_email,
         allow_preview=body.allow_preview,
-        brand_logo_url=body.brand_logo_url,
-        brand_accent_color=body.brand_accent_color,
         brand_display_name=body.brand_display_name,
         brand_subtitle=body.brand_subtitle,
     )

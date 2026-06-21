@@ -121,7 +121,7 @@ async def resolve_link(token: str, db: AsyncSession = Depends(get_session)) -> D
         display_name=b["display_name"] or app_name or "Download",
         subtitle=b["subtitle"],
         logo_url=app_logo,
-        accent_color=b["accent_color"] or app_accent,
+        accent_color=app_accent,
         password_required=link.password_hash is not None,
         viewer_fields_required={
             "name": bool(fields.get("name")),

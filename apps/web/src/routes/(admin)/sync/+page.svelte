@@ -101,9 +101,6 @@
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2">
-                    {#if dest.accent_color}
-                      <span class="h-2.5 w-2.5 shrink-0 rounded-full border border-border/60" style="background:{dest.accent_color}"></span>
-                    {/if}
                     <span class="truncate font-medium text-sm">{dest.display_name}</span>
                   </div>
                   {#if dest.subtitle}<div class="mt-0.5 truncate text-xs text-muted">{dest.subtitle}</div>{/if}

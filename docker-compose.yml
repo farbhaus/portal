@@ -1,0 +1,44 @@
+# Production deploy: the all-in-one Portal image. One container bundles the api, sync worker,
+# web server, Postgres, Redis and the internal Caddy router; all state lives in the portal_data
+# volume. It sits behind a host reverse proxy that terminates TLS and forwards your domain to
+# 127.0.0.1:${PORTAL_PORT} (see host-caddy.example and docs/DEPLOY.md).
+#
+#   docker compose pull && docker compose up -d
+#
+# For local development, `make dev` runs this same setup but builds the image from source
+# (via the docker/docker-compose.dev.yml --build overlay) instead of pulling it.
+name: portal
+
+services:
+  portal:
+    image: farbhaus/portal:${PORTAL_VERSION:-latest}
+    container_name: portal
+    restart: unless-stopped
+    # tini as PID 1 — reaps zombies and forwards signals to supervisord for a clean shutdown.
+    init: true
+    env_file:
+      - .env
+    ports:
+      # Loopback only — Portal is reachable only via the upstream host reverse proxy.
+      - "127.0.0.1:${PORTAL_PORT:-18080}:80"
+    volumes:
+      # All persistent state: Postgres cluster, Redis AOF, Caddy data, generated secrets.
+      - portal_data:/data
+      # Sync destinations live on the host (local disk or NAS mounts). Bind the mount root with
+      # rslave propagation so anything mounted under it on the host (e.g. an fstab NAS mount)
+      # appears inside the container. Source == target so a rule's destination_path means the
+      # same path inside and out. Remove this line if you don't use sync rules.
+      - ${SYNC_HOST_ROOT:-/mnt}:${SYNC_HOST_ROOT:-/mnt}:rslave
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+volumes:
+  portal_data:

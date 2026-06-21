@@ -1,12 +1,19 @@
 name: Docker Image CI
 
+# Builds the all-in-one farbhaus/portal image. On branch pushes / PRs it builds only (validates
+# the Dockerfile). On a version tag (vX.Y.Z) it builds and PUSHES to Docker Hub.
+#
+# Publishing prerequisites (see docs/GO_PUBLIC.md), all inert until a v* tag is pushed:
+#   - the farbhaus/portal repo exists on Docker Hub
+#   - repo secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are set
+
 permissions:
   contents: read
-  packages: write
 
 on:
   push:
     branches: [ "main", "dev" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main", "dev" ]
   workflow_dispatch:
@@ -19,40 +26,35 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v7
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@v7
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-    # Publishing disabled for now — re-enable once the repo is public and
-    # the app is converted to a single container, then switch to docker.io.
-    - name: Log in to GitHub Container Registry (only on main)
-      if: false
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Docker metadata (tags from the git ref)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: farbhaus/portal
+          # latest=auto (the default) also tags :latest on a semver tag push.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
 
-    - name: Build and (optionally) push API image
-      uses: docker/build-push-action@v7
-      with:
-        context: ./apps/api
-        file: ./apps/api/Dockerfile
-        push: false
-        tags: |
-          ghcr.io/${{ github.repository_owner }}/portal-api:latest
-          ghcr.io/${{ github.repository_owner }}/portal-api:${{ github.sha }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      # Only on a version tag: log in so the build can push.
+      - name: Log in to Docker Hub
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    - name: Build and (optionally) push Web image
-      uses: docker/build-push-action@v7
-      with:
-        context: ./apps/web
-        file: ./apps/web/Dockerfile
-        push: false
-        tags: |
-          ghcr.io/${{ github.repository_owner }}/portal-web:latest
-          ghcr.io/${{ github.repository_owner }}/portal-web:${{ github.sha }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      - name: Build and (on a tag) push the all-in-one image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

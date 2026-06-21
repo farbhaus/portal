@@ -39,16 +39,9 @@ updates:
         patterns: [ "*" ]
         update-types: [ "minor", "patch" ]
 
-  # Base images for both Dockerfiles — pin to minor/patch (no major OS/runtime jumps).
+  # Base images in the all-in-one Dockerfile — pin to minor/patch (no major OS/runtime jumps).
   - package-ecosystem: docker
-    directory: /apps/api
-    schedule:
-      interval: weekly
-    ignore:
-      - dependency-name: "*"
-        update-types: [ "version-update:semver-major" ]
-  - package-ecosystem: docker
-    directory: /apps/web
+    directory: /
     schedule:
       interval: weekly
     ignore:

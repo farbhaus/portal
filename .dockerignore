@@ -1,0 +1,18 @@
+# Keep the build context small (the all-in-one Dockerfile uses the repo root as context).
+.git
+.github
+.claude
+**/node_modules
+**/.venv
+**/__pycache__
+**/.svelte-kit
+**/build
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+data
+.env
+deploy
+*.md
+Briefing.md
+To-Do.md
