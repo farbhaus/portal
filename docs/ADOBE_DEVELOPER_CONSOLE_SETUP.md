@@ -43,32 +43,25 @@ Add every URL you'll use:
 In the console, the "Redirect URI pattern" field is a regex; the "Default redirect URI" is a
 single URL. Add each callback URL you registered above.
 
-## 4. Copy credentials into Portal
+## 4. Enter the credentials in Portal
 
-From the credential's overview page, copy the **Client ID** and **Client Secret** into
-`deploy/.env`:
+From the credential's overview page, copy the **Client ID** and **Client Secret**. In Portal, log
+in as admin and go to **Settings** → the Frame.io section, and paste them there. They're stored in
+the database (the secret encrypted), not in `.env`, so no restart or redeploy is needed.
 
-```
-FRAMEIO_CLIENT_ID=your-client-id
-FRAMEIO_CLIENT_SECRET=your-client-secret
-# Only set this if it differs from ${BASE_URL}/api/frameio/callback:
-# FRAMEIO_REDIRECT_URI=https://portal.example.com/api/frameio/callback
-```
-
-Make sure `BASE_URL` in `.env` matches the host you'll actually open in the browser, so the
-default redirect URI lines up with what you registered.
+Make sure `BASE_URL` in your `.env` matches the host you'll actually open in the browser, so the
+default redirect URI (`${BASE_URL}/api/frameio/oauth/callback`) lines up with what you registered.
 
 ## 5. Connect
 
-Restart Portal (`docker compose up -d`), open the admin dashboard, go to **Connections**, and
-click **Connect Frame.io**. You'll be sent to Adobe to sign in and approve, then returned to
-Portal showing the connected account.
+In **Settings**, click **Connect Frame.io**. You'll be sent to Adobe to sign in and approve, then
+returned to Portal showing the connected account.
 
 ### Troubleshooting
 
 - **"redirect_uri mismatch"** — the URL you registered doesn't byte-for-byte match
-  `FRAMEIO_REDIRECT_URI`/`BASE_URL` (scheme, host, port, path, trailing slash all matter).
+  `${BASE_URL}/api/frameio/oauth/callback` (scheme, host, port, path, trailing slash all matter).
 - **Connected but stops working after ~a day** — the refresh token is missing; confirm
   `offline_access` is in the granted scopes.
-- **Returned to Connections with an error** — check the `portal_api` logs; Portal never shows
+- **Returned to Settings with an error** — check `docker compose logs portal`; Portal never shows
   provider internals in the UI by design.

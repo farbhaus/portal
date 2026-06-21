@@ -1,0 +1,32 @@
+# Development: build and run the all-in-one image from source — the same single container as
+# production, with dev-friendly settings (insecure secrets allowed, HTTP cookies, and a separate
+# data volume, container name and port so it never collides with a real deploy on the same host).
+#
+#   make dev    (= docker compose -f docker/docker-compose.dev.yml up -d --build)
+#
+# Then open http://localhost:18099 and log in as admin@example.com / change-me.
+name: portal-dev
+
+services:
+  portal:
+    build:
+      context: ..
+    image: farbhaus/portal:dev
+    container_name: portal-dev
+    init: true
+    restart: unless-stopped
+    environment:
+      BASE_URL: http://localhost:18099
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: change-me
+      # Local dev only: skip the production secret guard, serve over plain HTTP.
+      ALLOW_INSECURE_DEFAULTS: "true"
+      SESSION_COOKIE_SECURE: "false"
+    ports:
+      # A distinct port from the production default (18080) so dev and a real deploy can coexist.
+      - "127.0.0.1:18099:80"
+    volumes:
+      - portal_dev_data:/data
+
+volumes:
+  portal_dev_data:
