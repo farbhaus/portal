@@ -15,6 +15,7 @@
   let saving = $state(false);
   let saved = $state(false);
   let error = $state<string | null>(null);
+  let runNote = $state<string | null>(null);
 
   let seededId = "";
   $effect(() => {
@@ -95,8 +96,19 @@
   }
 
   async function runNow() {
-    await fetch(`/api/sync-rules/${rule.id}/run`, { method: "POST" });
-    setTimeout(invalidateAll, 1500);
+    error = null;
+    saved = false;
+    runNote = null;
+    const res = await fetch(`/api/sync-rules/${rule.id}/run`, { method: "POST" });
+    if (!res.ok) {
+      error = `Could not run (${res.status}).`;
+      return;
+    }
+    const created = (await res.json().catch(() => ({}))).created ?? 0;
+    runNote = created > 0
+      ? `Queued ${created} file${created === 1 ? "" : "s"}.`
+      : "Already up to date — nothing new to sync.";
+    await invalidateAll();
   }
 
   async function remove() {
@@ -113,7 +125,8 @@
   </div>
 
   {#if error}<p class="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
-  {:else if saved}<p class="rounded-md bg-success/10 px-3 py-2 text-sm text-success">Saved.</p>{/if}
+  {:else if saved}<p class="rounded-md bg-success/10 px-3 py-2 text-sm text-success">Saved.</p>
+  {:else if runNote}<p class="rounded-md bg-surface-2 px-3 py-2 text-sm text-muted">{runNote}</p>{/if}
 
   <div class="rounded-xl border border-border bg-surface p-6 text-sm">
     <div class="flex items-center justify-between">

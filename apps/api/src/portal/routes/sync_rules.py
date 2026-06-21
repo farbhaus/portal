@@ -28,7 +28,8 @@ from portal.lib.errors import NotFoundError, PortalError
 from portal.lib.logging import get_logger
 from portal.storage.base import DestinationConfig
 from portal.storage.frameio_backend import FrameioStorageBackend
-from portal.sync.queue import enqueue_reconcile_rule
+from portal.sync.queue import enqueue_sync_job
+from portal.sync.runner import reconcile_rule
 
 log = get_logger("routes.sync_rules")
 router = APIRouter(prefix="/sync-rules", tags=["sync-rules"])
@@ -293,11 +294,19 @@ async def run_rule(
     rule_id: uuid.UUID,
     _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
-) -> dict[str, bool]:
+) -> dict[str, Any]:
+    """Reconcile the rule now and report how many new files were queued.
+
+    Runs inline (rather than enqueuing a background task) so the admin gets immediate, accurate
+    feedback — ``created == 0`` means everything is already synced (copy-once), not a silent
+    no-op. Lists the Frame.io source folder, so the response can take a moment for large folders.
+    """
     rule = await _get_or_404(db, rule_id)
-    await enqueue_reconcile_rule(rule.id)
-    log.info("sync_rule.manual_run", sync_rule_id=str(rule.id))
-    return {"ok": True}
+    created = await reconcile_rule(
+        db, rule.id, backend=FrameioStorageBackend(), enqueue=enqueue_sync_job
+    )
+    log.info("sync_rule.manual_run", sync_rule_id=str(rule.id), created=created)
+    return {"ok": True, "created": created}
 
 
 @router.get("/{rule_id}/jobs", response_model=list[SyncJobOut])

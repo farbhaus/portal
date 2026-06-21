@@ -114,6 +114,7 @@ async def execute_job(
         filename=remote.name,
         project=str(rule.source_config.get("project_name", "")),
         folder=str(rule.source_config.get("folder_name", "")),
+        subfolder=remote.relative_dir,
         when=datetime.now(),
     )
     target = resolve_destination(rule.destination_path, rule.path_template, ctx)

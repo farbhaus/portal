@@ -51,6 +51,9 @@ _REQ_OPTS = {"max_retries": MAX_RETRIES}
 PICKER_PAGE_SIZE = 100
 # Safety cap so a pathological account can't make a picker call iterate forever.
 PICKER_MAX_ITEMS = 1000
+# Safety cap on a folder ancestor walk so a cycle or a never-terminating parent chain can't
+# loop forever; Frame.io trees are nowhere near this deep in practice.
+_MAX_FOLDER_DEPTH = 64
 _HTTP_TIMEOUT = 30.0
 
 
@@ -78,6 +81,9 @@ class FrameioForbidden(FrameioError):
 class PickerItem:
     id: str
     name: str
+    # The folder's own parent, when known (populated by get_folder via folder.show). Lets the
+    # sync engine walk a file's ancestor chain to mirror Frame.io's tree onto the destination.
+    parent_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -204,6 +210,10 @@ class FrameioClient:
         # avoid duplicate folders within a worker.
         self._folder_cache: dict[tuple[str, str], str] = {}
         self._folder_lock = asyncio.Lock()
+        # Cache of folder_id -> (name, parent_id) for ancestor walks (folder_relative_path), so
+        # files sharing a subtree don't re-fetch each ancestor. Folder moves are rare; a stale
+        # entry only mis-places a path segment, which reconcile/admin re-run can correct.
+        self._folder_meta_cache: dict[str, tuple[str, str | None]] = {}
 
     async def aclose(self) -> None:
         await self._httpx.aclose()
@@ -323,9 +333,45 @@ class FrameioClient:
                 account_id, folder_id, request_options=_REQ_OPTS
             )
             folder = resp.data
-            return PickerItem(id=folder.id, name=getattr(folder, "name", None) or folder.id)
+            return PickerItem(
+                id=folder.id,
+                name=getattr(folder, "name", None) or folder.id,
+                parent_id=getattr(folder, "parent_id", None),
+            )
 
         return await self._guard("get_folder", run)
+
+    async def folder_relative_path(
+        self, account_id: str, parent_id: str | None, root_folder_id: str
+    ) -> str:
+        """POSIX path of a file's folder *relative to* ``root_folder_id`` (root exclusive).
+
+        Walks up from ``parent_id`` collecting folder names until it reaches the rule's root
+        folder, so the sync engine can mirror Frame.io's subfolder tree onto the destination.
+        Returns ``""`` when the file sits directly in the root folder. Caps depth and de-dups
+        visited ids to survive an unexpected cycle or a parent chain that never hits the root.
+        """
+        if parent_id is None or parent_id == root_folder_id:
+            return ""
+
+        segments: list[str] = []
+        seen: set[str] = set()
+        current: str | None = parent_id
+        for _ in range(_MAX_FOLDER_DEPTH):
+            if current is None or current == root_folder_id or current in seen:
+                break
+            seen.add(current)
+            cached = self._folder_meta_cache.get(current)
+            if cached is None:
+                folder = await self.get_folder(account_id, current)
+                cached = (folder.name, folder.parent_id)
+                self._folder_meta_cache[current] = cached
+            name, next_parent = cached
+            segments.append(name)
+            current = next_parent
+
+        segments.reverse()
+        return "/".join(segments)
 
     async def create_folder(
         self, account_id: str, parent_folder_id: str, name: str

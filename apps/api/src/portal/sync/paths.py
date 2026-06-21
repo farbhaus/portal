@@ -8,12 +8,17 @@ Tokens (missing values render empty; unknown tokens are dropped):
   {filename}  full name with extension      {stem}  name without extension
   {ext}       extension without the dot      {basename}  alias for {filename}
   {project}   the rule's project name        {folder}    the rule's source folder name
+  {subfolder} source path below the root folder, e.g. ``Dailies/Monday`` (empty at the root)
   {uploader_name}  empty for sync-triggered files (kept for symmetry with upload links)
   {date} YYYY-MM-DD   {year} {month} {day}
 
-If the template names no filename token, the basename is appended — so ``{project}/{date}`` yields
-``Project/2026-06-10/clip.mov``. Every path segment is sanitized: separators, NULs, ``..`` and
-leading dots are stripped so a template (or a Frame.io name) can never escape the destination root.
+The source's subfolder tree is mirrored onto the destination by default: the ``{subfolder}`` is
+inserted just before the filename. With no template the file goes to ``{subfolder}/{filename}``;
+with a template like ``{project}/{date}`` a file in ``Cam-A/Roll1`` yields
+``Project/2026-06-10/Cam-A/Roll1/clip.mov``. A template that names ``{subfolder}`` itself controls
+its placement (no auto-insert). If a template names no filename token, the basename is appended.
+Every path segment is sanitized: separators, NULs, ``..`` and leading dots are stripped so a
+template (or a Frame.io name) can never escape the destination root.
 """
 
 from __future__ import annotations
@@ -33,6 +38,9 @@ class PathContext:
     filename: str  # full name including extension
     project: str = ""
     folder: str = ""
+    # Source subfolder path relative to the rule's root folder, e.g. "Dailies/Monday". Mirrored
+    # onto the destination by default (no template); also available as the {subfolder} token.
+    subfolder: str = ""
     uploader_name: str = ""
     when: datetime | None = None
 
@@ -40,6 +48,11 @@ class PathContext:
 def _sanitize_segment(value: str) -> str:
     cleaned = _UNSAFE.sub("_", value).strip().strip(".").strip()
     return cleaned or "_"
+
+
+def _split_segments(value: str) -> list[str]:
+    """Split a relative path string into sanitized, non-empty segments (can't escape root)."""
+    return [_sanitize_segment(s) for s in value.replace("\\", "/").split("/") if s.strip()]
 
 
 def _tokens(ctx: PathContext) -> dict[str, str]:
@@ -52,6 +65,7 @@ def _tokens(ctx: PathContext) -> dict[str, str]:
         "ext": Path(name).suffix.lstrip("."),
         "project": ctx.project,
         "folder": ctx.folder,
+        "subfolder": ctx.subfolder,
         "uploader_name": ctx.uploader_name,
         "date": when.strftime("%Y-%m-%d"),
         "year": when.strftime("%Y"),
@@ -63,17 +77,28 @@ def _tokens(ctx: PathContext) -> dict[str, str]:
 def render_path_template(template: str | None, ctx: PathContext) -> str:
     """Render a relative POSIX path (always ending in a filename) from a template."""
     basename = _sanitize_segment(ctx.filename)
+    sub_segments = _split_segments(ctx.subfolder)
     if not template or not template.strip():
-        return basename
+        # No template: mirror the source's subfolder tree under the destination by default.
+        return str(PurePosixPath(*sub_segments, basename))
 
     tokens = _tokens(ctx)
     rendered = _TOKEN.sub(lambda m: tokens.get(m.group(1), ""), template)
+    segments = _split_segments(rendered)
 
-    segments = [_sanitize_segment(s) for s in rendered.replace("\\", "/").split("/") if s.strip()]
+    # The subfolder is the file's structure *within* the rule's root, so it belongs immediately
+    # before the filename — mirrored by default even with a template. If the template names
+    # {subfolder} itself, it's already placed (don't duplicate); the author controls layout.
+    insert_sub = sub_segments if "{subfolder}" not in template else []
     if not any(t in template for t in _FILENAME_TOKENS):
-        segments.append(basename)
-    if not segments:
-        segments = [basename]
+        segments = [*segments, *insert_sub, basename]
+    elif segments:
+        # Filename token present (typically last): tuck the subfolder just before that segment.
+        head, last = segments[:-1], segments[-1:]
+        segments = [*head, *insert_sub, *last]
+    else:
+        # Filename token rendered to nothing — fall back to a mirrored basename.
+        segments = [*insert_sub, basename]
     return str(PurePosixPath(*segments))
 
 

@@ -50,6 +50,10 @@ class RemoteFile:
     # to a rule's folder and to template the local path.
     parent_id: str | None = None
     project_id: str | None = None
+    # POSIX path of the file's folder relative to the rule's root source folder (root exclusive),
+    # e.g. "Dailies/Monday". Empty for files directly in the root. The sync engine prepends it to
+    # the local path so the source's subfolder tree is mirrored onto the destination.
+    relative_dir: str = ""
     # Backend processing state; the sync engine waits for a downloadable state before pulling
     # (Frame.io: "transcoded"). None when the backend doesn't report one.
     status: str | None = None

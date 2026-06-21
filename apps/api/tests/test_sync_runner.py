@@ -21,10 +21,12 @@ class _StubBackend:
         *,
         parent_id: str = "fld-1",
         status: str = "transcoded",
+        relative_dir: str = "",
     ) -> None:
         self._files = files
         self._parent_id = parent_id
         self._status = status
+        self._relative_dir = relative_dir
 
     async def get_file(self, dest: DestinationConfig, file_id: str) -> RemoteFile:
         return RemoteFile(
@@ -32,6 +34,7 @@ class _StubBackend:
             name=f"{file_id}.mov",
             size=100,
             parent_id=self._parent_id,
+            relative_dir=self._relative_dir,
             status=self._status,
         )
 
@@ -114,6 +117,19 @@ async def test_execute_job_downloads_and_places(tmp_path: Path, monkeypatch: Any
         assert job.status == "done"
         assert job.bytes == len(b"hello-bytes")
         assert job.sha256 == "deadbeef"
+
+
+async def test_execute_job_mirrors_subfolder(tmp_path: Path, monkeypatch: Any) -> None:
+    # No template + a relative_dir => the source's subfolder tree is recreated under the dest.
+    _patch_download(monkeypatch)
+    rule_id = await _make_rule(str(tmp_path))
+    job_id = await _make_job(rule_id)
+    backend = _StubBackend([], relative_dir="Dailies/Monday")
+    async with get_sessionmaker()() as db:
+        job = await db.get(SyncJob, job_id)
+        await runner.execute_job(db, job, backend=backend)  # type: ignore[arg-type]
+        await db.commit()
+    assert (tmp_path / "Dailies" / "Monday" / "file-1.mov").read_bytes() == b"hello-bytes"
 
 
 async def test_execute_job_out_of_scope_skipped(tmp_path: Path, monkeypatch: Any) -> None:

@@ -48,6 +48,43 @@ def test_template_tokens() -> None:
     assert render_path_template("{year}/{month}/{day}/{filename}", ctx) == "2026/06/10/Shot_01.mov"
 
 
+def test_no_template_mirrors_subfolder() -> None:
+    ctx = PathContext(filename="clip.mov", subfolder="Dailies/Monday")
+    assert render_path_template(None, ctx) == "Dailies/Monday/clip.mov"
+
+
+def test_no_template_empty_subfolder_unchanged() -> None:
+    ctx = PathContext(filename="clip.mov", subfolder="")
+    assert render_path_template(None, ctx) == "clip.mov"
+
+
+def test_subfolder_token_in_template() -> None:
+    ctx = PathContext(filename="clip.mov", project="Acme", subfolder="A/B", when=WHEN)
+    assert render_path_template("{project}/{subfolder}/{filename}", ctx) == "Acme/A/B/clip.mov"
+
+
+def test_template_without_filename_token_keeps_subfolder() -> None:
+    # The user's case: a {project}/{date} template should still mirror the source subfolders.
+    ctx = PathContext(filename="clip.mov", project="Acme", subfolder="Cam-A/Roll1", when=WHEN)
+    assert (
+        render_path_template("{project}/{date}", ctx)
+        == "Acme/2026-06-10/Cam-A/Roll1/clip.mov"
+    )
+
+
+def test_template_with_filename_token_inserts_subfolder_before_filename() -> None:
+    ctx = PathContext(filename="clip.mov", project="Acme", subfolder="Cam-A", when=WHEN)
+    assert render_path_template("{project}/{filename}", ctx) == "Acme/Cam-A/clip.mov"
+
+
+def test_subfolder_cannot_escape_root() -> None:
+    ctx = PathContext(filename="clip.mov", subfolder="../../etc")
+    p = resolve_destination("/data/out", None, ctx)
+    assert ".." not in p.parts
+    assert str(p).startswith("/data/out/")
+    assert p.name == "clip.mov"
+
+
 def test_template_without_filename_token_appends_basename() -> None:
     ctx = PathContext(filename="clip.mov", project="Proj", when=WHEN)
     assert render_path_template("{project}/{date}", ctx) == "Proj/2026-06-10/clip.mov"

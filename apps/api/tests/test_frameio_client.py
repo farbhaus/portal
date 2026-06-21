@@ -137,6 +137,49 @@ async def test_list_files(fake_client: FrameioClient) -> None:
     ]
 
 
+class _ShowFolders:
+    """Serves folders.show from a folder_id -> (name, parent_id) map; counts calls for caching."""
+
+    def __init__(self, tree: dict[str, tuple[str, str | None]]) -> None:
+        self._tree = tree
+        self.calls = 0
+
+    async def show(self, account_id: str, folder_id: str, **kwargs: object) -> object:
+        self.calls += 1
+        name, parent_id = self._tree[folder_id]
+        return ns(data=ns(id=folder_id, name=name, parent_id=parent_id))
+
+
+async def test_folder_relative_path_walks_to_root_exclusive() -> None:
+    # tree:  root(a) <- b <- c ; a file whose parent is c is at "b/c" relative to root a.
+    folders = _ShowFolders({"c": ("Monday", "b"), "b": ("Dailies", "a"), "a": ("Root", None)})
+    c = FrameioClient()
+    c._client = ns(folders=folders)  # type: ignore[assignment]
+    try:
+        assert await c.folder_relative_path("acct", "c", "a") == "Dailies/Monday"
+        # Direct child of the root folder -> empty relative path, no folder.show needed.
+        assert await c.folder_relative_path("acct", "a", "a") == ""
+        assert await c.folder_relative_path("acct", None, "a") == ""
+        before = folders.calls
+        # Second walk over the same subtree is served from the per-folder cache.
+        assert await c.folder_relative_path("acct", "c", "a") == "Dailies/Monday"
+        assert folders.calls == before
+    finally:
+        await c.aclose()
+
+
+async def test_folder_relative_path_depth_capped_on_cycle() -> None:
+    # b and c point at each other; the walk must terminate (depth cap / seen-set) not hang.
+    folders = _ShowFolders({"c": ("C", "b"), "b": ("B", "c")})
+    c = FrameioClient()
+    c._client = ns(folders=folders)  # type: ignore[assignment]
+    try:
+        out = await c.folder_relative_path("acct", "c", "root-never-reached")
+        assert out  # returns something finite rather than looping forever
+    finally:
+        await c.aclose()
+
+
 async def test_error_translation() -> None:
     class _Boom:
         async def index(self, *a: object, **k: object) -> object:

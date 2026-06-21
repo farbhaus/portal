@@ -30,7 +30,14 @@
     busy = r.id; note = null;
     try {
       const res = await fetch(`/api/sync-rules/${r.id}/run`, { method: "POST" });
-      note = res.ok ? `Reconcile queued for "${r.name}".` : `Could not run (${res.status}).`;
+      if (!res.ok) {
+        note = `Could not run (${res.status}).`;
+      } else {
+        const created = (await res.json().catch(() => ({}))).created ?? 0;
+        note = created > 0
+          ? `Queued ${created} file${created === 1 ? "" : "s"} for "${r.name}".`
+          : `"${r.name}" is already up to date — nothing new to sync.`;
+      }
     } finally { busy = null; }
   }
 

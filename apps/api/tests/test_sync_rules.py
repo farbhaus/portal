@@ -68,13 +68,6 @@ async def _clear() -> None:
 def stub(monkeypatch: Any) -> _StubClient:
     client = _StubClient()
     monkeypatch.setattr(routes, "get_frameio_client", lambda: client)
-    enqueued: list[uuid.UUID] = []
-
-    async def fake_enqueue(rule_id: uuid.UUID) -> None:
-        enqueued.append(rule_id)
-
-    monkeypatch.setattr(routes, "enqueue_reconcile_rule", fake_enqueue)
-    client.enqueued = enqueued  # type: ignore[attr-defined]
     return client
 
 
@@ -173,7 +166,7 @@ async def test_bad_conflict_policy_rejected(client: AsyncClient, stub: _StubClie
     assert resp.status_code == 400
 
 
-async def test_run_enqueues_reconcile(client: AsyncClient, stub: _StubClient) -> None:
+async def test_run_reconciles_and_reports_count(client: AsyncClient, stub: _StubClient) -> None:
     await _login(client)
     rid = (
         await client.post(
@@ -181,9 +174,11 @@ async def test_run_enqueues_reconcile(client: AsyncClient, stub: _StubClient) ->
             json={"name": "R", "source": SOURCE, "destination_path": "/d", "enabled": False},
         )
     ).json()["id"]
+    # A disabled rule reconciles to zero new jobs without touching the backend, so /run reports
+    # created == 0 — the signal the UI turns into "already up to date" rather than a silent no-op.
     resp = await client.post(f"/api/sync-rules/{rid}/run")
     assert resp.status_code == 200
-    assert stub.enqueued == [uuid.UUID(rid)]  # type: ignore[attr-defined]
+    assert resp.json() == {"ok": True, "created": 0}
 
 
 async def test_jobs_and_stats(client: AsyncClient, stub: _StubClient) -> None:

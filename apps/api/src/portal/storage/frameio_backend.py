@@ -64,13 +64,18 @@ class FrameioStorageBackend(StorageBackend):
 
     async def get_file(self, destination: DestinationConfig, file_id: str) -> RemoteFile:
         account_id = destination.require("account_id")
+        root_folder_id = destination.require("folder_id")
         f = await self._client.get_file_detail(account_id, file_id)
+        relative_dir = await self._client.folder_relative_path(
+            account_id, f.parent_id, root_folder_id
+        )
         return RemoteFile(
             id=f.id,
             name=f.name,
             size=f.file_size,
             parent_id=f.parent_id,
             project_id=f.project_id,
+            relative_dir=relative_dir,
             status=f.status,
         )
 
