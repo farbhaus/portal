@@ -2,14 +2,10 @@
 # Majors are excluded here on purpose: they may carry breaking changes (and for
 # GitHub Actions, majors are how security fixes ship) — those get a manual review.
 #
-# DORMANT until the repo is public. `gh pr merge --auto` only merges after the
-# branch's required status checks pass, which needs branch protection — and branch
-# protection requires GitHub Pro or a public repo (private + free = not available).
-# Without it, auto-merge can't gate on CI. The merge step below is therefore gated
-# on AUTOMERGE_ENABLED; flip it to 'true' once the repo is public AND branch
-# protection requires the CI checks. Note: "Allow auto-merge" itself also can't be
-# enabled on a private free-plan repo — it unlocks (along with branch protection)
-# when the repo goes public, so enable it then too.
+# `gh pr merge --auto` only completes the merge after the branch's required status
+# checks pass, so this relies on branch protection requiring the CI checks on the
+# default branch (and the repo's "Allow auto-merge" setting being enabled). The
+# merge step is gated on AUTOMERGE_ENABLED below as a kill switch.
 name: Dependabot Auto-Merge
 
 on:
@@ -20,8 +16,8 @@ permissions:
   pull-requests: write
 
 env:
-  # Set to 'true' once branch protection requires CI on the default branch.
-  AUTOMERGE_ENABLED: 'false'
+  # Kill switch: set to 'false' to pause auto-merge without removing the workflow.
+  AUTOMERGE_ENABLED: 'true'
 
 jobs:
   auto-merge:

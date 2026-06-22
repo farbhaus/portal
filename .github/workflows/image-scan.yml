@@ -4,20 +4,15 @@
 # exit-code to 1 once the noise is understood to make HIGH/CRITICAL blocking.
 name: Image Scan
 
-# DISABLED until the repo is public. The "Upload results to Security tab" step
-# (upload-sarif) requires GitHub Advanced Security on private repos, which is not
-# enabled, so it fails with "Resource not accessible by integration". Code
-# scanning is free on public repos — when this repo goes public, restore the
-# triggers below (replace the `workflow_dispatch:`-only block) to re-enable.
 on:
+  pull_request:
+    branches: [ "main", "dev" ]
+  push:
+    branches: [ "main" ]
+  schedule:
+    # Weekly rescan picks up newly disclosed CVEs in already-built images.
+    - cron: '0 7 * * 1'
   workflow_dispatch:
-  # pull_request:
-  #   branches: [ "main", "dev" ]
-  # push:
-  #   branches: [ "main" ]
-  # schedule:
-  #   # Weekly rescan picks up newly disclosed CVEs in already-built images.
-  #   - cron: '0 7 * * 1'
 
 concurrency:
   group: image-scan-${{ github.ref }}
