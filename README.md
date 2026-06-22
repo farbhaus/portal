@@ -53,6 +53,7 @@ cd portal
 
 The admin email is required (it's your login); pass it as the second argument or with
 `--admin-email you@example.com`.
+
 ## Adobe Developer Console setup for Frame.io OAuth
 
 Portal connects to Frame.io through Adobe's identity system (Adobe IMS). To allow it, you
@@ -85,8 +86,13 @@ Two of these are essential and easy to miss:
 
 **3. Register the redirect URI(s)**
 
-The redirect URI is where Adobe sends the browser back after you approve. 
-Please paste the exact URL listed in **Settings** → **Frame io app** → **Redirect URI**
+The redirect URI is where Adobe sends the browser back after you approve. Portal shows the exact
+value in **Settings** → **Frame.io app** → **Redirect URI** — it's `{BASE_URL}/api/frameio/oauth/callback`
+(e.g. `https://portal.example.com/api/frameio/oauth/callback`). Adobe's form asks for two fields:
+
+- **Default redirect URI** — paste that exact URL.
+- **Redirect URI pattern \*** (required) — the same URL as a regular expression, with the dots
+  escaped, e.g. `https://portal\.example\.com/api/frameio/oauth/callback`
 
 **4. Enter the credentials in Portal**
 
