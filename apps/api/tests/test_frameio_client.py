@@ -180,6 +180,37 @@ async def test_folder_relative_path_depth_capped_on_cycle() -> None:
         await c.aclose()
 
 
+class _TreeFolders:
+    """folders.list (subfolders) and folders.index (files) keyed by folder_id, one page each."""
+
+    def __init__(self, subfolders: dict[str, list], files: dict[str, list]) -> None:
+        self._subfolders = subfolders
+        self._files = files
+
+    async def list(self, account_id: str, folder_id: str, **kwargs: object) -> object:
+        return ns(data=self._subfolders.get(folder_id, []), links=ns(next=None))
+
+    async def index(self, account_id: str, folder_id: str, **kwargs: object) -> object:
+        return ns(data=self._files.get(folder_id, []), links=ns(next=None))
+
+
+async def test_list_files_recursive_tags_relative_paths() -> None:
+    # rf1 ─ root.mov, Sub ─ a.mov, Sub/Deeper ─ b.mov
+    subfolders = {"rf1": [ns(id="sub", name="Sub")], "sub": [ns(id="deep", name="Deeper")]}
+    files = {
+        "rf1": [ns(id="r", name="root.mov", file_size=1, media_type="video")],
+        "sub": [ns(id="a", name="a.mov", file_size=2, media_type="video")],
+        "deep": [ns(id="b", name="b.mov", file_size=3, media_type="video")],
+    }
+    c = FrameioClient()
+    c._client = ns(folders=_TreeFolders(subfolders, files))  # type: ignore[assignment]
+    try:
+        items = await c.list_files_recursive("a1", "rf1")
+    finally:
+        await c.aclose()
+    assert {i.id: i.path for i in items} == {"r": "", "a": "Sub", "b": "Sub/Deeper"}
+
+
 async def test_error_translation() -> None:
     class _Boom:
         async def index(self, *a: object, **k: object) -> object:
@@ -232,7 +263,10 @@ class _StubUploadClient:
         return UploadTarget(
             file_id="file-1",
             media_type="video/quicktime",
-            chunks=[ChunkUrl(size=5, url="https://s3/part1"), ChunkUrl(size=3, url="https://s3/part2")],
+            chunks=[
+                ChunkUrl(size=5, url="https://s3/part1"),
+                ChunkUrl(size=3, url="https://s3/part2"),
+            ],
         )
 
     async def get_upload_status(self, account_id: str, file_id: str) -> UploadStatus:
@@ -300,9 +334,7 @@ class _StubClient:
     async def list_subfolders(self, account_id: str, folder_id: str) -> list[PickerItem]:
         return [PickerItem(id="f1", name="F1")]
 
-    async def create_folder(
-        self, account_id: str, parent_folder_id: str, name: str
-    ) -> PickerItem:
+    async def create_folder(self, account_id: str, parent_folder_id: str, name: str) -> PickerItem:
         return PickerItem(id="new1", name=name)
 
     async def get_download_url(self, account_id: str, file_id: str) -> str:

@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 import httpx
@@ -100,6 +100,9 @@ class FileItem:
     name: str
     file_size: int | None
     media_type: str | None
+    # POSIX path of the file's folder relative to the listing root ("" = directly in the root).
+    # Only populated by list_files_recursive; flat listings leave it empty.
+    path: str = ""
 
 
 @dataclass(frozen=True)
@@ -129,6 +132,9 @@ class DownloadFile:
     media_type: str | None
     download_url: str | None
     thumbnail_url: str | None
+    # Relative folder path for recursive folder sources ("" for flat file/selection sources), so a
+    # recipient writing into a chosen directory can recreate the Frame.io subfolder tree.
+    path: str = ""
 
 
 @dataclass(frozen=True)
@@ -329,9 +335,7 @@ class FrameioClient:
         """Resolve a single folder — used to validate a picked destination and get its name."""
 
         async def run() -> PickerItem:
-            resp = await self._client.folders.show(
-                account_id, folder_id, request_options=_REQ_OPTS
-            )
+            resp = await self._client.folders.show(account_id, folder_id, request_options=_REQ_OPTS)
             folder = resp.data
             return PickerItem(
                 id=folder.id,
@@ -373,9 +377,7 @@ class FrameioClient:
         segments.reverse()
         return "/".join(segments)
 
-    async def create_folder(
-        self, account_id: str, parent_folder_id: str, name: str
-    ) -> PickerItem:
+    async def create_folder(self, account_id: str, parent_folder_id: str, name: str) -> PickerItem:
         """Create one subfolder under a parent and return it (the picker's New-folder action)."""
 
         async def run() -> PickerItem:
@@ -633,14 +635,23 @@ class FrameioClient:
             collected: list[FileItem] = []
             stack = [folder_id]
             seen: set[str] = set()
+            # Relative path of each folder below the root (root itself = ""). Subfolder names come
+            # back from list_subfolders, so tagging files costs no extra API calls.
+            rel: dict[str, str] = {folder_id: ""}
             while stack and len(collected) < PICKER_MAX_ITEMS:
                 current = stack.pop()
                 if current in seen:
                     continue
                 seen.add(current)
-                collected.extend(await self.list_files(account_id, current))
+                here = rel.get(current, "")
+                collected.extend(
+                    replace(f, path=here) for f in await self.list_files(account_id, current)
+                )
                 subfolders = await self.list_subfolders(account_id, current)
-                stack.extend(sf.id for sf in subfolders if sf.id not in seen)
+                for sf in subfolders:
+                    if sf.id not in seen:
+                        rel[sf.id] = f"{here}/{sf.name}".lstrip("/")
+                        stack.append(sf.id)
             return collected[:PICKER_MAX_ITEMS]
 
         return await self._guard("list_files_recursive", run)

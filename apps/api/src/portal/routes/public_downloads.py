@@ -74,6 +74,9 @@ class FileOut(BaseModel):
     size: int | None
     media_type: str | None
     thumbnail_url: str | None
+    # Relative folder path ("" for flat sources), so a recipient saving into a chosen directory can
+    # recreate the subfolder tree of a recursive folder source.
+    path: str = ""
 
 
 class StartSessionResult(BaseModel):
@@ -205,7 +208,10 @@ async def start_session(
         user_agent=request.headers.get("user-agent"),
         # Snapshot id/name/size so per-file URL mints need no extra Frame.io calls (folder sources
         # in particular were re-listed on every mint).
-        files=[{"id": f.id, "name": f.name, "size": f.file_size} for f in resolved.files],
+        files=[
+            {"id": f.id, "name": f.name, "size": f.file_size, "path": f.path}
+            for f in resolved.files
+        ],
         started_at=datetime.now(UTC),
     )
     db.add(session)
@@ -219,6 +225,7 @@ async def start_session(
             size=f.file_size,
             media_type=f.media_type,
             thumbnail_url=f.thumbnail_url if link.allow_preview else None,
+            path=f.path,
         )
         for f in resolved.files
     ]
