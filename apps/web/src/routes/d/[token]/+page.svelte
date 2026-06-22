@@ -1,12 +1,16 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { Button, Card } from "$lib/components";
   import {
     downloadAll,
+    downloadAllToFolder,
     downloadFile,
     formatBytes,
     requestCode,
     startSession,
+    supportsFolderPicker,
     type DownloadFile,
+    type FolderProgress,
   } from "$lib/download";
 
   let { data } = $props();
@@ -26,7 +30,17 @@
   let opening = $state(false);
   let error = $state<string | null>(null);
   let busyFile = $state<string | null>(null);
-  let allProgress = $state<string | null>(null);
+  // "Download all" progress. `label` + `pct` (null = indeterminate) drive the bar; folder downloads
+  // bypass the browser's download manager, so this is the only progress the recipient sees.
+  let allProgress = $state<{ label: string; pct: number | null } | null>(null);
+  let doneMsg = $state<string | null>(null);
+  // Chrome/Edge can stream "Download all" into a folder the recipient picks (preserving the
+  // subfolder tree); other browsers fall back to flat per-file downloads. Resolved after mount so
+  // it stays false during SSR (no `window`) and doesn't cause a hydration mismatch.
+  let canPickFolder = $state(false);
+  onMount(() => {
+    canPickFolder = supportsFolderPicker();
+  });
 
   const needsGate = $derived(
     link.password_required ||
@@ -111,18 +125,52 @@
     }
   }
 
-  async function all() {
-    if (!sessionId) return;
+  // Shared wrapper around a "download all" action: clears banners, swallows a cancelled picker,
+  // and always clears the progress bar at the end.
+  async function runAll(action: () => Promise<void>) {
+    if (!sessionId || allProgress) return;
     error = null;
+    doneMsg = null;
     try {
-      await downloadAll(data.token, sessionId, files, (done, total) => {
-        allProgress = `${done} / ${total}`;
-      });
+      await action();
     } catch (e) {
-      error = e instanceof Error ? e.message : "Download failed.";
+      // The recipient dismissing the folder picker isn't an error.
+      if (!(e instanceof DOMException && e.name === "AbortError"))
+        error = e instanceof Error ? e.message : "Download failed.";
     } finally {
       allProgress = null;
     }
+  }
+
+  // Chromium only: stream every file into a folder the recipient picks, with real byte progress.
+  function allToFolder() {
+    return runAll(async () => {
+      const onProgress = (p: FolderProgress) => {
+        const pct = p.bytesTotal ? Math.min(100, (p.bytesDone / p.bytesTotal) * 100) : null;
+        const count = `${p.fileIndex + 1} / ${p.filesTotal}`;
+        allProgress = {
+          label:
+            p.bytesTotal !== null
+              ? `Saving ${p.fileName} — ${formatBytes(p.bytesDone)} of ${formatBytes(p.bytesTotal)} (${count})`
+              : `Saving ${p.fileName} (${count})`,
+          pct,
+        };
+      };
+      const r = await downloadAllToFolder(data.token, sessionId!, files, onProgress);
+      if (r.failed.length)
+        error = `Couldn't save ${r.failed.length} file${r.failed.length === 1 ? "" : "s"}: ${r.failed.join(", ")}`;
+      if (r.saved > 0) doneMsg = `Saved ${r.saved} file${r.saved === 1 ? "" : "s"} to “${r.dirName}”.`;
+    });
+  }
+
+  // Hand each file to the browser's own download manager (default Downloads folder). Available on
+  // every browser; the only path on non-Chromium browsers.
+  function allToDownloads() {
+    return runAll(async () => {
+      await downloadAll(data.token, sessionId!, files, (done, total) => {
+        allProgress = { label: `Sent ${done} / ${total} to your browser…`, pct: (done / total) * 100 };
+      });
+    });
   }
 </script>
 
@@ -176,14 +224,42 @@
                 : "View files"}
           </Button>
         {:else}
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between gap-2">
             <span class="text-sm text-muted">{files.length} file{files.length === 1 ? "" : "s"}</span>
             {#if files.length > 1}
-              <Button {accent} size="sm" onclick={all} disabled={allProgress !== null}>
-                {allProgress ? `Downloading ${allProgress}…` : "Download all"}
-              </Button>
+              <div class="flex items-center gap-2">
+                {#if canPickFolder}
+                  <!-- Chromium can do both: stream into a chosen folder, or hand off to the
+                       browser's download manager like every other browser. -->
+                  <Button variant="ghost" size="sm" onclick={allToDownloads} disabled={allProgress !== null}>
+                    Download all
+                  </Button>
+                  <Button {accent} size="sm" onclick={allToFolder} disabled={allProgress !== null}>
+                    {allProgress ? "Downloading…" : "Download to folder…"}
+                  </Button>
+                {:else}
+                  <Button {accent} size="sm" onclick={allToDownloads} disabled={allProgress !== null}>
+                    {allProgress ? "Downloading…" : "Download all"}
+                  </Button>
+                {/if}
+              </div>
             {/if}
           </div>
+
+          {#if allProgress}
+            <div class="space-y-1.5" role="status" aria-live="polite">
+              <div class="h-1.5 overflow-hidden rounded-full bg-surface-2">
+                {#if allProgress.pct === null}
+                  <div class="h-full w-1/3 animate-pulse rounded-full" style="background:{accent}"></div>
+                {:else}
+                  <div class="h-full rounded-full transition-[width] duration-150" style="width:{allProgress.pct}%;background:{accent}"></div>
+                {/if}
+              </div>
+              <p class="truncate text-xs text-faint">{allProgress.label}</p>
+            </div>
+          {:else if doneMsg}
+            <p class="rounded-md bg-accent/10 px-3 py-2 text-sm" style="color:{accent}">{doneMsg}</p>
+          {/if}
 
           {#if files.length === 0}
             <p class="text-sm text-faint">No files to download.</p>
