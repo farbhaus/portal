@@ -6,6 +6,29 @@
 # — no migration from a previous deploy is required.
 set -e
 
+# --- Deployment mode (derived) -----------------------------------------------------------------
+# Operators set only their domain (BASE_URL) and, optionally, whether a host reverse proxy fronts
+# Portal. Caddy's site address and the rate limiter's proxy-hop count are derived from those here
+# and exported, so supervisord's children (caddy, api) inherit them — no duplicate domain/hop knobs.
+#
+#   PORTAL_BEHIND_PROXY=true  (default) — a host proxy terminates TLS and forwards to our loopback
+#                              port. Caddy serves plain HTTP on :80; the real client IP is the
+#                              2nd-from-last X-Forwarded-For hop (host proxy + this Caddy).
+#   PORTAL_BEHIND_PROXY=false           — standalone: Caddy is the public TLS edge and provisions a
+#                              Let's Encrypt cert for BASE_URL's host. One hop (this Caddy only).
+#
+# An explicit PORTAL_SITE_ADDRESS or TRUSTED_PROXY_HOPS still wins (power users, e.g. behind
+# Cloudflare set TRUSTED_PROXY_HOPS=3). The bare host is parsed from BASE_URL (scheme + path
+# stripped, any :port kept).
+portal_host=$(printf '%s' "${BASE_URL:-}" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#/.*$##')
+if [ "${PORTAL_BEHIND_PROXY:-true}" = "false" ]; then
+	export PORTAL_SITE_ADDRESS="${PORTAL_SITE_ADDRESS:-${portal_host:-:80}}"
+	export TRUSTED_PROXY_HOPS="${TRUSTED_PROXY_HOPS:-1}"
+else
+	export PORTAL_SITE_ADDRESS="${PORTAL_SITE_ADDRESS:-:80}"
+	export TRUSTED_PROXY_HOPS="${TRUSTED_PROXY_HOPS:-2}"
+fi
+
 DATA=/data
 PGDATA="$DATA/postgres"
 SECRETS="$DATA/secrets"

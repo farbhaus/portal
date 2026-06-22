@@ -1,6 +1,6 @@
 """Adobe IMS OAuth client for Frame.io (Web App / authorization-code flow).
 
-Endpoints and behavior are documented in docs/FRAMEIO_OAUTH.md. Authorization is role-based
+Endpoints and behavior are documented in CLAUDE.md (Frame.io integration → OAuth). Authorization is role-based
 on the Frame.io side, so the scopes here only cover identity + offline_access (refresh token).
 """
 

@@ -1,19 +1,15 @@
 # Portal
 
-**Self-hosted file transfer for film & video post-production, backed by [Frame.io](https://frame.io).**
+**Self-hosted file transfer for film & video post-production, backed by Frame io.**
 
 Portal gives you branded **upload** and **download** links that let clients and external
-collaborators move files in and out of specific Frame.io destinations — no Frame.io account
-required on their end — plus **sync rules** that automatically pull new files down to local or
-network storage. It's the open-source, self-hosted successor to Silosync's SILOLink/SILOWatch,
-built so you own the front door to your Frame.io account.
+collaborators share files in and out of specific Frame.io destinations without requiring
+a Frame.io account or adding a paid seat to yours.
 
-A core design principle: **file bytes never flow through the Portal server.** Uploads go
-browser-direct to Frame.io's storage via presigned URLs; downloads are browser redirects to
-short-lived signed URLs. Portal handles auth, branding, links and orchestration — not gigabytes.
+**Files never flow through the Portal server.** 
 
-> Portal is an independent project and is **not affiliated with, endorsed by, or sponsored by
-> Adobe or Frame.io.** "Frame.io" and "Adobe" are trademarks of their respective owners.
+Uploads go browser-direct to Frame io's storage via presigned URLs; downloads are browser redirects to
+short-lived signed URLs.
 
 ## Features
 
@@ -22,65 +18,83 @@ short-lived signed URLs. Portal handles auth, branding, links and orchestration 
   password, size cap, allowed extensions, uploader-info fields, optional email verification, and
   an optional target subfolder + path template. Email notification on completion.
 - **Download links** (`/d/{token}`) — branded page to hand a file, a selection, or a whole folder
-  to an anonymous recipient, downloaded straight from Frame.io via signed URLs. Optional preview
+  to clients or collaborators, downloaded straight from Frame.io via signed URLs. Optional preview
   thumbnails, password, max-downloads, viewer fields.
-- **Sync rules** — watch a Frame.io folder and auto-download new files to a local/NAS path, with
+- **Sync rules** — watch a Frame io folder and auto-download new files to a local/NAS path, with
   path templating, conflict policy, parallel ranged downloads (flat memory on huge files),
-  retries/dead-lettering, and a reconcile cron. Triggered immediately by Portal uploads.
+  retries/dead-lettering, and a reconcile cron. Triggered immediately by completed Portal uploads.
 - **In-Portal Frame.io explorer** — browse accounts/workspaces/projects/folders; multi-select
   download/copy/move/delete; create projects/folders; create native Frame.io share links.
 - **Secure admin** — passkey (WebAuthn) passwordless login, optional TOTP 2FA, signed/httponly
   session cookies, rate-limited public endpoints.
 - **Fully brandable** — upload your logo and accent color; shown on every public page and login.
 
-## Deployment topology
-
-Portal is one **all-in-one container** (api + sync worker + SvelteKit web + Postgres + Redis,
-managed internally by supervisord) that listens only on a **loopback port**. A reverse proxy you
-already run on the host terminates TLS and forwards your domain to that port:
-
-```
-            Internet (HTTPS)
-                  │
-      ┌───────────▼────────────┐
-      │  Host reverse proxy    │   TLS termination, owns :443
-      │  (Caddy / nginx / …)   │
-      └───────────┬────────────┘
-                  │  http → 127.0.0.1:${PORTAL_PORT}   (default 18080)
-      ┌───────────▼────────────────────────────────────┐
-      │  farbhaus/portal  (one container)               │
-      │   internal Caddy :80 → api :8000 / web :3000    │
-      │   + sync worker, Postgres, Redis                │
-      │   all state in the /data volume                 │
-      └─────────────────────────────────────────────────┘
-```
-
-This keeps responsibilities clean — Portal does HTTP routing, your host does TLS — and lets Portal
-coexist with other services on the same box without claiming ports 80/443. If you don't already
-run a reverse proxy, [host-caddy.example](host-caddy.example) is a two-line starting point.
-
 ## Quickstart
 
-You need Docker + Compose v2, a domain pointed at your host, and a host reverse proxy. Then:
+**One-click (standalone, automated TLS)** — on a clean host with a domain pointed at it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/farbhaus/portal/main/install.sh | bash -s -- portal.example.com
+```
+
+This installs Docker if needed, writes `.env`, opens the firewall, pulls the image, and brings
+Portal up on `https://portal.example.com` — printing a generated admin password at the end. Behind
+an existing host proxy instead? Append `--behind-proxy portal.example.com`.
+
+**From a checkout** — for either mode, or to tweak `.env` first:
 
 ```bash
 git clone https://github.com/farbhaus/portal.git
 cd portal
-make deploy                 # creates .env on first run — edit it, then run again
+./deploy.sh portal.example.com                 # standalone, container provisions TLS
+./deploy.sh --behind-proxy portal.example.com  # loopback only; you point a host proxy at it
+```
+## Adobe Developer Console setup for Frame.io OAuth
+
+Portal connects to Frame.io through Adobe's identity system (Adobe IMS). To allow it, you
+create an **OAuth Web App** credential in the Adobe Developer Console and paste two values
+(`client_id`, `client_secret`) into Portal's **setting** page. 
+This is a one-time setup. Your Frame.io account needs to be linked to an Adobe account.
+
+**1. Create a project + Frame io API**
+
+1. Go to https://developer.adobe.com/console and sign in with your Adobe ID.
+2. **Create new project** (or open an existing one).
+3. **Add API** → choose the **Frame io** API.
+4. When prompted for the credential type, choose **OAuth Web App credential** (a server-side
+   app that keeps a client secret). Do **not** choose Single-Page App or Server-to-Server.
+
+**2. Set the scopes**
+
+Ensure the credential requests these scopes (Portal's default `FRAMEIO_SCOPES`):
+
+```
+openid, email, profile, offline_access, additional_info.roles
 ```
 
-`make deploy` wraps `docker compose up -d` (and seeds `.env` from `.env.example` on first run);
-`make update` pulls a newer image, `make logs`/`make status`/`make backup` do the obvious things.
-Run `make` to list them. Point your host proxy at `127.0.0.1:18080` (see [host-caddy.example](host-caddy.example)),
-then log in at your domain and connect Frame.io from **Settings**. The full walkthrough —
-including the [Adobe Developer Console setup](docs/ADOBE_DEVELOPER_CONSOLE_SETUP.md) needed for
-Frame.io OAuth — is in **[docs/DEPLOY.md](docs/DEPLOY.md)**.
+`offline_access` is essential — it's what lets Portal receive a **refresh token** and stay
+connected without you re-authorizing every day.
+
+**3. Register the redirect URI(s)**
+
+The redirect URI is where Adobe sends the browser back after you approve. 
+Please paste the exact URL listed in **Settings** → **Frame io section** → **Redirect URI**
+
+**4. Enter the credentials in Portal**
+
+From the credential's overview page, copy the **Client ID** and **Client Secret**. 
+In Portal, log in as admin and go to **Settings** → **Frame.io section** and paste them 
+in the respective **Client ID** and **Client Secret** boxes.
+
+**5. Connect**
+
+In **Settings**, click **Connect Frame.io**. You'll be sent to Adobe to sign in and approve, then
+returned to Portal showing the connected account.
 
 ## Documentation
 
-- [docs/DEPLOY.md](docs/DEPLOY.md) — full deployment runbook
-- [docs/ADOBE_DEVELOPER_CONSOLE_SETUP.md](docs/ADOBE_DEVELOPER_CONSOLE_SETUP.md) — Frame.io OAuth credentials
-- [docs/FRAMEIO_OAUTH.md](docs/FRAMEIO_OAUTH.md) / [docs/FRAMEIO_CLIENT.md](docs/FRAMEIO_CLIENT.md) — how Portal talks to Frame.io
+- [DEPLOY.md](DEPLOY.md) — full deployment runbook
+- [CLAUDE.md](CLAUDE.md) — architecture overview, including how Portal talks to Frame.io (storage abstraction + Adobe IMS OAuth)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — local dev setup and how to contribute
 - [SECURITY.md](SECURITY.md) — reporting a vulnerability
 
