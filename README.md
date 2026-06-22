@@ -73,11 +73,15 @@ This is a one-time setup. Your Frame.io account needs to be linked to an Adobe a
 Ensure the credential requests these scopes (Portal's default `FRAMEIO_SCOPES`):
 
 ```
-openid, email, profile, offline_access, additional_info.roles
+openid, AdobeID, email, profile, offline_access, additional_info.roles
 ```
 
-`offline_access` is essential — it's what lets Portal receive a **refresh token** and stay
-connected without you re-authorizing every day.
+Two of these are essential and easy to miss:
+- **`AdobeID`** — required for Frame.io API access, and it must be requested **explicitly**. Adobe
+  adds it automatically on the first interactive consent, but **not** on token refresh — so without
+  it every refreshed access token is rejected (`401`) about an hour after you connect.
+- **`offline_access`** — what lets Portal receive a **refresh token** and stay connected without
+  you re-authorizing every day.
 
 **3. Register the redirect URI(s)**
 
