@@ -42,26 +42,28 @@ latter.
 
 ## One-click deploy (recommended)
 
-`deploy.sh` takes a clean host to a running deployment in one command. From a checkout:
+`deploy.sh` takes a clean host to a running deployment in one command. It takes your domain and the
+admin email (required — it's your login). From a checkout:
 
 ```bash
 git clone https://github.com/farbhaus/portal.git
 cd portal
-./deploy.sh portal.example.com                 # standalone (container provisions TLS)
-./deploy.sh --behind-proxy portal.example.com  # loopback only; point your host proxy at it
+./deploy.sh portal.example.com you@example.com                 # standalone (container provisions TLS)
+./deploy.sh --behind-proxy portal.example.com you@example.com  # loopback only; point your host proxy at it
 ```
 
 Or zero-checkout, straight from the host (fetches just the deploy files, then runs `deploy.sh`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/farbhaus/portal/main/install.sh | bash -s -- portal.example.com
+curl -fsSL https://raw.githubusercontent.com/farbhaus/portal/main/install.sh | bash -s -- portal.example.com you@example.com
 ```
 
 The script installs Docker + Compose if missing, writes `.env` (generating a strong
-`ADMIN_PASSWORD`, printed once at the end), opens the firewall for standalone, pulls the image, and
-waits for the container to report healthy. Useful flags: `--admin-email you@example.com`,
-`--update` (pull newest image + recreate; data survives), `--init-env` (write `.env` and stop),
-`-y` (skip prompts). Then jump to [First login + connect Frame.io](#5-first-login--connect-frameio).
+`ADMIN_PASSWORD`, printed once at the end — change it after first login), opens the firewall for
+standalone, pulls the image, and waits for the container to report healthy. The admin email can also
+be given with `--admin-email you@example.com`. Other useful flags: `--update` (pull newest image +
+recreate; data survives), `--init-env` (write `.env` and stop), `-y` (skip prompts). Then jump to
+[First login + connect Frame.io](#5-first-login--connect-frameio).
 
 The rest of this runbook is the **manual** equivalent, if you'd rather drive compose yourself. It
 assumes Docker 24+ / Compose v2 are installed and DNS for your domain points at the host.

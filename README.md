@@ -13,11 +13,11 @@ short-lived signed URLs.
 
 ## Features
 
-- **Upload links** (`/u/{token}`) — branded landing page; anyone can drag-drop files (folder
+- **Upload links** - branded landing page; anyone can drag-drop files (folder
   structure preserved, resumable) into a configured Frame.io project/folder. Per-link expiry,
   password, size cap, allowed extensions, uploader-info fields, optional email verification, and
   an optional target subfolder + path template. Email notification on completion.
-- **Download links** (`/d/{token}`) — branded page to hand a file, a selection, or a whole folder
+- **Download links** — branded page to hand a file, a selection, or a whole folder
   to clients or collaborators, downloaded straight from Frame.io via signed URLs. Optional preview
   thumbnails, password, max-downloads, viewer fields.
 - **Sync rules** — watch a Frame io folder and auto-download new files to a local/NAS path, with
@@ -31,24 +31,28 @@ short-lived signed URLs.
 
 ## Quickstart
 
-**One-click (standalone, automated TLS)** — on a clean host with a domain pointed at it:
+**One-click (standalone, automated TLS)** — on a clean host with a domain pointed at it. Pass your
+domain and the admin email (your login):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/farbhaus/portal/main/install.sh | bash -s -- portal.example.com
+curl -fsSL https://raw.githubusercontent.com/farbhaus/portal/main/install.sh | bash -s -- portal.example.com you@example.com
 ```
 
 This installs Docker if needed, writes `.env`, opens the firewall, pulls the image, and brings
-Portal up on `https://portal.example.com` — printing a generated admin password at the end. Behind
-an existing host proxy instead? Append `--behind-proxy portal.example.com`.
+Portal up on `https://portal.example.com` — printing a generated admin password at the end (change
+it after your first login). Behind an existing host proxy instead? Add `--behind-proxy`.
 
 **From a checkout** — for either mode, or to tweak `.env` first:
 
 ```bash
 git clone https://github.com/farbhaus/portal.git
 cd portal
-./deploy.sh portal.example.com                 # standalone, container provisions TLS
-./deploy.sh --behind-proxy portal.example.com  # loopback only; you point a host proxy at it
+./deploy.sh portal.example.com you@example.com                 # standalone, container provisions TLS
+./deploy.sh --behind-proxy portal.example.com you@example.com  # loopback only; you point a host proxy at it
 ```
+
+The admin email is required (it's your login); pass it as the second argument or with
+`--admin-email you@example.com`.
 ## Adobe Developer Console setup for Frame.io OAuth
 
 Portal connects to Frame.io through Adobe's identity system (Adobe IMS). To allow it, you
@@ -78,12 +82,12 @@ connected without you re-authorizing every day.
 **3. Register the redirect URI(s)**
 
 The redirect URI is where Adobe sends the browser back after you approve. 
-Please paste the exact URL listed in **Settings** → **Frame io section** → **Redirect URI**
+Please paste the exact URL listed in **Settings** → **Frame io app** → **Redirect URI**
 
 **4. Enter the credentials in Portal**
 
 From the credential's overview page, copy the **Client ID** and **Client Secret**. 
-In Portal, log in as admin and go to **Settings** → **Frame.io section** and paste them 
+In Portal, log in as admin and go to **Settings** → **Frame.io app** and paste them 
 in the respective **Client ID** and **Client Secret** boxes.
 
 **5. Connect**
