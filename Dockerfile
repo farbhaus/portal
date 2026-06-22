@@ -50,6 +50,7 @@ ENV PATH="/app/.venv/bin:/usr/lib/postgresql/16/bin:$PATH" \
     HOST="127.0.0.1" \
     PORT="3000" \
     XDG_DATA_HOME="/data/caddy" \
+    XDG_CONFIG_HOME="/data/caddy" \
     PYTHONUNBUFFERED=1
 
 # Unprivileged user shared by the api and web processes (postgres/redis bring their own).

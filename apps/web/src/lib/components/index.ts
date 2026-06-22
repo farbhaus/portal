@@ -8,3 +8,4 @@ export { default as Table } from "./Table.svelte";
 export { default as Modal } from "./Modal.svelte";
 export { default as FolderPicker } from "./FolderPicker.svelte";
 export { default as ProjectPicker } from "./ProjectPicker.svelte";
+export { default as TemplateTokenInput } from "./TemplateTokenInput.svelte";

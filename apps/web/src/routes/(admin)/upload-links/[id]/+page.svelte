@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import { FolderPicker } from "$lib/components";
+  import { FolderPicker, TemplateTokenInput } from "$lib/components";
+  import { UPLOAD_TOKENS } from "$lib/tokens";
 
   let { data } = $props();
   const link = $derived(data.link);
@@ -184,11 +185,11 @@
       {/if}
     </div>
 
-    <label class="block text-sm">
+    <div class="block text-sm">
       <span class="text-muted">Path template</span>
-      <input bind:value={subfolderTemplate} placeholder={"e.g. {date}/{uploader_name}"} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 font-mono text-xs" />
-      <span class="mt-1 block text-xs text-faint">{"Folders created per upload beneath the base. Tokens: {date} {year} {month} {day} {uploader_name}."}</span>
-    </label>
+      <TemplateTokenInput bind:value={subfolderTemplate} tokens={UPLOAD_TOKENS} placeholder={"e.g. {date}/{uploader_name}"} />
+      <p class="mt-1 text-xs text-faint">Folders created per upload beneath the base.</p>
+    </div>
 
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <label class="block text-sm">

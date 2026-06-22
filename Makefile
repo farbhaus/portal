@@ -1,6 +1,6 @@
 # Portal — thin wrappers around the all-in-one image (production + dev).
 #
-#   make deploy    start Portal on a host (creates .env on first run)
+#   make deploy    start Portal (creates .env on first run; ./deploy.sh <domain> is the one-click path)
 #   make update    pull the newest image and recreate (data + live transfers survive)
 #   make down      stop Portal (keeps the data volume)
 #   make logs      follow logs
@@ -13,7 +13,7 @@
 #   make test      run the backend test suite (spins throwaway Postgres/Redis)
 #
 # `deploy`/`update` pull the published image; `dev` adds a --build overlay
-# (docker/docker-compose.dev.yml) so the same compose builds from source. See docs/DEPLOY.md.
+# (docker/docker-compose.dev.yml) so the same compose builds from source. See DEPLOY.md.
 
 DEV := docker compose -f docker-compose.yml -f docker/docker-compose.dev.yml
 
@@ -29,6 +29,7 @@ help:  ## Show this help
 deploy:  ## Start Portal (pulls the image; creates .env on first run)
 	@test -f .env || { cp .env.example .env; \
 		echo "Created .env from .env.example — set BASE_URL, ADMIN_EMAIL and ADMIN_PASSWORD, then run 'make deploy' again."; \
+		echo "(Or run ./deploy.sh <domain> for a fully automated one-click deploy.)"; \
 		exit 1; }
 	docker compose up -d
 

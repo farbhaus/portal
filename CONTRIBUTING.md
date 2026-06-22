@@ -10,7 +10,7 @@ apps/api/    FastAPI backend + the arq sync worker (Python, managed with uv)
   src/portal/  application package        alembic/  database migrations
 apps/web/    SvelteKit 5 frontend (admin UI + public /u and /d pages), Tailwind v4
 docker/      dev compose + the all-in-one image's build assets (supervisord, entrypoint, …)
-docs/        deployment + Frame.io integration docs
+DEPLOY.md           deployment runbook (CLAUDE.md has the architecture + Frame.io notes)
 Dockerfile          the all-in-one farbhaus/portal image (build context = repo root)
 docker-compose.yml  production single-service deploy; .env.example alongside it
 ```

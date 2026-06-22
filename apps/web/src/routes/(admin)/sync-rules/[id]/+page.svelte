@@ -1,5 +1,7 @@
 <script lang="ts">
   import { goto, invalidateAll } from "$app/navigation";
+  import { TemplateTokenInput } from "$lib/components";
+  import { SYNC_TOKENS } from "$lib/tokens";
   import type { SyncJob } from "./+page.server";
 
   let { data } = $props();
@@ -153,21 +155,19 @@
       <span class="text-muted">Destination path</span>
       <input bind:value={destinationPath} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 font-mono" />
     </label>
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <label class="block text-sm">
-        <span class="text-muted">On filename conflict</span>
-        <select bind:value={conflictPolicy} class="mt-1 w-full rounded-md border border-border px-2 py-1.5">
-          <option value="rename_suffix">Rename (add suffix)</option>
-          <option value="skip">Skip</option>
-          <option value="overwrite">Overwrite</option>
-        </select>
-      </label>
-      <label class="block text-sm">
-        <span class="text-muted">Path template (optional)</span>
-        <input bind:value={pathTemplate} placeholder="{'{project}/{date}/{filename}'}" class="mt-1 w-full rounded-md border border-border px-2 py-1.5 font-mono" />
-      </label>
+    <label class="block text-sm">
+      <span class="text-muted">On filename conflict</span>
+      <select bind:value={conflictPolicy} class="mt-1 w-full rounded-md border border-border px-2 py-1.5">
+        <option value="rename_suffix">Rename (add suffix)</option>
+        <option value="skip">Skip</option>
+        <option value="overwrite">Overwrite</option>
+      </select>
+    </label>
+    <div class="block text-sm">
+      <span class="text-muted">Path template (optional)</span>
+      <TemplateTokenInput bind:value={pathTemplate} tokens={SYNC_TOKENS} placeholder={"{project}/{date}/{filename}"} />
+      <p class="mt-1 text-xs text-faint">Leave blank to keep original names at the destination root.</p>
     </div>
-    <p class="text-xs text-faint">Tokens: {"{filename} {stem} {ext} {project} {folder} {date} {year} {month} {day}"}. Leave blank to keep original names at the destination root.</p>
     <div class="rounded-md border border-border bg-surface-2 p-3 text-xs text-muted">
       <div class="mb-1 font-medium text-faint">Examples</div>
       <ul class="space-y-0.5 font-mono">

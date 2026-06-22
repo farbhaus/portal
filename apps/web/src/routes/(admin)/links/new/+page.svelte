@@ -1,7 +1,8 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { onMount } from "svelte";
-  import { FolderPicker, ProjectPicker } from "$lib/components";
+  import { FolderPicker, ProjectPicker, TemplateTokenInput } from "$lib/components";
+  import { UPLOAD_TOKENS } from "$lib/tokens";
 
   let { data } = $props();
 
@@ -292,11 +293,11 @@
               />
             {/key}
           </div>
-          <label class="block text-sm">
+          <div class="block text-sm">
             <span class="text-muted">Path template (optional)</span>
-            <input bind:value={subfolderTemplate} placeholder={"e.g. {date}/{uploader_name}"} class="mt-1 w-full rounded-md border border-border px-2 py-1.5 font-mono text-xs" />
-            <span class="mt-1 block text-xs text-faint">{"Folders created per upload beneath the base. Tokens: {date} {year} {month} {day} {uploader_name}."}</span>
-          </label>
+            <TemplateTokenInput bind:value={subfolderTemplate} tokens={UPLOAD_TOKENS} placeholder={"e.g. {date}/{uploader_name}"} />
+            <p class="mt-1 text-xs text-faint">Folders created per upload beneath the base.</p>
+          </div>
         </div>
       {/if}
 

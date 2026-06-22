@@ -8,6 +8,11 @@
   const email = $derived(data.email);
   const frameio = $derived(data.frameio);
   const frameioConfig = $derived(data.frameioConfig);
+  // Adobe's "Redirect URI pattern" field is a regex; escape the redirect URI's metacharacters
+  // (mainly the dots) so it matches that exact callback URL.
+  const redirectUriPattern = $derived(
+    (frameioConfig.redirect_uri ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  );
   const security = $derived(data.security);
   const branding = $derived(data.branding);
 
@@ -327,41 +332,18 @@
     </p>
   {/if}
 
-  <!-- Frame.io connection -->
-  <Card class="space-y-4" >
+  <!-- Frame.io (app credentials + connection) -->
+  <Card class="space-y-4">
     <div class="flex items-center justify-between">
-      <h2 class="font-medium">Frame.io connection</h2>
+      <h2 class="font-medium">Frame.io</h2>
       <StatusPill status={frameio.connected ? "connected" : "revoked"} label={frameio.connected ? "Connected" : "Not connected"} />
     </div>
 
-    {#if frameio.connected}
-      <dl class="space-y-2 text-sm">
-        <div class="flex justify-between"><dt class="text-muted">Account</dt><dd>{frameio.adobe_email ?? "—"}</dd></div>
-        <div class="flex justify-between"><dt class="text-muted">Token expires</dt><dd>{fmt(frameio.expires_at)}</dd></div>
-        <div class="flex justify-between"><dt class="text-muted">Token health</dt><dd>{frameio.needs_refresh ? "Refresh due" : "Healthy"}</dd></div>
-      </dl>
-      <Button variant="ghost" size="sm" onclick={disconnect} disabled={disconnecting}>
-        {disconnecting ? "Disconnecting…" : "Disconnect"}
-      </Button>
-    {:else if frameioConfig.configured}
-      <p class="text-sm text-muted">Connect your Frame.io account to create destinations and sync rules.</p>
-      <a href="/api/frameio/oauth/connect" data-sveltekit-reload class="inline-flex items-center justify-center gap-1.5 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover">
-        Connect Frame.io
-      </a>
-    {:else}
-      <p class="text-sm text-muted">Add your Frame.io app credentials below, then connect your account.</p>
-    {/if}
-  </Card>
-
-  <!-- Frame.io app credentials -->
-  <Card class="space-y-4">
-    <div class="flex items-center justify-between">
-      <h2 class="font-medium">Frame.io app</h2>
-      <StatusPill status={frameioConfig.configured ? "connected" : "revoked"} label={frameioConfig.configured ? "Configured" : "Not configured"} />
-    </div>
+    <!-- App credentials -->
     <p class="text-xs text-faint">
-      Client ID &amp; secret from your Adobe Developer Console "Web App" integration. The redirect URI
-      below must be registered there.
+      Client ID &amp; secret from your Adobe Developer Console "Web App" integration. Register both
+      redirect values below there — the Redirect URI as the default, and the Redirect URI pattern in
+      the required pattern field.
     </p>
     {#if frameio.connected}
       <p class="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
@@ -380,12 +362,36 @@
       <span class="text-muted">Redirect URI</span>
       <input value={frameioConfig.redirect_uri} readonly class="mt-1 w-full font-mono text-xs {fieldCls} opacity-70" />
     </label>
+    <label class="block text-sm">
+      <span class="text-muted">Redirect URI pattern</span>
+      <input value={redirectUriPattern} readonly class="mt-1 w-full font-mono text-xs {fieldCls} opacity-70" />
+    </label>
     <div class="flex items-center gap-3">
       <Button size="sm" onclick={saveFrameioConfig} disabled={savingFrameioCfg}>
         {savingFrameioCfg ? "Saving…" : "Save credentials"}
       </Button>
       {#if frameioCfgResult}<span class="text-sm {frameioCfgResult.ok ? 'text-success' : 'text-danger'}">{frameioCfgResult.msg}</span>{/if}
     </div>
+
+    <!-- Connection -->
+    <hr class="border-t border-border" />
+    {#if frameio.connected}
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between"><dt class="text-muted">Account</dt><dd>{frameio.adobe_email ?? "—"}</dd></div>
+        <div class="flex justify-between"><dt class="text-muted">Token expires</dt><dd>{fmt(frameio.expires_at)}</dd></div>
+        <div class="flex justify-between"><dt class="text-muted">Token health</dt><dd>{frameio.needs_refresh ? "Refresh due" : "Healthy"}</dd></div>
+      </dl>
+      <Button variant="ghost" size="sm" onclick={disconnect} disabled={disconnecting}>
+        {disconnecting ? "Disconnecting…" : "Disconnect"}
+      </Button>
+    {:else if frameioConfig.configured}
+      <p class="text-sm text-muted">Connect your Frame.io account to create destinations and sync rules.</p>
+      <a href="/api/frameio/oauth/connect" data-sveltekit-reload class="inline-flex items-center justify-center gap-1.5 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover">
+        Connect Frame.io
+      </a>
+    {:else}
+      <p class="text-sm text-muted">Save your app credentials above, then connect your account.</p>
+    {/if}
   </Card>
 
   <!-- Email -->

@@ -66,6 +66,7 @@ async def resolve_source(client: FrameioClient, source: dict[str, Any]) -> Resol
                 media_type=item.media_type,
                 download_url=None,
                 thumbnail_url=None,
+                path=item.path,
             )
             for item in listing
         ]

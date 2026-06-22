@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -5,7 +6,7 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import delete, select
 
-from portal.db.models import DownloadEvent, DownloadLink
+from portal.db.models import DownloadEvent, DownloadLink, DownloadSession
 from portal.db.session import get_sessionmaker
 from portal.downloads.links import branding, resolve_source, validate_source
 from portal.frameio.client import DownloadFile, FileItem
@@ -36,7 +37,9 @@ class _StubDownloadClient:
         ]
 
     async def list_files_recursive(self, account_id: str, folder_id: str) -> list[FileItem]:
-        return await self.list_files(account_id, folder_id)
+        # Second file lives in a subfolder, to exercise relative-path propagation.
+        f1, f2 = await self.list_files(account_id, folder_id)
+        return [f1, replace(f2, path="sub")]
 
     async def get_download_url(self, account_id: str, file_id: str) -> str:
         return f"https://s3/signed/{file_id}"
@@ -98,6 +101,11 @@ async def test_resolve_source_modes() -> None:
     folder = await resolve_source(c, {"type": "folder", "account_id": "a1", "folder_id": "fl"})  # type: ignore[arg-type]
     assert [f.id for f in folder.files] == ["f1", "f2"]
     assert folder.files[0].thumbnail_url is None  # folder sources skip thumbnails
+
+    # Recursive folder sources preserve each file's relative subfolder path.
+    rec_source = {"type": "folder", "account_id": "a1", "folder_id": "fl", "recursive": True}
+    rec = await resolve_source(c, rec_source)  # type: ignore[arg-type]
+    assert [f.path for f in rec.files] == ["", "sub"]
 
 
 def test_branding() -> None:
@@ -169,9 +177,7 @@ async def test_public_resolve_and_session_and_download(client: AsyncClient, monk
     assert files[0]["id"] == "file-1"
     assert files[0]["thumbnail_url"] == "https://thumb/file-1"  # allow_preview default true
 
-    url = await client.post(
-        f"/api/public/downloads/{token}/sessions/{sid}/files/file-1/url"
-    )
+    url = await client.post(f"/api/public/downloads/{token}/sessions/{sid}/files/file-1/url")
     assert url.status_code == 200
     assert url.json()["url"] == "https://s3/signed/file-1"
 
@@ -181,6 +187,25 @@ async def test_public_resolve_and_session_and_download(client: AsyncClient, monk
         assert len(events) == 1 and events[0].frameio_file_id == "file-1"
         row = await db.get(DownloadLink, __import__("uuid").UUID(link["id"]))
         assert row is not None and row.downloads_count == 1
+
+
+async def test_folder_source_exposes_relative_paths(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    _use_stub(monkeypatch)
+    link = await _make_link(
+        client, source={"type": "folder", "account_id": "a1", "folder_id": "fl", "recursive": True}
+    )
+    token = link["token"]
+
+    started = await client.post(f"/api/public/downloads/{token}/sessions", json={})
+    assert started.status_code == 200, started.text
+    files = started.json()["files"]
+    assert {f["name"]: f["path"] for f in files} == {"f1.mov": "", "f2.mov": "sub"}
+
+    # The path is also captured in the session snapshot used for per-file URL mints.
+    async with get_sessionmaker()() as db:
+        session = (await db.execute(select(DownloadSession))).scalars().one()
+        assert {f["name"]: f["path"] for f in session.files} == {"f1.mov": "", "f2.mov": "sub"}
 
 
 async def test_download_cap_enforced(client: AsyncClient, monkeypatch) -> None:
@@ -208,9 +233,7 @@ async def test_file_not_in_source(client: AsyncClient, monkeypatch) -> None:
 async def test_password_and_required_fields(client: AsyncClient, monkeypatch) -> None:
     await _login(client)
     _use_stub(monkeypatch)
-    link = await _make_link(
-        client, password="secret", viewer_fields_required={"email": True}
-    )
+    link = await _make_link(client, password="secret", viewer_fields_required={"email": True})
     token = link["token"]
     assert (
         await client.post(f"/api/public/downloads/{token}/sessions", json={"password": "wrong"})

@@ -1,7 +1,7 @@
 # Production deploy: the all-in-one Portal image. One container bundles the api, sync worker,
 # web server, Postgres, Redis and the internal Caddy router; all state lives in the portal_data
 # volume. It sits behind a host reverse proxy that terminates TLS and forwards your domain to
-# 127.0.0.1:${PORTAL_PORT} (see host-caddy.example and docs/DEPLOY.md).
+# 127.0.0.1:${PORTAL_PORT} (see host-caddy.example and DEPLOY.md).
 #
 #   docker compose pull && docker compose up -d
 #
@@ -19,8 +19,14 @@ services:
     env_file:
       - .env
     ports:
-      # Loopback only — Portal is reachable only via the upstream host reverse proxy.
-      - "127.0.0.1:${PORTAL_PORT:-18080}:80"
+      # Default: loopback only — Portal sits behind a host reverse proxy that terminates TLS and
+      # forwards your domain here. A standalone deploy (./deploy.sh <domain>) sets WEB_BIND=0.0.0.0,
+      # PORTAL_PORT=80 and PORTAL_HTTPS_PORT=443 in .env so this container is the public TLS edge.
+      # NOTE: Docker's published ports bypass ufw, so WEB_BIND is what controls who can reach Portal
+      # — keep it 127.0.0.1 behind a proxy. (The :443 line is unused/harmless behind a proxy.)
+      - "${WEB_BIND:-127.0.0.1}:${PORTAL_PORT:-18080}:80"
+      - "${WEB_BIND:-127.0.0.1}:${PORTAL_HTTPS_PORT:-18443}:443"
+      - "${WEB_BIND:-127.0.0.1}:${PORTAL_HTTPS_PORT:-18443}:443/udp"
     volumes:
       # All persistent state: Postgres cluster, Redis AOF, Caddy data, generated secrets.
       - portal_data:/data
