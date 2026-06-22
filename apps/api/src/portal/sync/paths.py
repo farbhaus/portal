@@ -10,7 +10,7 @@ Tokens (missing values render empty; unknown tokens are dropped):
   {project}   the rule's project name        {folder}    the rule's source folder name
   {subfolder} source path below the root folder, e.g. ``Dailies/Monday`` (empty at the root)
   {uploader_name}  empty for sync-triggered files (kept for symmetry with upload links)
-  {date} YYYY-MM-DD   {year} {month} {day}
+  {date} YYYY-MM-DD   {year} {month} {day}   {time} 24-hour HHhMM, e.g. 09h30
 
 The source's subfolder tree is mirrored onto the destination by default: the ``{subfolder}`` is
 inserted just before the filename. With no template the file goes to ``{subfolder}/{filename}``;
@@ -71,6 +71,7 @@ def _tokens(ctx: PathContext) -> dict[str, str]:
         "year": when.strftime("%Y"),
         "month": when.strftime("%m"),
         "day": when.strftime("%d"),
+        "time": when.strftime("%Hh%M"),
     }
 
 
