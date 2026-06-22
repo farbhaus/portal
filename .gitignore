@@ -3,7 +3,6 @@ Briefing.md
 To-Do.md
 
 # Secrets / env
-deploy/.env
 .env
 
 # Local data / volumes

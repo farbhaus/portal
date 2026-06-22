@@ -1,12 +1,14 @@
-# Portal's internal router for the all-in-one image. HTTP only — TLS is terminated by the
-# host's reverse proxy, which forwards a single domain to 127.0.0.1:${PORTAL_PORT}. Unlike the
-# multi-container docker/Caddyfile (which targets the portal_api / portal_web service names),
-# here every process shares the container's loopback, so it routes to 127.0.0.1.
-:80 {
+# Portal's internal router for the all-in-one image. The site address comes from the entrypoint,
+# which derives it from BASE_URL + PORTAL_BEHIND_PROXY (see portal-entrypoint.sh): ":80" behind a
+# host proxy (the proxy terminates TLS), or the domain in standalone mode (Caddy provisions a Let's
+# Encrypt cert; "localhost" uses Caddy's internal CA). The ":80" here is just a fallback default.
+# Unlike the multi-container docker/Caddyfile (which targets the portal_api / portal_web service
+# names), here every process shares the container's loopback, so it routes to 127.0.0.1.
+{$PORTAL_SITE_ADDRESS::80} {
 	# Security headers on every response (HTML comes from the SvelteKit server, not the API, so
-	# setting them here covers both). `Set` semantics replace any upstream value. HSTS is left to
-	# the host proxy that terminates TLS. CSP is limited to frame-ancestors (clickjacking + the
-	# admin QR @html sink) so it can't break SvelteKit's inline hydration.
+	# setting them here covers both). `Set` semantics replace any upstream value. CSP is limited to
+	# frame-ancestors (clickjacking + the admin QR @html sink) so it can't break SvelteKit's inline
+	# hydration.
 	header {
 		X-Frame-Options "DENY"
 		X-Content-Type-Options "nosniff"
@@ -14,6 +16,12 @@
 		Content-Security-Policy "frame-ancestors 'none'"
 		-Server
 	}
+
+	# HSTS only when WE terminate TLS (standalone mode, scheme https). Behind a host proxy this
+	# Caddy serves plain HTTP (scheme http) and the proxy that terminates TLS owns HSTS, so we skip
+	# it here rather than pin HTTPS over a hop we didn't secure.
+	@secure expression `{http.request.scheme} == "https"`
+	header @secure Strict-Transport-Security "max-age=31536000; includeSubDomains"
 
 	handle /api/* {
 		reverse_proxy 127.0.0.1:8000
