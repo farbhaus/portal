@@ -17,6 +17,7 @@ from portal.routes import (
     download_links,
     frameio,
     health,
+    privacy,
     public,
     public_downloads,
     security,
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
     app.include_router(sync_rules.router, prefix="/api")
     app.include_router(activity.router, prefix="/api")
     app.include_router(dashboard.router, prefix="/api")
+    app.include_router(privacy.router, prefix="/api")
     return app
 
 

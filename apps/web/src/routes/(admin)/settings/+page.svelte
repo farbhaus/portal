@@ -313,6 +313,69 @@
     await invalidateAll();
   }
 
+  // --- Data & privacy requests (GDPR access/erasure by email) ----------------
+  let subjectEmail = $state("");
+  let eraseMode = $state<"anonymize" | "delete">("anonymize");
+  let dsarBusy = $state(false);
+  let dsarResult = $state<{ ok: boolean; msg: string } | null>(null);
+
+  async function exportSubject() {
+    const e = subjectEmail.trim();
+    if (!e) return;
+    dsarBusy = true;
+    dsarResult = null;
+    try {
+      const res = await fetch(`/api/privacy/subject?email=${encodeURIComponent(e)}`);
+      if (!res.ok) {
+        dsarResult = { ok: false, msg: (await res.json().catch(() => ({}))).detail ?? `Failed (${res.status})` };
+        return;
+      }
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `portal-data-${e}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      dsarResult = {
+        ok: true,
+        msg: `Exported ${data.upload_sessions.length} upload(s) and ${data.download_sessions.length} download(s).`,
+      };
+    } finally {
+      dsarBusy = false;
+    }
+  }
+
+  async function eraseSubject() {
+    const e = subjectEmail.trim();
+    if (!e) return;
+    const verb = eraseMode === "delete" ? "permanently delete" : "anonymise";
+    if (!confirm(`This will ${verb} all stored records for "${e}". This cannot be undone. Continue?`))
+      return;
+    dsarBusy = true;
+    dsarResult = null;
+    try {
+      const res = await fetch("/api/privacy/subject/erase", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: e, mode: eraseMode }),
+      });
+      if (!res.ok) {
+        dsarResult = { ok: false, msg: (await res.json().catch(() => ({}))).detail ?? `Failed (${res.status})` };
+        return;
+      }
+      const r = await res.json();
+      const word = eraseMode === "delete" ? "Deleted" : "Anonymised";
+      dsarResult = {
+        ok: true,
+        msg: `${word} ${r.upload_sessions} upload(s), ${r.download_sessions} download(s), ${r.email_verifications} verification(s).`,
+      };
+    } finally {
+      dsarBusy = false;
+    }
+  }
+
   const fieldCls =
     "rounded-md border border-border bg-surface-2 px-3 py-2 text-sm placeholder:text-faint";
 </script>
@@ -533,6 +596,40 @@
         {#if logoError}<p class="text-xs text-danger">{logoError}</p>{/if}
       </div>
     </div>
+  </Card>
+
+  <!-- Data & privacy requests -->
+  <Card class="space-y-4">
+    <h2 class="font-medium">Data &amp; privacy requests</h2>
+    <p class="text-xs text-faint">
+      Look up everything Portal stores about a client/collaborator by email, to handle a
+      data-access or deletion request. Export downloads a JSON copy; erase removes it. Matching is
+      case-insensitive.
+    </p>
+    <label class="block text-sm">
+      <span class="text-muted">Email</span>
+      <input bind:value={subjectEmail} type="email" placeholder="person@example.com" autocomplete="off" class="mt-1 w-full {fieldCls}" />
+    </label>
+    <div class="flex flex-wrap items-center gap-3">
+      <Button size="sm" variant="ghost" onclick={exportSubject} disabled={dsarBusy || !subjectEmail.trim()}>
+        {dsarBusy ? "Working…" : "Export data"}
+      </Button>
+      <div class="flex items-center gap-2">
+        <select bind:value={eraseMode} class="{fieldCls} py-1.5">
+          <option value="anonymize">Anonymise (keep stats)</option>
+          <option value="delete">Hard delete</option>
+        </select>
+        <Button size="sm" variant="danger" onclick={eraseSubject} disabled={dsarBusy || !subjectEmail.trim()}>
+          Erase data
+        </Button>
+      </div>
+    </div>
+    {#if dsarResult}<p class="text-sm {dsarResult.ok ? 'text-success' : 'text-danger'}">{dsarResult.msg}</p>{/if}
+    <p class="text-xs text-faint">
+      Anonymise nulls out name/email/message/IP but keeps the transfer rows (so dashboard counts stay
+      intact); hard delete removes them entirely. Either way, pending email-verification codes for the
+      address are deleted.
+    </p>
   </Card>
 
   <!-- Session -->

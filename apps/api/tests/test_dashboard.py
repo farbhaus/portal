@@ -131,5 +131,59 @@ async def test_done_24h_excludes_old(client: AsyncClient) -> None:
     assert health["done_24h"] == 0
 
 
+async def test_history_pagination_and_filter(client: AsyncClient) -> None:
+    await _login(client)
+    base = datetime.now(UTC)
+    async with get_sessionmaker()() as db:
+        dest = Destination(display_name="D", config={"type": "frameio"})
+        db.add(dest)
+        await db.flush()
+        ul = UploadLink(token=generate_token(), destination_id=dest.id, brand_display_name="Up")
+        db.add(ul)
+        await db.flush()
+        dl = DownloadLink(
+            token=generate_token(), source={"type": "file", "account_id": "a1", "file_id": "f1"}
+        )
+        db.add(dl)
+        await db.flush()
+        sess = DownloadSession(download_link_id=dl.id, viewer_email="v@x.com", started_at=base)
+        db.add(sess)
+        await db.flush()
+        # 3 completed uploads interleaved with 3 downloads, all at distinct descending times.
+        for i in range(3):
+            db.add(
+                UploadSession(
+                    upload_link_id=ul.id,
+                    status="completed",
+                    total_bytes=i,
+                    completed_at=base - timedelta(minutes=i),
+                )
+            )
+            db.add(
+                DownloadEvent(
+                    download_session_id=sess.id,
+                    frameio_file_id=f"f{i}",
+                    file_name=f"c{i}.mov",
+                    completed=True,
+                    started_at=base - timedelta(minutes=i, seconds=30),
+                )
+            )
+        await db.commit()
+
+    # All transfers (6), newest-first, paginated 4 at a time.
+    p1 = (await client.get("/api/dashboard/history?limit=4&offset=0")).json()
+    assert len(p1["items"]) == 4 and p1["has_more"] is True
+    assert p1["items"][0]["kind"] == "upload"  # up0 is newest
+    p2 = (await client.get("/api/dashboard/history?limit=4&offset=4")).json()
+    assert len(p2["items"]) == 2 and p2["has_more"] is False
+
+    # kind filter narrows to one source.
+    ups = (await client.get("/api/dashboard/history?kind=upload")).json()
+    assert len(ups["items"]) == 3 and all(r["kind"] == "upload" for r in ups["items"])
+    downs = (await client.get("/api/dashboard/history?kind=download")).json()
+    assert len(downs["items"]) == 3 and all(r["kind"] == "download" for r in downs["items"])
+
+
 async def test_transfers_requires_admin(client: AsyncClient) -> None:
     assert (await client.get("/api/dashboard/transfers")).status_code == 401
+    assert (await client.get("/api/dashboard/history")).status_code == 401

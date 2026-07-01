@@ -1,5 +1,6 @@
 export { default as Button } from "./Button.svelte";
 export { default as Card } from "./Card.svelte";
+export { default as PoweredByPortal } from "./PoweredByPortal.svelte";
 export { default as StatusPill } from "./StatusPill.svelte";
 export { default as PageHeader } from "./PageHeader.svelte";
 export { default as CopyButton } from "./CopyButton.svelte";
@@ -7,5 +8,7 @@ export { default as EmptyState } from "./EmptyState.svelte";
 export { default as Table } from "./Table.svelte";
 export { default as Modal } from "./Modal.svelte";
 export { default as FolderPicker } from "./FolderPicker.svelte";
+export { default as FrameioSourcePicker } from "./FrameioSourcePicker.svelte";
+export type { DownloadSource, SourcePickerInit } from "./FrameioSourcePicker.svelte";
 export { default as ProjectPicker } from "./ProjectPicker.svelte";
 export { default as TemplateTokenInput } from "./TemplateTokenInput.svelte";

@@ -10,12 +10,18 @@
     accountId = $bindable(""),
     workspaceId = $bindable(""),
     selectedProjectId = "",
+    initialAccountId = "",
+    initialWorkspaceId = "",
     onselect,
     onscopechange,
   }: {
     accountId?: string;
     workspaceId?: string;
     selectedProjectId?: string;
+    // Pre-select a specific account/workspace at first load (the edit page resolves a shared
+    // folder's project). Read from props at mount, so there's no race with the parent.
+    initialAccountId?: string;
+    initialWorkspaceId?: string;
     onselect?: (project: Project) => void;
     onscopechange?: () => void;
   } = $props();
@@ -49,13 +55,20 @@
     started = true;
     run(async () => {
       accounts = await getJSON<Item[]>("/api/frameio/accounts");
-      if (accounts.length > 0) { accountId = accounts[0].id; await loadWorkspaces(); }
+      // Prefer a pre-seeded account (edit page deep-links into a shared folder); else the first one.
+      const acct = (initialAccountId && accounts.some((a) => a.id === initialAccountId))
+        ? initialAccountId
+        : (accounts[0]?.id ?? "");
+      if (acct) { accountId = acct; await loadWorkspaces(initialWorkspaceId); }
     });
   });
 
-  async function loadWorkspaces() {
+  async function loadWorkspaces(preferWorkspaceId = "") {
     workspaces = await getJSON<Item[]>(`/api/frameio/workspaces?account_id=${accountId}`);
-    if (workspaces.length > 0) { workspaceId = workspaces[0].id; await loadProjects(); }
+    const wid = (preferWorkspaceId && workspaces.some((w) => w.id === preferWorkspaceId))
+      ? preferWorkspaceId
+      : (workspaces[0]?.id ?? "");
+    if (wid) { workspaceId = wid; await loadProjects(); }
     else { workspaceId = ""; projects = []; }
   }
   async function loadProjects() {

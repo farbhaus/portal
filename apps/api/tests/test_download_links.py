@@ -6,10 +6,11 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import delete, select
 
-from portal.db.models import DownloadEvent, DownloadLink, DownloadSession
+from portal.db.models import AuditLog, DownloadEvent, DownloadLink, DownloadSession
 from portal.db.session import get_sessionmaker
 from portal.downloads.links import branding, resolve_source, validate_source
-from portal.frameio.client import DownloadFile, FileItem
+from portal.frameio.client import DownloadFile, FileItem, PickerItem, ProjectItem
+from portal.routes import download_links as dllinks
 from portal.routes import public_downloads as pubdl
 
 CREDS = {"email": "admin@example.com", "password": "test-password"}
@@ -36,6 +37,23 @@ class _StubDownloadClient:
             FileItem(id="f2", name="f2.mov", file_size=20, media_type="video/quicktime"),
         ]
 
+    async def get_folder(self, account_id: str, folder_id: str) -> PickerItem:
+        return PickerItem(
+            id=folder_id, name=f"{folder_id}-name", parent_id="root", project_id="proj1"
+        )
+
+    async def folder_ancestry(self, account_id: str, folder_id: str) -> list[PickerItem]:
+        # Two-level breadcrumb: the project root ancestor and the shared folder itself.
+        return [
+            PickerItem(id="root", name="root-name"),
+            PickerItem(id=folder_id, name=f"{folder_id}-name"),
+        ]
+
+    async def get_project(self, account_id: str, project_id: str) -> ProjectItem:
+        return ProjectItem(
+            id=project_id, name="Proj One", root_folder_id="root", workspace_id="ws1"
+        )
+
     async def list_files_recursive(self, account_id: str, folder_id: str) -> list[FileItem]:
         # Second file lives in a subfolder, to exercise relative-path propagation.
         f1, f2 = await self.list_files(account_id, folder_id)
@@ -53,7 +71,7 @@ async def _clear() -> None:
 
 
 def _use_stub(monkeypatch) -> None:
-    monkeypatch.setattr(pubdl, "get_frameio_client", lambda: _StubDownloadClient())
+    monkeypatch.setattr(pubdl, "get_frameio_client", _StubDownloadClient)
 
 
 async def _login(client: AsyncClient) -> None:
@@ -148,6 +166,81 @@ async def test_update_and_revoke_and_delete(client: AsyncClient) -> None:
 
     assert (await client.delete(f"/api/download-links/{link['id']}")).status_code == 204
     assert (await client.get(f"/api/download-links/{link['id']}")).status_code == 404
+
+
+async def test_update_source(client: AsyncClient) -> None:
+    await _login(client)
+    link = await _make_link(client)  # starts as FILE_SOURCE
+    new_source = {"type": "folder", "account_id": "a1", "folder_id": "fl9", "recursive": True}
+    upd = await client.patch(f"/api/download-links/{link['id']}", json={"source": new_source})
+    assert upd.status_code == 200, upd.text
+    assert upd.json()["source"] == new_source
+    assert upd.json()["token"] == link["token"]  # same shareable link
+
+    # An invalid source is rejected and the existing source is left intact.
+    bad = await client.patch(f"/api/download-links/{link['id']}", json={"source": {"type": "file"}})
+    assert bad.status_code == 400
+    assert (await client.get(f"/api/download-links/{link['id']}")).json()["source"] == new_source
+
+    # The change is audited.
+    async with get_sessionmaker()() as db:
+        actions = (await db.execute(select(AuditLog.action))).scalars().all()
+    assert "download_link.source_changed" in actions
+
+
+async def test_source_info_resolves_names(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    monkeypatch.setattr(dllinks, "get_frameio_client", _StubDownloadClient)
+
+    folder = await _make_link(
+        client, source={"type": "folder", "account_id": "a1", "folder_id": "fl1", "recursive": True}
+    )
+    info = (await client.get(f"/api/download-links/{folder['id']}/source")).json()
+    assert info["resolved"] is True
+    assert info["type"] == "folder"
+    assert info["account_id"] == "a1"
+    assert info["workspace_id"] == "ws1"
+    assert info["project_id"] == "proj1"
+    assert info["project_name"] == "Proj One"
+    assert info["folder_name"] == "fl1-name"
+    assert info["recursive"] is True
+    # The top-most ancestor (the project root) is relabelled with the project name.
+    assert info["label"] == "Proj One (root)/fl1-name"
+    assert info["folder_path"] == "Proj One (root)/fl1-name"
+    assert info["path"] == [
+        {"id": "root", "name": "Proj One (root)"},
+        {"id": "fl1", "name": "fl1-name"},
+    ]
+
+    file_link = await _make_link(client)  # FILE_SOURCE → file-1
+    finfo = (await client.get(f"/api/download-links/{file_link['id']}/source")).json()
+    assert finfo["type"] == "file" and finfo["files"] == ["file-1.mov"]
+
+    sel = await _make_link(
+        client, source={"type": "selection", "account_id": "a1", "file_ids": ["x", "y"]}
+    )
+    sinfo = (await client.get(f"/api/download-links/{sel['id']}/source")).json()
+    assert sinfo["type"] == "selection" and sinfo["files"] == ["x.mov", "y.mov"]
+
+
+async def test_source_info_falls_back_when_frameio_unavailable(
+    client: AsyncClient, monkeypatch
+) -> None:
+    await _login(client)
+
+    class _Boom:
+        async def get_folder(self, account_id: str, folder_id: str) -> PickerItem:
+            from portal.frameio.client import FrameioNotConnected
+
+            raise FrameioNotConnected("not connected")
+
+    monkeypatch.setattr(dllinks, "get_frameio_client", _Boom)
+    link = await _make_link(
+        client, source={"type": "folder", "account_id": "a1", "folder_id": "fl1"}
+    )
+    info = (await client.get(f"/api/download-links/{link['id']}/source")).json()
+    assert info["resolved"] is False
+    assert info["label"] == "Folder"
 
 
 async def test_admin_requires_auth(client: AsyncClient) -> None:

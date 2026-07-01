@@ -6,11 +6,16 @@ list of downloadable files (name, size, type, thumbnail). Token generation and l
 (ok/expired/revoked) are shared with upload links.
 """
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
 from portal.db.models import DownloadLink
 from portal.frameio.client import DownloadFile, FrameioClient
+
+# A selection source needs one Frame.io metadata call per file; fan them out concurrently (bounded,
+# so a large hand-picked selection can't burst into rate limits) instead of awaiting one at a time.
+_SELECTION_CONCURRENCY = 8
 
 
 @dataclass(frozen=True)
@@ -47,7 +52,14 @@ async def resolve_source(client: FrameioClient, source: dict[str, Any]) -> Resol
     if stype == "file":
         files = [await client.get_file(account_id, str(source["file_id"]))]
     elif stype == "selection":
-        files = [await client.get_file(account_id, str(fid)) for fid in source["file_ids"]]
+        sem = asyncio.Semaphore(_SELECTION_CONCURRENCY)
+
+        async def _fetch(fid: str) -> DownloadFile:
+            async with sem:
+                return await client.get_file(account_id, str(fid))
+
+        # gather preserves input order, so the listing matches the curated selection order.
+        files = list(await asyncio.gather(*(_fetch(fid) for fid in source["file_ids"])))
     elif stype == "folder":
         folder_id = str(source["folder_id"])
         listing = (

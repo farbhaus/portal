@@ -32,8 +32,10 @@ services:
       - portal_data:/data
       # Sync destinations live on the host (local disk or NAS mounts). Bind the mount root with
       # rslave propagation so anything mounted under it on the host (e.g. an fstab NAS mount)
-      # appears inside the container. Source == target so a rule's destination_path means the
-      # same path inside and out. Remove this line if you don't use sync rules.
+      # appears inside the container. Source == target so a rule's destination_path means the same
+      # path inside and out. SYNC_HOST_ROOT must exist on the host — deploy.sh creates it; the
+      # default /mnt exists on Linux but not macOS (set it to a real path there). Remove this line
+      # if you don't use sync rules.
       - ${SYNC_HOST_ROOT:-/mnt}:${SYNC_HOST_ROOT:-/mnt}:rslave
     healthcheck:
       test:
