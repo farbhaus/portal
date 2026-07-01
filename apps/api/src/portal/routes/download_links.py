@@ -25,7 +25,8 @@ from portal.db.models import (
     User,
 )
 from portal.db.session import get_session
-from portal.downloads.links import validate_source
+from portal.downloads.links import resolve_source, validate_source
+from portal.frameio.client import FrameioError, FrameioNotConnected, get_frameio_client
 from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError, PortalError
 from portal.lib.logging import get_logger
@@ -58,6 +59,7 @@ class DownloadLinkCreate(BaseModel):
 
 
 class DownloadLinkUpdate(BaseModel):
+    source: dict[str, Any] | None = None
     expires_at: datetime | None = None
     password: str | None = None
     max_downloads: int | None = Field(default=None, ge=1)
@@ -89,6 +91,18 @@ class DownloadLinkOut(BaseModel):
 
 def _public_url(token: str) -> str:
     return f"{get_settings().base_url.rstrip('/')}/d/{token}"
+
+
+def _generic_label(source: dict[str, Any]) -> str:
+    """Type-only summary used when Frame.io can't be reached to resolve names."""
+    stype = source.get("type")
+    if stype == "file":
+        return "Single file"
+    if stype == "folder":
+        return "Folder (recursive)" if source.get("recursive") else "Folder"
+    if stype == "selection":
+        return f"{len(source.get('file_ids') or [])} files"
+    return "—"
 
 
 def _to_out(link: DownloadLink) -> DownloadLinkOut:
@@ -185,11 +199,32 @@ async def get_link(
 async def update_link(
     link_id: uuid.UUID,
     body: DownloadLinkUpdate,
-    _: User = Depends(require_admin),
+    user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ) -> DownloadLinkOut:
     link = await _get_or_404(db, link_id)
     fields = body.model_dump(exclude_unset=True)
+    # The source (which Frame.io file/folder/selection this link serves) can be re-pointed on an
+    # existing link — the token/URL stays the same, so a shared link can be corrected or reused for
+    # a new delivery. Validate like creation and record who changed it.
+    new_source = fields.pop("source", None)
+    if new_source is not None and new_source != link.source:
+        try:
+            validate_source(new_source)
+        except ValueError as exc:
+            raise BadRequestError(str(exc)) from exc
+        db.add(
+            AuditLog(
+                user_id=user.id,
+                action="download_link.source_changed",
+                detail={
+                    "download_link_id": str(link_id),
+                    "from_type": (link.source or {}).get("type"),
+                    "to_type": new_source.get("type"),
+                },
+            )
+        )
+        link.source = new_source
     if "password" in fields:
         pw = fields.pop("password")
         link.password_hash = hash_password(pw) if pw else None
@@ -301,9 +336,7 @@ async def stats(
     await _get_or_404(db, link_id)
     sessions = select(DownloadSession.id).where(DownloadSession.download_link_id == link_id)
     downloads = (
-        await db.scalar(
-            select(func.count()).where(DownloadEvent.download_session_id.in_(sessions))
-        )
+        await db.scalar(select(func.count()).where(DownloadEvent.download_session_id.in_(sessions)))
         or 0
     )
     viewer_key = func.coalesce(DownloadSession.viewer_email, DownloadSession.ip)
@@ -325,3 +358,88 @@ async def stats(
         unique_viewers=unique_viewers,
         last_activity=last.isoformat() if last else None,
     )
+
+
+class PathItem(BaseModel):
+    id: str
+    name: str
+
+
+class SourceInfo(BaseModel):
+    type: str
+    label: str  # human summary (folder path / file name when resolved, else a type-only fallback)
+    account_id: str | None = None
+    workspace_id: str | None = (
+        None  # resolved from the folder's project, to pre-select the explorer
+    )
+    project_id: str | None = None
+    project_name: str | None = None
+    folder_id: str | None = None
+    folder_name: str | None = None  # leaf folder name
+    folder_path: str | None = None  # full path string, top-most ancestor → shared folder
+    path: list[PathItem] | None = None  # breadcrumb items for reopening the explorer in place
+    recursive: bool | None = None
+    files: list[str] | None = None
+    resolved: bool  # False when Frame.io couldn't be reached — label falls back to the generic form
+
+
+@router.get("/{link_id}/source", response_model=SourceInfo)
+async def source_info(
+    link_id: uuid.UUID,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+) -> SourceInfo:
+    """Resolve a link's Frame.io source to human-readable names for the editor.
+
+    Best-effort: on any Frame.io error it returns a type-only label with resolved=False so the
+    edit page still renders.
+    """
+    link = await _get_or_404(db, link_id)
+    source = link.source or {}
+    stype = str(source.get("type") or "")
+    account_id = str(source.get("account_id") or "")
+    client = get_frameio_client()
+    try:
+        if stype == "folder":
+            folder_id = str(source["folder_id"])
+            folder = await client.get_folder(account_id, folder_id)
+            ancestry = await client.folder_ancestry(account_id, folder_id)
+            project = (
+                await client.get_project(account_id, folder.project_id)
+                if folder.project_id
+                else None
+            )
+            path = [PathItem(id=i.id, name=i.name) for i in ancestry]
+            # The top-most ancestor is the project's root folder; label it like the create flow.
+            if project and project.root_folder_id and path and path[0].id == project.root_folder_id:
+                path[0] = PathItem(id=path[0].id, name=f"{project.name} (root)")
+            names = [i.name for i in path] or [folder_id]
+            full = "/".join(names)
+            return SourceInfo(
+                type="folder",
+                label=full,
+                account_id=account_id,
+                workspace_id=project.workspace_id if project else None,
+                project_id=folder.project_id,
+                project_name=project.name if project else None,
+                folder_id=folder_id,
+                folder_name=(ancestry[-1].name if ancestry else folder_id),
+                folder_path=full,
+                path=path,
+                recursive=bool(source.get("recursive")),
+                resolved=True,
+            )
+        if stype == "file":
+            f = await client.get_file(account_id, str(source["file_id"]))
+            return SourceInfo(type="file", label=f.name, files=[f.name], resolved=True)
+        if stype == "selection":
+            resolved = await resolve_source(client, source)
+            names = [f.name for f in resolved.files]
+            return SourceInfo(
+                type="selection", label=f"{len(names)} files", files=names, resolved=True
+            )
+    except (FrameioNotConnected, FrameioError) as exc:
+        log.warning(
+            "download_link.source_info_failed", download_link_id=str(link_id), error=str(exc)
+        )
+    return SourceInfo(type=stype or "unknown", label=_generic_label(source), resolved=False)

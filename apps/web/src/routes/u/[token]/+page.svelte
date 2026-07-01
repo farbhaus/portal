@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
-  import { Button, Card } from "$lib/components";
+  import { Button, Card, PoweredByPortal } from "$lib/components";
   import { formatBytes } from "$lib/format";
   import {
     fileExtension,
@@ -334,6 +334,6 @@
       </Card>
     {/if}
 
-    <p class="mt-6 text-center text-xs text-faint">Powered by Portal</p>
+    <PoweredByPortal />
   </div>
 </div>

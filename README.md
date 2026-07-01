@@ -69,22 +69,7 @@ This is a one-time setup. Your Frame.io account needs to be linked to an Adobe a
 4. When prompted for the credential type, choose **OAuth Web App credential** (a server-side
    app that keeps a client secret). Do **not** choose Single-Page App or Server-to-Server.
 
-**2. Set the scopes**
-
-Ensure the credential requests these scopes (Portal's default `FRAMEIO_SCOPES`):
-
-```
-openid, AdobeID, email, profile, offline_access, additional_info.roles
-```
-
-Two of these are essential and easy to miss:
-- **`AdobeID`** — required for Frame.io API access, and it must be requested **explicitly**. Adobe
-  adds it automatically on the first interactive consent, but **not** on token refresh — so without
-  it every refreshed access token is rejected (`401`) about an hour after you connect.
-- **`offline_access`** — what lets Portal receive a **refresh token** and stay connected without
-  you re-authorizing every day.
-
-**3. Register the redirect URI(s)**
+**2. Register the redirect URI(s)**
 
 The redirect URI is where Adobe sends the browser back after you approve. Portal shows the exact
 value in **Settings** → **Frame.io app** → **Redirect URI** — it's `{BASE_URL}/api/frameio/oauth/callback`
@@ -94,13 +79,13 @@ value in **Settings** → **Frame.io app** → **Redirect URI** — it's `{BASE_
 - **Redirect URI pattern \*** (required) — the same URL as a regular expression, with the dots
   escaped, e.g. `https://portal\.example\.com/api/frameio/oauth/callback`
 
-**4. Enter the credentials in Portal**
+**3. Enter the credentials in Portal**
 
 From the credential's overview page, copy the **Client ID** and **Client Secret**. 
 In Portal, log in as admin and go to **Settings** → **Frame.io app** and paste them 
 in the respective **Client ID** and **Client Secret** boxes.
 
-**5. Connect**
+**4. Connect**
 
 In **Settings**, click **Connect Frame.io**. You'll be sent to Adobe to sign in and approve, then
 returned to Portal showing the connected account.

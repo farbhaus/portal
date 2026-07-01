@@ -53,6 +53,11 @@ class TransfersOut(BaseModel):
     sync_health: SyncHealth
 
 
+class HistoryOut(BaseModel):
+    items: list[RecentTransfer]
+    has_more: bool
+
+
 def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat() if dt else None
 
@@ -195,3 +200,88 @@ async def transfers(
     )
 
     return TransfersOut(active_uploads=active_uploads, recent=recent, sync_health=sync_health)
+
+
+@router.get("/history", response_model=HistoryOut)
+async def history(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+    kind: str = "all",
+    limit: int = 50,
+    offset: int = 0,
+) -> HistoryOut:
+    """Paginated, full transfer history — completed uploads and file downloads merged newest-first.
+
+    Backs the dashboard's "Activity log" link (an expanded view of the recent-transfers feed).
+    `kind` filters to "upload"/"download" (default "all"); pagination is offset/limit.
+    """
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    want_upload = kind in ("all", "upload")
+    want_download = kind in ("all", "download")
+
+    # To slice a merged feed correctly at [offset, offset+limit) we need the top (offset+limit+1)
+    # of each included source; the +1 tells us whether a further page exists.
+    take = offset + limit + 1
+    pool: list[tuple[datetime, RecentTransfer]] = []
+
+    if want_upload:
+        upload_rows = (
+            await db.execute(
+                select(UploadSession, UploadLink.brand_display_name)
+                .join(UploadLink, UploadSession.upload_link_id == UploadLink.id)
+                .where(UploadSession.status == "completed")
+                .order_by(UploadSession.completed_at.desc().nullslast())
+                .limit(take)
+            )
+        ).all()
+        for s, brand in upload_rows:
+            at = s.completed_at or s.created_at
+            pool.append(
+                (
+                    at,
+                    RecentTransfer(
+                        id=str(s.id),
+                        kind="upload",
+                        label=brand or "Upload",
+                        who=s.uploader_name or s.uploader_email,
+                        bytes=s.total_bytes,
+                        status="completed",
+                        at=at.isoformat(),
+                    ),
+                )
+            )
+
+    if want_download:
+        download_rows = (
+            await db.execute(
+                select(DownloadEvent, DownloadSession.viewer_email)
+                .join(DownloadSession, DownloadEvent.download_session_id == DownloadSession.id)
+                .order_by(DownloadEvent.started_at.desc())
+                .limit(take)
+            )
+        ).all()
+        for ev, viewer in download_rows:
+            pool.append(
+                (
+                    ev.started_at,
+                    RecentTransfer(
+                        id=str(ev.id),
+                        kind="download",
+                        label=ev.file_name or "Download",
+                        who=viewer,
+                        bytes=ev.bytes_served,
+                        status="completed" if ev.completed else "in_progress",
+                        at=ev.started_at.isoformat(),
+                    ),
+                )
+            )
+
+    def _key(row: tuple[datetime, RecentTransfer]) -> datetime:
+        dt = row[0]
+        return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+    pool.sort(key=_key, reverse=True)
+    window = pool[offset : offset + limit + 1]
+    has_more = len(window) > limit
+    return HistoryOut(items=[item for _at, item in window[:limit]], has_more=has_more)

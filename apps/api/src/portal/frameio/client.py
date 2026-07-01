@@ -84,6 +84,9 @@ class PickerItem:
     # The folder's own parent, when known (populated by get_folder via folder.show). Lets the
     # sync engine walk a file's ancestor chain to mirror Frame.io's tree onto the destination.
     parent_id: str | None = None
+    # The project a folder belongs to (populated by get_folder) — lets the admin UI resolve a shared
+    # folder's project/workspace.
+    project_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +95,8 @@ class ProjectItem:
     name: str
     # Entry point for the folder picker — browse a project's tree from here.
     root_folder_id: str | None
+    # Owning workspace, when known (populated by get_project) — lets the admin UI pre-select it.
+    workspace_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -341,9 +346,27 @@ class FrameioClient:
                 id=folder.id,
                 name=getattr(folder, "name", None) or folder.id,
                 parent_id=getattr(folder, "parent_id", None),
+                project_id=getattr(folder, "project_id", None),
             )
 
         return await self._guard("get_folder", run)
+
+    async def get_project(self, account_id: str, project_id: str) -> ProjectItem:
+        """Resolve a single project — used to find a shared folder's workspace + root folder."""
+
+        async def run() -> ProjectItem:
+            resp = await self._client.projects.show(
+                account_id, project_id, request_options=_REQ_OPTS
+            )
+            p = resp.data
+            return ProjectItem(
+                id=p.id,
+                name=getattr(p, "name", None) or p.id,
+                root_folder_id=getattr(p, "root_folder_id", None),
+                workspace_id=getattr(p, "workspace_id", None),
+            )
+
+        return await self._guard("get_project", run)
 
     async def folder_relative_path(
         self, account_id: str, parent_id: str | None, root_folder_id: str
@@ -376,6 +399,31 @@ class FrameioClient:
 
         segments.reverse()
         return "/".join(segments)
+
+    async def folder_ancestry(self, account_id: str, folder_id: str) -> list[PickerItem]:
+        """Folder ancestry as PickerItems, top-most ancestor first, ending at this folder.
+
+        Walks up ``parent_id`` from ``folder_id`` (reusing the folder-meta cache), capped at
+        ``_MAX_FOLDER_DEPTH`` and de-duping visited ids to survive an unexpected cycle. Lets the
+        admin UI show *where* a download link's shared folder lives and reopen the explorer there.
+        """
+        items: list[PickerItem] = []
+        seen: set[str] = set()
+        current: str | None = folder_id
+        for _ in range(_MAX_FOLDER_DEPTH):
+            if current is None or current in seen:
+                break
+            seen.add(current)
+            cached = self._folder_meta_cache.get(current)
+            if cached is None:
+                folder = await self.get_folder(account_id, current)
+                cached = (folder.name, folder.parent_id)
+                self._folder_meta_cache[current] = cached
+            name, parent = cached
+            items.append(PickerItem(id=current, name=name, parent_id=parent))
+            current = parent
+        items.reverse()
+        return items
 
     async def create_folder(self, account_id: str, parent_folder_id: str, name: str) -> PickerItem:
         """Create one subfolder under a parent and return it (the picker's New-folder action)."""

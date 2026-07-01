@@ -147,7 +147,9 @@ Notes:
   first boot; leave them blank unless you want to manage them yourself. They stay stable across
   restarts (they live in the same volume as the data they protect).
 - If you use **sync rules**, set `SYNC_HOST_ROOT` to the host directory where synced files should
-  land (default `/mnt`); otherwise you can remove that bind mount from `docker-compose.yml`.
+  land (default `/mnt`, which `deploy.sh` creates if missing); otherwise you can remove that bind
+  mount from `docker-compose.yml`. `/mnt` exists on Linux but not macOS — on a dev machine set
+  `SYNC_HOST_ROOT` to a path you can create (e.g. `./portal-sync`).
 
 ## 3. Add the host reverse-proxy entry
 

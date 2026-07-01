@@ -20,7 +20,7 @@
     {
       label: "Dashboard",
       href: "/",
-      match: ["/activity"],
+      match: ["/activity", "/history"],
       icon: "M3 12 12 3l9 9M5 10v10h5v-6h4v6h5V10",
     },
     {

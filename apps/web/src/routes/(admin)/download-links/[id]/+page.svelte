@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
+  import { goto, invalidateAll } from "$app/navigation";
+  import { FrameioSourcePicker, type DownloadSource, type SourcePickerInit } from "$lib/components";
 
   let { data } = $props();
   const link = $derived(data.link);
@@ -18,6 +19,10 @@
   let saving = $state(false);
   let error = $state<string | null>(null);
   let saved = $state(false);
+
+  // Re-pointing the link's Frame.io source (#28). For a folder source the picker opens inside the
+  // shared folder (see `folderInit`); `newSource` tracks the picker's current selection.
+  let newSource = $state<DownloadSource | null>(null);
 
   let seededId = "";
   $effect(() => {
@@ -50,6 +55,31 @@
     return "—";
   }
 
+  // Resolved names from Frame.io (folder path / file names), falling back to the type-only label.
+  const src = $derived(data.sourceInfo);
+  function sourceLine(): string {
+    if (!src) return sourceLabel();
+    if (src.type === "folder" && src.folder_name)
+      return `Folder: ${src.folder_path || src.folder_name}${src.recursive ? " (incl. subfolders)" : ""}`;
+    if (src.type === "file" && src.files?.length) return src.files[0];
+    if (src.type === "selection") return `${src.files?.length ?? 0} files`;
+    return src.label || sourceLabel();
+  }
+
+  // When the source is a resolved folder, deep-link the explorer straight into it — including the
+  // account/workspace/project selectors resolved from the folder's project.
+  const folderInit: SourcePickerInit | null = $derived(
+    src && src.type === "folder" && src.resolved && src.account_id && src.path && src.path.length > 0
+      ? {
+          accountId: src.account_id,
+          workspaceId: src.workspace_id ?? undefined,
+          projectId: src.project_id ?? undefined,
+          path: src.path,
+          recursive: src.recursive ?? false,
+        }
+      : null,
+  );
+
   async function save() {
     saving = true;
     error = null;
@@ -66,6 +96,11 @@
       };
       if (clearPassword) body.password = "";
       else if (newPassword) body.password = newPassword;
+      // Only send the source when the picker's selection actually differs from the stored one, so
+      // editing other fields doesn't re-point the link (or log a spurious source change).
+      const sourceChanged =
+        newSource !== null && JSON.stringify(newSource) !== JSON.stringify(link.source);
+      if (sourceChanged) body.source = newSource;
 
       const res = await fetch(`/api/download-links/${link.id}`, {
         method: "PATCH",
@@ -78,6 +113,8 @@
       }
       saved = true;
       newPassword = "";
+      // Reload so the source summary + download log reflect the new binding.
+      if (sourceChanged) await invalidateAll();
     } finally {
       saving = false;
     }
@@ -100,15 +137,33 @@
   {:else if saved}<p class="rounded-md bg-success/10 px-3 py-2 text-sm text-success">Saved.</p>{/if}
 
   <div class="rounded-xl border border-border bg-surface p-6 text-sm">
-    <div class="flex items-center justify-between"><span class="text-muted">Source</span><span>{sourceLabel()}</span></div>
-    <div class="mt-2 flex items-center justify-between">
+    <div class="flex items-center justify-between">
       <span class="text-muted">Public URL</span>
       <a href={link.public_url} target="_blank" rel="noopener" class="max-w-xs truncate underline">{link.public_url}</a>
     </div>
     <div class="mt-2 flex items-center justify-between"><span class="text-muted">Downloads</span><span>{link.downloads_count}{link.max_downloads ? ` / ${link.max_downloads}` : ""}</span></div>
     <div class="mt-2 flex items-center justify-between"><span class="text-muted">Unique viewers</span><span>{data.stats.unique_viewers}</span></div>
     <div class="mt-2 flex items-center justify-between"><span class="text-muted">Last activity</span><span>{data.stats.last_activity ? new Date(data.stats.last_activity).toLocaleString() : "—"}</span></div>
-    <p class="mt-1 text-xs text-faint">The source is fixed. Create a new link to share different files.</p>
+  </div>
+
+  <div class="space-y-3 rounded-xl border border-border bg-surface p-6">
+    <div>
+      <h2 class="font-medium">Source</h2>
+      <p class="mt-0.5 text-xs text-faint">
+        {#if folderInit}
+          Opened inside the shared folder below. Browse to a different folder (or pick files) to change it — the link URL stays the same.
+        {:else}
+          Re-point this link at a different file or folder — the link URL stays the same.
+        {/if}
+      </p>
+    </div>
+    {#if !folderInit && src}
+      <p class="text-sm">
+        Currently sharing: <span class="font-medium">{sourceLine()}</span>
+        {#if !src.resolved}<span class="ml-1 text-xs text-faint">(couldn't reach Frame.io to load the name)</span>{/if}
+      </p>
+    {/if}
+    <FrameioSourcePicker bind:value={newSource} initial={folderInit} onerror={(m) => (error = m)} />
   </div>
 
   <div class="space-y-4 rounded-xl border border-border bg-surface p-6">

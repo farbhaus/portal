@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { PoweredByPortal } from "$lib/components";
   import { loginWithPasskey } from "$lib/webauthn";
 
   let email = $state("");
@@ -72,7 +73,8 @@
 </script>
 
 <div class="flex min-h-full items-center justify-center p-6">
-  <div class="w-full max-w-sm space-y-5 rounded-xl border border-border bg-surface p-8 shadow-sm">
+  <div class="w-full max-w-sm">
+    <div class="space-y-5 rounded-xl border border-border bg-surface p-8 shadow-sm">
     <div class="space-y-1 text-center">
       {#if logoOk}
         <img src="/api/branding/logo" alt="" class="mx-auto mb-2 h-12 object-contain" onerror={() => (logoOk = false)} />
@@ -123,5 +125,7 @@
         Sign in with a passkey
       </button>
     {/if}
+    </div>
+    <PoweredByPortal privacy={false} />
   </div>
 </div>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Button, Card } from "$lib/components";
+  import { Button, Card, PoweredByPortal } from "$lib/components";
   import {
     downloadAll,
     downloadAllToFolder,
@@ -246,6 +246,13 @@
             {/if}
           </div>
 
+          {#if !canPickFolder && files.length > 1}
+            <p class="rounded-md bg-info/10 px-3 py-2 text-xs text-info">
+              To keep the original folder structure, open this link in a Chromium-based browser
+              (Chrome, Edge, Arc, Brave). Other browsers save the files individually.
+            </p>
+          {/if}
+
           {#if allProgress}
             <div class="space-y-1.5" role="status" aria-live="polite">
               <div class="h-1.5 overflow-hidden rounded-full bg-surface-2">
@@ -291,6 +298,6 @@
       </Card>
     {/if}
 
-    <p class="mt-6 text-center text-xs text-faint">Powered by Portal</p>
+    <PoweredByPortal />
   </div>
 </div>

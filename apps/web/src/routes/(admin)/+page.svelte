@@ -147,7 +147,7 @@
   <Card padded={false}>
     <div class="flex items-center justify-between border-b border-border px-5 py-3">
       <h2 class="text-sm font-semibold">Recent transfers</h2>
-      <a href="/activity" class="text-xs text-muted hover:text-text">Activity log →</a>
+      <a href="/history" class="text-xs text-muted hover:text-text">Full history →</a>
     </div>
     {#if recent.length === 0}
       <p class="px-5 py-10 text-center text-sm text-muted">Nothing yet. Transfers will show up here.</p>
