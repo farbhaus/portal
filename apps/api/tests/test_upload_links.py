@@ -106,6 +106,37 @@ async def test_create_link(client: AsyncClient) -> None:
     assert body["allowed_extensions"] == ["mov", "r3d"]
     assert body["uploader_fields_required"] == {"name": True, "email": True, "message": False}
     assert body["destination_name"] == "Camera Dest"
+    # This destination has no cached breadcrumb, so the path is simply absent.
+    assert body["destination_path"] is None
+
+
+async def test_link_carries_destination_path(client: AsyncClient) -> None:
+    await _login(client)
+    path = [{"id": "root", "name": "Proj (root)"}, {"id": "f1", "name": "Shorts"}]
+    async with get_sessionmaker()() as db:
+        dest = Destination(
+            display_name="With Path",
+            config={
+                "type": "frameio",
+                "account_id": "a1",
+                "workspace_id": "w1",
+                "project_id": "p1",
+                "folder_id": "f1",
+                "folder_name": "Shorts",
+                "path": path,
+            },
+        )
+        db.add(dest)
+        await db.commit()
+        await db.refresh(dest)
+        dest_id = str(dest.id)
+
+    resp = await client.post("/api/upload-links", json={"destination_id": dest_id})
+    assert resp.status_code == 201
+    assert resp.json()["destination_path"] == path
+
+    listed = await client.get("/api/upload-links")
+    assert listed.json()[0]["destination_path"] == path
 
 
 async def test_create_link_bad_destination(client: AsyncClient) -> None:

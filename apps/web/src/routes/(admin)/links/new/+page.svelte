@@ -1,8 +1,17 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
+  import { goto, invalidateAll } from "$app/navigation";
   import { onMount } from "svelte";
-  import { FolderPicker, FrameioSourcePicker, TemplateTokenInput, type DownloadSource } from "$lib/components";
+  import {
+    FolderPicker,
+    FrameioSourcePicker,
+    PathBreadcrumb,
+    ProjectFolderBrowser,
+    TemplateTokenInput,
+    type DownloadSource,
+    type FolderItem,
+  } from "$lib/components";
   import { UPLOAD_TOKENS } from "$lib/tokens";
+  import type { Destination } from "../../destinations/+page.server";
 
   let { data } = $props();
 
@@ -10,8 +19,12 @@
   let linkType = $state<"upload" | "download" | null>(null);
 
   onMount(() => {
-    const param = new URLSearchParams(window.location.search).get("type");
+    const params = new URLSearchParams(window.location.search);
+    const param = params.get("type");
     if (param === "upload" || param === "download") linkType = param;
+    // "+ Upload link here" on a destination pre-selects it.
+    const dest = params.get("destination");
+    if (dest && data.destinations.some((d) => d.id === dest)) destinationId = dest;
   });
 
   // ── shared ────────────────────────────────────────────────────────────────
@@ -19,7 +32,8 @@
   let error = $state<string | null>(null);
 
   // ── upload form state ─────────────────────────────────────────────────────
-  let destinationId = $state(data.destinations[0]?.id ?? "");
+  const NEW_DEST = "__new__"; // select sentinel: create a destination inline, no page bounce
+  let destinationId = $state(data.destinations[0]?.id ?? NEW_DEST);
   let expiresAt = $state("");
   let password = $state("");
   let maxSizeGb = $state("");
@@ -36,8 +50,60 @@
 
   const selectedDest = $derived(data.destinations.find((d) => d.id === destinationId));
 
+  function destPath(dest: Destination): { id?: string; name: string }[] {
+    if (dest.config.path?.length) return dest.config.path;
+    return [{ name: dest.config.folder_name ?? dest.config.folder_id ?? "folder" }];
+  }
+
+  // ── inline destination creation ───────────────────────────────────────────
+  let ndAccountId = $state("");
+  let ndWorkspaceId = $state("");
+  let ndProjectId = $state("");
+  let ndProjectName = $state("");
+  let ndFolderPath = $state<FolderItem[]>([]);
+  let ndDisplayName = $state("");
+  let creatingDest = $state(false);
+
+  const ndCurrentFolder = $derived(ndFolderPath.at(-1) ?? null);
+
+  async function createDestination() {
+    if (!ndDisplayName.trim() || !ndCurrentFolder) return;
+    creatingDest = true;
+    error = null;
+    try {
+      const res = await fetch("/api/destinations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          display_name: ndDisplayName.trim(),
+          config: {
+            type: "frameio",
+            account_id: ndAccountId,
+            workspace_id: ndWorkspaceId,
+            project_id: ndProjectId,
+            folder_id: ndCurrentFolder.id,
+            // Sent so the backend caches the display breadcrumb without extra Frame.io calls.
+            path: ndFolderPath,
+            project_name: ndProjectName || null,
+          },
+        }),
+      });
+      if (!res.ok) {
+        error = (await res.json().catch(() => ({}))).detail ?? `Could not create destination (${res.status})`;
+        return;
+      }
+      const created = await res.json();
+      await invalidateAll(); // refresh the destination list (with sync coverage) and select it
+      destinationId = created.id;
+      ndDisplayName = "";
+      ndFolderPath = [];
+    } finally {
+      creatingDest = false;
+    }
+  }
+
   async function createUpload() {
-    if (!destinationId) { error = "Pick a destination first."; return; }
+    if (!destinationId || destinationId === NEW_DEST) { error = "Pick or create a destination first."; return; }
     saving = true; error = null;
     try {
       const body: Record<string, unknown> = {
@@ -147,18 +213,63 @@
       <button onclick={() => (linkType = null)} class="text-xs text-faint hover:text-muted">change type</button>
     </div>
 
-    {#if data.destinations.length === 0}
-      <div class="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
-        You need a destination first. <a href="/destinations/new" class="font-medium underline">Create one</a>.
-      </div>
-    {:else}
       <div class="space-y-4 rounded-xl border border-border bg-surface p-6">
         <label class="block text-sm">
           <span class="text-muted">Destination <span class="text-danger">*</span></span>
           <select bind:value={destinationId} class="mt-1 w-full rounded-md border border-border px-2 py-1.5">
             {#each data.destinations as d (d.id)}<option value={d.id}>{d.display_name}</option>{/each}
+            <option value={NEW_DEST}>＋ New destination…</option>
           </select>
         </label>
+
+        {#if selectedDest}
+          <!-- Where files land + whether that folder is synced, right at the point of decision. -->
+          <div class="space-y-1.5 rounded-md border border-border bg-surface-2 p-3">
+            <div class="text-xs">
+              <span class="text-faint">Files land in:</span>
+              <PathBreadcrumb segments={destPath(selectedDest)} class="text-xs" />
+            </div>
+            {#if selectedDest.sync_rules.length > 0}
+              {#each selectedDest.sync_rules as sr (sr.id)}
+                <div class="text-xs text-muted">
+                  <span class={sr.enabled ? "text-success" : "text-faint"}>⟳</span>
+                  {sr.enabled ? "Synced by" : "Sync rule (disabled):"}
+                  <a href="/sync-rules/{sr.id}" class="font-medium hover:text-accent">{sr.name}</a>
+                  {#if !sr.exact}<span class="text-faint">(via parent folder)</span>{/if}
+                  <span class="text-faint">→</span>
+                  <span class="font-mono">{sr.destination_path}</span>
+                </div>
+              {/each}
+            {:else}
+              <div class="text-xs text-muted">
+                Not synced to local storage —
+                <a href="/sync-rules/new?destination={selectedDest.id}" class="text-accent hover:underline">add a sync rule</a>
+              </div>
+            {/if}
+          </div>
+        {:else if destinationId === NEW_DEST}
+          <div class="space-y-4 rounded-md border border-border bg-surface-2 p-3">
+            <p class="text-xs text-muted">Pick the Frame.io folder files should land in and name it — it becomes a reusable destination.</p>
+            <ProjectFolderBrowser
+              bind:accountId={ndAccountId}
+              bind:workspaceId={ndWorkspaceId}
+              bind:projectId={ndProjectId}
+              bind:projectName={ndProjectName}
+              bind:folderPath={ndFolderPath}
+            />
+            <label class="block text-sm">
+              <span class="text-muted">Destination name <span class="text-danger">*</span></span>
+              <input bind:value={ndDisplayName} placeholder="e.g. DIT Drop — Project X" class="mt-1 w-full rounded-md border border-border px-2 py-1.5" />
+            </label>
+            <button
+              onclick={createDestination}
+              disabled={creatingDest || !ndDisplayName.trim() || !ndCurrentFolder}
+              class="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-3 disabled:opacity-50"
+            >
+              {creatingDest ? "Creating…" : "Create destination"}
+            </button>
+          </div>
+        {/if}
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label class="block text-sm">
             <span class="text-muted">Expires (optional)</span>
@@ -231,12 +342,11 @@
       </div>
 
       <div class="flex items-center gap-3">
-        <button onclick={createUpload} disabled={saving} class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50">
+        <button onclick={createUpload} disabled={saving || destinationId === NEW_DEST} class="rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50">
           {saving ? "Creating…" : "Create upload link"}
         </button>
         <a href="/links" class="text-sm text-muted hover:text-text">Cancel</a>
       </div>
-    {/if}
   {/if}
 
   <!-- Download form -->

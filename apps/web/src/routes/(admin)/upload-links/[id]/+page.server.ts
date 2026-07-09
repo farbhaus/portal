@@ -2,17 +2,12 @@ import { apiFetch } from "$lib/server/api";
 import { error } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
 import type { UploadLink } from "../+page.server";
+import type { Destination } from "../../destinations/+page.server";
 
 export type UploadStats = {
   uploads: number;
   total_bytes: number;
   last_activity: string | null;
-};
-
-export type DestinationOption = {
-  id: string;
-  display_name: string;
-  config: Record<string, string>;
 };
 
 export const load: PageServerLoad = async ({ params, request }) => {
@@ -27,6 +22,6 @@ export const load: PageServerLoad = async ({ params, request }) => {
   const stats: UploadStats = statsRes.ok
     ? await statsRes.json()
     : { uploads: 0, total_bytes: 0, last_activity: null };
-  const destinations: DestinationOption[] = destRes.ok ? await destRes.json() : [];
+  const destinations: Destination[] = destRes.ok ? await destRes.json() : [];
   return { link, stats, destinations };
 };

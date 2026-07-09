@@ -11,4 +11,7 @@ export { default as FolderPicker } from "./FolderPicker.svelte";
 export { default as FrameioSourcePicker } from "./FrameioSourcePicker.svelte";
 export type { DownloadSource, SourcePickerInit } from "./FrameioSourcePicker.svelte";
 export { default as ProjectPicker } from "./ProjectPicker.svelte";
+export { default as ProjectFolderBrowser } from "./ProjectFolderBrowser.svelte";
+export type { FolderBrowserInit, FolderItem } from "./ProjectFolderBrowser.svelte";
+export { default as PathBreadcrumb } from "./PathBreadcrumb.svelte";
 export { default as TemplateTokenInput } from "./TemplateTokenInput.svelte";

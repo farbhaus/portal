@@ -1,8 +1,15 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { PathBreadcrumb, StatusPill } from "$lib/components";
 
   let { data } = $props();
   const dest = $derived(data.destination);
+
+  const path = $derived(
+    dest.config.path?.length
+      ? dest.config.path
+      : [{ name: dest.config.folder_name ?? dest.config.folder_id ?? "folder" }],
+  );
 
   let displayName = $state("");
   let subtitle = $state("");
@@ -68,10 +75,51 @@
 
   <div class="rounded-xl border border-border bg-surface p-6 text-sm">
     <h2 class="font-medium">Frame.io folder</h2>
-    <p class="mt-2 text-muted">
-      {dest.config.folder_name ?? dest.config.folder_id}
+    <p class="mt-2">
+      <PathBreadcrumb segments={path} class="text-sm" />
     </p>
     <p class="mt-1 text-xs text-faint">The folder binding is fixed. Create a new destination to target a different folder.</p>
+  </div>
+
+  <div class="rounded-xl border border-border bg-surface p-6 text-sm">
+    <div class="flex items-center justify-between">
+      <h2 class="font-medium">Sync to local storage</h2>
+      <a href="/sync-rules/new?destination={dest.id}" class="text-xs text-accent hover:underline">+ Sync rule</a>
+    </div>
+    {#if dest.sync_rules.length === 0}
+      <p class="mt-2 text-xs text-muted">Not synced — files stay in Frame.io only.</p>
+    {:else}
+      <div class="mt-2 space-y-1.5">
+        {#each dest.sync_rules as sr (sr.id)}
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <a href="/sync-rules/{sr.id}" class="font-medium hover:text-accent">{sr.name}</a>
+            <StatusPill status={sr.enabled ? "ok" : "revoked"} label={sr.enabled ? "enabled" : "disabled"} />
+            {#if !sr.exact}<span class="text-faint">via parent folder</span>{/if}
+            <span class="text-faint">→</span>
+            <span class="font-mono text-muted">{sr.destination_path}</span>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
+  <div class="rounded-xl border border-border bg-surface p-6 text-sm">
+    <div class="flex items-center justify-between">
+      <h2 class="font-medium">Upload links</h2>
+      <a href="/links/new?type=upload&destination={dest.id}" class="text-xs text-accent hover:underline">+ Upload link</a>
+    </div>
+    {#if dest.upload_links.length === 0}
+      <p class="mt-2 text-xs text-muted">No upload links deliver here yet.</p>
+    {:else}
+      <div class="mt-2 space-y-1.5">
+        {#each dest.upload_links as link (link.id)}
+          <div class="flex items-center justify-between gap-3 text-xs">
+            <a href="/upload-links/{link.id}" class="truncate hover:text-accent">{link.label}</a>
+            <StatusPill status={link.state} />
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 
   <div class="space-y-4 rounded-xl border border-border bg-surface p-6">

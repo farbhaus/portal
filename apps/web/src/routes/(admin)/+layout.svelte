@@ -36,7 +36,7 @@
       icon: "M9 15l6-6M10 6l1-1a4 4 0 0 1 6 6l-1 1M14 18l-1 1a4 4 0 0 1-6-6l1-1",
     },
     {
-      label: "Sync",
+      label: "Destinations",
       href: "/sync",
       match: ["/sync", "/destinations", "/sync-rules"],
       icon: "M4 8a8 8 0 0 1 14-3l2 2M20 16a8 8 0 0 1-14 3l-2-2M18 4v3h-3M6 20v-3h3",

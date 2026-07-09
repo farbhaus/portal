@@ -26,6 +26,12 @@ from portal.frameio.client import (
 from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError, PortalError
 from portal.lib.logging import get_logger
+from portal.services.frameio_paths import (
+    clean_path,
+    refresh_config_path,
+    resolve_folder_path,
+    stamp_path,
+)
 from portal.storage.base import DestinationConfig
 from portal.storage.frameio_backend import FrameioStorageBackend
 from portal.sync.queue import enqueue_sync_job
@@ -107,13 +113,13 @@ def _callback_url(rule_id: uuid.UUID) -> str:
 
 
 async def _validate_and_enrich_source(source: dict[str, Any]) -> dict[str, Any]:
-    """Resolve project/folder names (for path templating) from the source.
+    """Resolve project/folder names (for path templating) and the display breadcrumb.
 
-    The admin picker already knows both names, so it sends them and we make zero Frame.io calls
-    here — important because the folder endpoints are tightly rate-limited and browsing the picker
-    can exhaust the window, which previously turned creation into a confusing 502. We only fall
-    back to API lookups (with a clear rate-limit message) when a name is missing, e.g. for
-    non-UI/API callers.
+    The admin picker already knows the names and the full `path` breadcrumb, so it sends them and
+    we make zero Frame.io calls here — important because the folder endpoints are tightly
+    rate-limited and browsing the picker can exhaust the window, which previously turned creation
+    into a confusing 502. We only fall back to API lookups (with a clear rate-limit message) when
+    a name is missing, e.g. for non-UI/API callers.
     """
     if source.get("type") != "frameio":
         raise BadRequestError("source.type must be 'frameio'")
@@ -145,7 +151,7 @@ async def _validate_and_enrich_source(source: dict[str, Any]) -> dict[str, Any]:
         except FrameioError as exc:
             raise HTTPException(status_code=502, detail="Could not validate the source") from exc
 
-    return {
+    enriched = {
         "type": "frameio",
         "account_id": account_id,
         "workspace_id": workspace_id,
@@ -155,6 +161,18 @@ async def _validate_and_enrich_source(source: dict[str, Any]) -> dict[str, Any]:
         "folder_name": folder_name,
         "project_name": project_name,
     }
+
+    # Cache the display breadcrumb: the picker sends `path` (zero extra calls); non-UI callers
+    # get it resolved best-effort. Display-only — never fail creation over it.
+    path = clean_path(source.get("path"), folder_id)
+    if path is None:
+        resolved = await resolve_folder_path(account_id, project_id, folder_id)
+        if resolved is not None:
+            path = resolved[0]
+            project_name = resolved[1] or project_name
+    if path is not None:
+        enriched = stamp_path(enriched, path, project_name)
+    return enriched
 
 
 async def _subscribe(rule: SyncRule) -> None:
@@ -243,7 +261,14 @@ async def get_rule(
     _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ) -> SyncRuleOut:
-    return _to_out(await _get_or_404(db, rule_id))
+    rule = await _get_or_404(db, rule_id)
+    # Lazily backfill/refresh the cached breadcrumb (legacy rows, folder renames); best-effort.
+    refreshed = await refresh_config_path(rule.source_config)
+    if refreshed is not None:
+        rule.source_config = refreshed
+        await db.commit()
+        await db.refresh(rule)
+    return _to_out(rule)
 
 
 @router.patch("/{rule_id}", response_model=SyncRuleOut)

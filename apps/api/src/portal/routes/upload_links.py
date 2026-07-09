@@ -85,6 +85,8 @@ class UploadLinkOut(BaseModel):
     state: str
     destination_id: str
     destination_name: str
+    # Cached Frame.io breadcrumb of the destination folder (root→leaf), when known.
+    destination_path: list[dict[str, str]] | None
     expires_at: str | None
     password_protected: bool
     max_file_size: int | None
@@ -121,6 +123,7 @@ def _to_out(link: UploadLink) -> UploadLinkOut:
         state=link_state(link),
         destination_id=str(link.destination_id),
         destination_name=link.destination.display_name,
+        destination_path=link.destination.config.get("path"),
         expires_at=link.expires_at.isoformat() if link.expires_at else None,
         password_protected=link.password_hash is not None,
         max_file_size=link.max_file_size,

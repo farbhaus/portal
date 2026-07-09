@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import { FolderPicker, TemplateTokenInput } from "$lib/components";
+  import { FolderPicker, PathBreadcrumb, TemplateTokenInput } from "$lib/components";
   import { UPLOAD_TOKENS } from "$lib/tokens";
 
   let { data } = $props();
@@ -137,8 +137,13 @@
   {:else if saved}<p class="rounded-md bg-success/10 px-3 py-2 text-sm text-success">Saved.</p>{/if}
 
   <div class="rounded-xl border border-border bg-surface p-6 text-sm">
-    <div class="flex items-center justify-between">
-      <span class="text-muted">Destination</span><span>{link.destination_name}</span>
+    <div class="flex items-center justify-between gap-3">
+      <span class="shrink-0 text-muted">Destination</span>
+      {#if link.destination_path?.length}
+        <span class="min-w-0 text-right"><PathBreadcrumb segments={link.destination_path} class="text-sm" /></span>
+      {:else}
+        <span>{link.destination_name}</span>
+      {/if}
     </div>
     <div class="mt-2 flex items-center justify-between">
       <span class="text-muted">Public URL</span>
@@ -165,6 +170,37 @@
       </select>
       <span class="mt-1 block text-xs text-faint">Where new uploads to this link are delivered.</span>
     </label>
+
+    {#if selectedDest}
+      <div class="space-y-1.5 rounded-md border border-border bg-surface-2 p-3">
+        <div class="text-xs">
+          <span class="text-faint">Files land in:</span>
+          <PathBreadcrumb
+            segments={selectedDest.config.path?.length
+              ? selectedDest.config.path
+              : [{ name: selectedDest.config.folder_name ?? selectedDest.config.folder_id ?? "folder" }]}
+            class="text-xs"
+          />
+        </div>
+        {#if selectedDest.sync_rules.length > 0}
+          {#each selectedDest.sync_rules as sr (sr.id)}
+            <div class="text-xs text-muted">
+              <span class={sr.enabled ? "text-success" : "text-faint"}>⟳</span>
+              {sr.enabled ? "Synced by" : "Sync rule (disabled):"}
+              <a href="/sync-rules/{sr.id}" class="font-medium hover:text-accent">{sr.name}</a>
+              {#if !sr.exact}<span class="text-faint">(via parent folder)</span>{/if}
+              <span class="text-faint">→</span>
+              <span class="font-mono">{sr.destination_path}</span>
+            </div>
+          {/each}
+        {:else}
+          <div class="text-xs text-muted">
+            Not synced to local storage —
+            <a href="/sync-rules/new?destination={selectedDest.id}" class="text-accent hover:underline">add a sync rule</a>
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     <div class="text-sm">
       <span class="text-muted">Base subfolder</span>

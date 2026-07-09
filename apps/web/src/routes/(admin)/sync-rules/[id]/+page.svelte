@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto, invalidateAll } from "$app/navigation";
-  import { TemplateTokenInput } from "$lib/components";
+  import { PathBreadcrumb, TemplateTokenInput } from "$lib/components";
   import { SYNC_TOKENS } from "$lib/tokens";
   import type { SyncJob } from "./+page.server";
 
@@ -122,7 +122,7 @@
 
 <div class="mx-auto max-w-3xl space-y-6">
   <div>
-    <a href="/sync-rules" class="text-sm text-muted hover:text-text">← Sync rules</a>
+    <a href="/sync-rules" class="text-sm text-muted hover:text-text">← Destinations</a>
     <h1 class="mt-1 text-2xl font-semibold">{rule.name}</h1>
   </div>
 
@@ -131,8 +131,16 @@
   {:else if runNote}<p class="rounded-md bg-surface-2 px-3 py-2 text-sm text-muted">{runNote}</p>{/if}
 
   <div class="rounded-xl border border-border bg-surface p-6 text-sm">
-    <div class="flex items-center justify-between">
-      <span class="text-muted">Source</span><span>{sourceLabel()}</span>
+    <div class="flex items-center justify-between gap-3">
+      <span class="shrink-0 text-muted">Source</span>
+      {#if rule.source.path?.length}
+        <span class="min-w-0 text-right">
+          <PathBreadcrumb segments={rule.source.path} class="text-sm" />
+          {#if rule.source.recursive ?? true}<span class="text-xs text-faint"> (recursive)</span>{/if}
+        </span>
+      {:else}
+        <span>{sourceLabel()}</span>
+      {/if}
     </div>
     <div class="mt-2 flex items-center justify-between">
       <span class="text-muted">Webhook</span>

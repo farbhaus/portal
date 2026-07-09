@@ -1,19 +1,20 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import { ProjectPicker, TemplateTokenInput } from "$lib/components";
+  import { onMount } from "svelte";
+  import {
+    ProjectFolderBrowser,
+    TemplateTokenInput,
+    type FolderBrowserInit,
+    type FolderItem,
+  } from "$lib/components";
   import { SYNC_TOKENS } from "$lib/tokens";
-
-  type Item = { id: string; name: string };
-  type Project = { id: string; name: string; root_folder_id: string | null };
-
-  let subfolders = $state<Item[]>([]);
 
   let accountId = $state("");
   let workspaceId = $state("");
   let projectId = $state("");
   let projectName = $state("");
-  let folderPath = $state<Item[]>([]);
-  let chosenFolder = $state<Item | null>(null);
+  let folderPath = $state<FolderItem[]>([]);
+  let chosenFolder = $state<FolderItem | null>(null);
 
   // Options
   let name = $state("");
@@ -23,88 +24,48 @@
   let pathTemplate = $state("");
   let enabled = $state(true);
 
-  let loading = $state(false);
   let error = $state<string | null>(null);
   let saving = $state(false);
 
   const currentFolder = $derived(folderPath.at(-1) ?? null);
 
-  async function getJSON<T>(url: string): Promise<T> {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Request failed (${res.status})`);
-    return res.json();
-  }
-  async function load<T>(fn: () => Promise<T>) {
-    loading = true;
-    error = null;
-    try {
-      return await fn();
-    } catch (e) {
-      error = e instanceof Error ? e.message : "Failed to load from Frame.io";
-    } finally {
-      loading = false;
+  // "+ Sync rule here" on a destination: seed the browser at the destination's folder. The
+  // browser only renders once the prefill is resolved, so the pickers mount pre-seeded.
+  let prefill = $state<FolderBrowserInit | undefined>(undefined);
+  let prefillLoading = $state(true);
+
+  onMount(async () => {
+    const destId = new URLSearchParams(window.location.search).get("destination");
+    if (!destId) {
+      prefillLoading = false;
+      return;
     }
-  }
-
-  function onScopeReset() {
-    projectId = "";
-    projectName = "";
-    subfolders = [];
-    folderPath = [];
-    chosenFolder = null;
-  }
-  async function onProjectSelect(proj: Project) {
-    projectId = proj.id;
-    projectName = proj.name;
-    subfolders = [];
-    folderPath = [];
-    chosenFolder = null;
-    if (!proj.root_folder_id) return;
-    folderPath = [{ id: proj.root_folder_id, name: `${proj.name} (root)` }];
-    await loadFolder();
-  }
-  async function loadFolder() {
-    if (!currentFolder) return;
-    await load(async () => {
-      subfolders = await getJSON<Item[]>(
-        `/api/frameio/folders?account_id=${accountId}&folder_id=${currentFolder.id}`,
-      );
-    });
-  }
-  async function drillInto(folder: Item) {
-    folderPath = [...folderPath, folder];
-    await loadFolder();
-  }
-  async function jumpTo(index: number) {
-    folderPath = folderPath.slice(0, index + 1);
-    await loadFolder();
-  }
-
-  let newFolderName = $state("");
-  let creatingFolder = $state(false);
-  async function createFolder() {
-    const name = newFolderName.trim();
-    if (!name || !currentFolder) return;
-    creatingFolder = true;
-    error = null;
     try {
-      const res = await fetch("/api/frameio/folders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ account_id: accountId, parent_folder_id: currentFolder.id, name }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        error = body.detail ?? `Could not create folder (${res.status})`;
-        return;
+      const res = await fetch(`/api/destinations/${destId}`);
+      if (res.ok) {
+        const dest = await res.json();
+        const cfg = dest.config ?? {};
+        if (cfg.account_id && cfg.workspace_id && cfg.project_id && cfg.folder_id) {
+          const path: FolderItem[] = Array.isArray(cfg.path) && cfg.path.length > 0
+            ? cfg.path
+            : [{ id: cfg.folder_id, name: cfg.folder_name ?? cfg.folder_id }];
+          prefill = {
+            accountId: cfg.account_id,
+            workspaceId: cfg.workspace_id,
+            projectId: cfg.project_id,
+            projectName: cfg.project_name ?? "",
+            folderPath: path,
+          };
+          chosenFolder = path.at(-1) ?? null;
+          if (!name.trim()) name = dest.display_name ?? "";
+        }
       }
-      const folder = (await res.json()) as Item;
-      newFolderName = "";
-      await drillInto(folder);
+    } catch {
+      // Prefill is a convenience; fall back to the empty picker.
     } finally {
-      creatingFolder = false;
+      prefillLoading = false;
     }
-  }
+  });
 
   function chooseFolder() {
     chosenFolder = currentFolder;
@@ -132,9 +93,10 @@
           project_id: projectId,
           folder_id: chosenFolder.id,
           recursive,
-          // Sent so the backend skips the tightly rate-limited folder lookup on create.
+          // Names + path sent so the backend skips the tightly rate-limited folder lookups.
           folder_name: chosenFolder.name,
           project_name: projectName,
+          path: folderPath.at(-1)?.id === chosenFolder.id ? folderPath : null,
         },
         destination_path: destinationPath.trim(),
         conflict_policy: conflictPolicy,
@@ -159,7 +121,7 @@
 
 <div class="mx-auto max-w-2xl space-y-6">
   <div>
-    <a href="/sync-rules" class="text-sm text-muted hover:text-text">← Sync rules</a>
+    <a href="/sync-rules" class="text-sm text-muted hover:text-text">← Destinations</a>
     <h1 class="mt-1 text-2xl font-semibold">New sync rule</h1>
   </div>
 
@@ -167,42 +129,22 @@
 
   <div class="space-y-5 rounded-xl border border-border bg-surface p-6">
     <h2 class="font-medium">Source folder</h2>
-    <ProjectPicker
-      bind:accountId
-      bind:workspaceId
-      selectedProjectId={projectId}
-      onselect={onProjectSelect}
-      onscopechange={onScopeReset}
-    />
 
-    {#if folderPath.length > 0}
-      <div class="rounded-md border border-border bg-surface-2 p-3">
-        <div class="flex flex-wrap items-center gap-1 text-sm">
-          {#each folderPath as f, i (f.id)}
-            {#if i > 0}<span class="text-faint">/</span>{/if}
-            <button onclick={() => jumpTo(i)} class="rounded px-1 hover:bg-surface-3 {i === folderPath.length - 1 ? 'font-medium' : 'text-muted'}">{f.name}</button>
-          {/each}
+    {#if !prefillLoading}
+      <ProjectFolderBrowser
+        bind:accountId
+        bind:workspaceId
+        bind:projectId
+        bind:projectName
+        bind:folderPath
+        initial={prefill}
+      >
+        {#snippet crumbAction()}
           <button onclick={chooseFolder} class="ml-auto rounded border border-border bg-surface px-2 py-0.5 text-xs hover:bg-surface-2">Watch this folder</button>
-        </div>
-        <div class="mt-3 space-y-1">
-          {#if loading}<p class="text-xs text-faint">Loading…</p>{/if}
-          {#each subfolders as sf (sf.id)}
-            <button onclick={() => drillInto(sf)} class="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-surface-3">
-              <span class="text-faint">📁</span> {sf.name}
-            </button>
-          {/each}
-          {#if !loading && subfolders.length === 0}<p class="text-xs text-faint">No subfolders.</p>{/if}
-        </div>
-        <div class="mt-3 flex items-center gap-2">
-          <input bind:value={newFolderName} placeholder="New subfolder name"
-            onkeydown={(e) => e.key === "Enter" && createFolder()}
-            class="flex-1 rounded-md border border-border bg-surface px-2 py-1 text-sm" />
-          <button onclick={createFolder} disabled={!newFolderName.trim() || creatingFolder}
-            class="shrink-0 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-surface-3 disabled:opacity-50">
-            {creatingFolder ? "Creating…" : "＋ New folder"}
-          </button>
-        </div>
-      </div>
+        {/snippet}
+      </ProjectFolderBrowser>
+    {:else}
+      <p class="text-xs text-faint">Loading…</p>
     {/if}
 
     {#if chosenFolder}

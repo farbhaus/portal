@@ -14,6 +14,7 @@ from portal.frameio.client import (
     WebhookSubscription,
 )
 from portal.routes import sync_rules as routes
+from portal.services import frameio_paths
 
 CREDS = {"email": "admin@example.com", "password": "test-password"}
 SOURCE = {
@@ -26,6 +27,11 @@ SOURCE = {
 }
 # What the UI sends — names included so create makes no Frame.io lookup calls.
 SOURCE_WITH_NAMES = {**SOURCE, "folder_name": "Dailies", "project_name": "Acme"}
+# The picker also sends the breadcrumb, so even the ancestry walk is skipped.
+SOURCE_FULL = {
+    **SOURCE_WITH_NAMES,
+    "path": [{"id": "rf", "name": "Acme (root)"}, {"id": "fld-1", "name": "Dailies"}],
+}
 
 
 class _StubClient:
@@ -34,6 +40,7 @@ class _StubClient:
         self.created = 0
         self.get_folder_calls = 0
         self.list_projects_calls = 0
+        self.ancestry_calls = 0
         self.webhook_error: Exception | None = None
 
     async def get_folder(self, account_id: str, folder_id: str) -> PickerItem:
@@ -43,6 +50,13 @@ class _StubClient:
     async def list_projects(self, account_id: str, workspace_id: str) -> list[ProjectItem]:
         self.list_projects_calls += 1
         return [ProjectItem(id="p1", name="Acme", root_folder_id="rf")]
+
+    async def folder_ancestry(self, account_id: str, folder_id: str) -> list[PickerItem]:
+        self.ancestry_calls += 1
+        return [PickerItem(id="rf", name="root"), PickerItem(id=folder_id, name="Dailies")]
+
+    async def get_project(self, account_id: str, project_id: str) -> ProjectItem:
+        return ProjectItem(id=project_id, name="Acme", root_folder_id="rf", workspace_id="w1")
 
     async def create_webhook(
         self, account_id: str, workspace_id: str, *, name: str, url: str, events: list[str]
@@ -68,6 +82,8 @@ async def _clear() -> None:
 def stub(monkeypatch: Any) -> _StubClient:
     client = _StubClient()
     monkeypatch.setattr(routes, "get_frameio_client", lambda: client)
+    # The shared breadcrumb-resolution helper hits Frame.io through its own module.
+    monkeypatch.setattr(frameio_paths, "get_frameio_client", lambda: client)
     return client
 
 
@@ -105,10 +121,62 @@ async def test_create_with_names_skips_lookups(client: AsyncClient, stub: _StubC
     body = resp.json()
     assert body["source"]["folder_name"] == "Dailies"
     assert body["source"]["project_name"] == "Acme"
-    # The throttled folder/project lookups are skipped entirely when the UI supplies names.
+    # The throttled folder/project lookups are skipped entirely when the UI supplies names;
+    # only the display breadcrumb still gets resolved (best-effort) when it isn't sent.
     assert stub.get_folder_calls == 0
     assert stub.list_projects_calls == 0
+    assert stub.ancestry_calls == 1
     assert stub.created == 1
+
+
+async def test_create_with_path_makes_no_frameio_lookups(
+    client: AsyncClient, stub: _StubClient
+) -> None:
+    await _login(client)
+    resp = await client.post(
+        "/api/sync-rules",
+        json={"name": "R", "source": SOURCE_FULL, "destination_path": "/mnt/sync"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["source"]["path"] == SOURCE_FULL["path"]
+    assert body["source"]["path_resolved_at"]
+    # The full picker payload (names + breadcrumb) keeps creation at zero Frame.io calls.
+    assert stub.get_folder_calls == 0
+    assert stub.list_projects_calls == 0
+    assert stub.ancestry_calls == 0
+
+
+async def test_detail_get_backfills_missing_path(client: AsyncClient, stub: _StubClient) -> None:
+    await _login(client)
+    rid = (
+        await client.post(
+            "/api/sync-rules",
+            json={"name": "R", "source": SOURCE_FULL, "destination_path": "/d", "enabled": False},
+        )
+    ).json()["id"]
+
+    # Simulate a legacy rule created before breadcrumbs were cached.
+    async with get_sessionmaker()() as db:
+        rule = await db.get(SyncRule, uuid.UUID(rid))
+        assert rule is not None
+        source = dict(rule.source_config)
+        source.pop("path")
+        source.pop("path_resolved_at")
+        rule.source_config = source
+        await db.commit()
+
+    got = await client.get(f"/api/sync-rules/{rid}")
+    assert got.status_code == 200
+    assert got.json()["source"]["path"] == [
+        {"id": "rf", "name": "Acme (root)"},
+        {"id": "fld-1", "name": "Dailies"},
+    ]
+    assert stub.ancestry_calls == 1
+
+    # Backfill is persisted, so the next detail GET serves the cached breadcrumb.
+    assert (await client.get(f"/api/sync-rules/{rid}")).status_code == 200
+    assert stub.ancestry_calls == 1
 
 
 async def test_create_rate_limited_returns_503(client: AsyncClient, stub: _StubClient) -> None:

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { invalidateAll } from "$app/navigation";
-  import { Button, StatusPill, CopyButton } from "$lib/components";
+  import { Button, PathBreadcrumb, StatusPill, CopyButton } from "$lib/components";
   import type { UploadLink, DownloadLink } from "./+page.server";
 
   let { data } = $props();
@@ -89,7 +89,14 @@
                     <a href="/upload-links/{link.id}" class="truncate font-medium text-sm hover:text-accent">{link.brand_display_name ?? "Untitled"}</a>
                     <StatusPill status={link.state} />
                   </div>
-                  <div class="mt-0.5 text-xs text-muted">{link.destination_name}</div>
+                  <div class="mt-0.5 text-xs text-muted">
+                    {#if link.destination_path?.length}
+                      <PathBreadcrumb segments={link.destination_path} class="text-xs" />
+                    {:else}
+                      {link.destination_name}
+                    {/if}
+                    {#if link.target_folder_name}<span class="text-faint">→ {link.target_folder_name}</span>{/if}
+                  </div>
                   <CopyButton value={link.public_url} label={shortUrl(link.public_url)} class="mt-1 text-xs" />
                 </div>
                 <div class="hidden sm:flex shrink-0 items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
