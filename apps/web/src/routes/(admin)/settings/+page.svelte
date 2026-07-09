@@ -648,7 +648,12 @@
     <div class="space-y-3 text-sm">
       <p class="text-muted">Scan this with your authenticator app, then enter the 6-digit code to confirm.</p>
       <div class="mx-auto flex w-40 justify-center rounded-md bg-white p-3">
-        {@html totpData.qr_svg}
+        <!-- Rendered as an <img> data URI rather than {@html} so the SVG can't act as an HTML sink. -->
+        <img
+          src={"data:image/svg+xml;utf8," + encodeURIComponent(totpData.qr_svg)}
+          alt="TOTP QR code"
+          class="w-full"
+        />
       </div>
       <p class="break-all text-xs text-faint">Or enter this key manually: <span class="font-mono text-text">{totpData.secret}</span></p>
       <input bind:value={totpCode} inputmode="numeric" autocomplete="one-time-code" placeholder="123456" class="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-center text-lg tracking-widest" />

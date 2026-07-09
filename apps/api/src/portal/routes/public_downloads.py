@@ -29,6 +29,7 @@ from portal.frameio.client import (
 )
 from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError
+from portal.lib.lockout import check_password_lockout, register_password_failure
 from portal.lib.logging import get_logger
 from portal.lib.ratelimit import limit
 from portal.services.app_settings import resolve_branding
@@ -172,10 +173,11 @@ async def start_session(
 ) -> StartSessionResult:
     link = await _get_link(db, token)
     _require_usable(link)
-    if link.password_hash is not None and not verify_password(
-        body.password or "", link.password_hash
-    ):
-        raise HTTPException(status_code=403, detail="Incorrect password")
+    if link.password_hash is not None:
+        await check_password_lockout("download", token)
+        if not verify_password(body.password or "", link.password_hash):
+            await register_password_failure("download", token)
+            raise HTTPException(status_code=403, detail="Incorrect password")
 
     required = link.viewer_fields_required or {}
     provided = {"name": body.name, "email": body.email}

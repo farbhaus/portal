@@ -24,5 +24,8 @@
   },
   "dependencies": {
     "@simplewebauthn/browser": "^13.3.0"
+  },
+  "overrides": {
+    "cookie": "^0.7.0"
   }
 }

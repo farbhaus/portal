@@ -22,6 +22,7 @@ from portal.db.session import get_session
 from portal.frameio.client import FrameioError, FrameioNotConnected, get_frameio_client
 from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError
+from portal.lib.lockout import check_password_lockout, register_password_failure
 from portal.lib.logging import get_logger
 from portal.lib.ratelimit import limit
 from portal.notify.email import UploadedFile, send_upload_completion
@@ -173,7 +174,11 @@ async def verify_link_password(
     # An open (no-password) link verifies trivially; a usable link must also be in "ok" state.
     if link.password_hash is None:
         return PasswordVerifyResult(ok=link_state(link) == "ok")
-    ok = link_state(link) == "ok" and verify_password(body.password, link.password_hash)
+    await check_password_lockout("upload", token)
+    state_ok = link_state(link) == "ok"
+    ok = state_ok and verify_password(body.password, link.password_hash)
+    if state_ok and not ok:
+        await register_password_failure("upload", token)
     return PasswordVerifyResult(ok=ok)
 
 
@@ -270,10 +275,11 @@ async def start_session(
 ) -> StartSessionResult:
     link = await _get_link(db, token)
     _require_usable(link)
-    if link.password_hash is not None and not verify_password(
-        body.password or "", link.password_hash
-    ):
-        raise HTTPException(status_code=403, detail="Incorrect password")
+    if link.password_hash is not None:
+        await check_password_lockout("upload", token)
+        if not verify_password(body.password or "", link.password_hash):
+            await register_password_failure("upload", token)
+            raise HTTPException(status_code=403, detail="Incorrect password")
 
     required = link.uploader_fields_required or {}
     provided = {"name": body.name, "email": body.email, "message": body.message}

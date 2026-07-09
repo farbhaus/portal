@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = Field(default=True)
     rate_limit_default_per_minute: int = Field(default=120)
     rate_limit_strict_per_minute: int = Field(default=12)
+    # Global per-token cap on wrong link-password attempts (all IPs combined) within the window;
+    # past it, password checks for that token answer 429 until the window expires. Complements the
+    # per-IP strict limit above, which a distributed attacker sidesteps with fresh IPs. Only
+    # holders of the (unguessable) link URL can trip it, so the griefing surface is the link's
+    # own audience.
+    password_lockout_max_failures: int = Field(default=30)
+    password_lockout_window_seconds: int = Field(default=900)
     # Number of trusted reverse proxies in front of the API. Each appends the address it saw
     # to X-Forwarded-For, so the real client is the Nth entry from the right. The deploy chain
     # is host Caddy → internal Caddy (2 hops); set to 0 when no proxy sits in front (the socket
@@ -122,6 +129,11 @@ class Settings(BaseSettings):
     retention_webhook_events_days: int = Field(default=90)
     retention_sessions_days: int = Field(default=365)  # upload + download sessions (+ their events)
     retention_audit_log_days: int = Field(default=0)  # 0 = keep the audit trail indefinitely
+
+    # Interactive OpenAPI docs (/api/docs + /api/openapi.json). Off by default: the schema maps
+    # the whole admin API surface for an attacker and production has no use for it. Set
+    # EXPOSE_API_DOCS=true for local development.
+    expose_api_docs: bool = Field(default=False)
 
     log_level: str = Field(default="INFO")
 

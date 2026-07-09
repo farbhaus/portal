@@ -53,8 +53,8 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Portal API",
         version="0.1.0",
-        openapi_url="/api/openapi.json",
-        docs_url="/api/docs",
+        openapi_url="/api/openapi.json" if settings.expose_api_docs else None,
+        docs_url="/api/docs" if settings.expose_api_docs else None,
         redoc_url=None,
         lifespan=lifespan,
     )
