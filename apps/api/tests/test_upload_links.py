@@ -1,10 +1,11 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import delete
 
-from portal.db.models import Destination, UploadLink
+from portal.db.models import Destination, UploadLink, UploadSession
 from portal.db.session import get_sessionmaker
 from portal.frameio.client import ChunkUrl, UploadStatus, UploadTarget
 from portal.routes import public as public_routes
@@ -538,3 +539,115 @@ async def test_complete_file_pending(client: AsyncClient, monkeypatch) -> None:
         f"/api/public/links/{token}/sessions/{sid}/files/{fr.json()['file_id']}/complete"
     )
     assert cf.json() == {"complete": False, "failed": False}
+
+
+# ── session liveness: heartbeat / abandon (issue #41) ─────────────────────────
+
+
+async def _session_row(sid: str) -> UploadSession:
+    async with get_sessionmaker()() as db:
+        row = await db.get(UploadSession, uuid.UUID(sid))
+        assert row is not None
+        return row
+
+
+async def _set_status(sid: str, status: str) -> None:
+    async with get_sessionmaker()() as db:
+        row = await db.get(UploadSession, uuid.UUID(sid))
+        assert row is not None
+        row.status = status
+        await db.commit()
+
+
+async def _start(client: AsyncClient, token: str) -> str:
+    started = await client.post(f"/api/public/links/{token}/sessions", json={})
+    return str(started.json()["session_id"])
+
+
+async def test_heartbeat_updates_activity_and_progress(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    _use_upload_stub(monkeypatch)
+    token = (await _make_link(client))["token"]
+    sid = await _start(client, token)
+
+    hb = await client.post(
+        f"/api/public/links/{token}/sessions/{sid}/heartbeat", json={"uploaded_bytes": 1234}
+    )
+    assert hb.status_code == 200 and hb.json()["ok"] is True
+    row = await _session_row(sid)
+    assert row.last_activity_at is not None
+    assert row.uploaded_bytes == 1234
+
+    # A body-less ping still counts as liveness and keeps the last progress value.
+    bare = await client.post(f"/api/public/links/{token}/sessions/{sid}/heartbeat")
+    assert bare.status_code == 200
+    row = await _session_row(sid)
+    assert row.uploaded_bytes == 1234
+    assert row.last_activity_at is not None
+
+
+async def test_heartbeat_revives_abandoned_session(client: AsyncClient, monkeypatch) -> None:
+    await _login(client)
+    _use_upload_stub(monkeypatch)
+    token = (await _make_link(client))["token"]
+    sid = await _start(client, token)
+    await _set_status(sid, "abandoned")
+
+    await client.post(f"/api/public/links/{token}/sessions/{sid}/heartbeat")
+    assert (await _session_row(sid)).status == "in_progress"
+
+
+async def test_heartbeat_unknown_or_foreign_session_404(
+    client: AsyncClient, monkeypatch
+) -> None:
+    await _login(client)
+    _use_upload_stub(monkeypatch)
+    token = (await _make_link(client))["token"]
+    sid = await _start(client, token)
+    other = (await _make_link(client))["token"]
+
+    bogus = await client.post(f"/api/public/links/{token}/sessions/{uuid.uuid4()}/heartbeat")
+    assert bogus.status_code == 404
+    # A real session id under a different link's token must look nonexistent.
+    foreign = await client.post(f"/api/public/links/{other}/sessions/{sid}/heartbeat")
+    assert foreign.status_code == 404
+
+
+async def test_abandon_flips_in_progress_but_never_completed(
+    client: AsyncClient, monkeypatch
+) -> None:
+    await _login(client)
+    _use_upload_stub(monkeypatch)
+    token = (await _make_link(client))["token"]
+
+    # sendBeacon shape: bare POST, no body.
+    sid = await _start(client, token)
+    ab = await client.post(f"/api/public/links/{token}/sessions/{sid}/abandon")
+    assert ab.status_code == 200
+    assert (await _session_row(sid)).status == "abandoned"
+
+    # A beacon arriving after (or racing) completion must not clobber "completed".
+    sid2 = await _start(client, token)
+    await client.post(
+        f"/api/public/links/{token}/sessions/{sid2}/complete", json={"total_bytes": 10}
+    )
+    await client.post(f"/api/public/links/{token}/sessions/{sid2}/abandon")
+    assert (await _session_row(sid2)).status == "completed"
+
+
+async def test_file_request_bumps_activity_and_revives(
+    client: AsyncClient, monkeypatch
+) -> None:
+    await _login(client)
+    _use_upload_stub(monkeypatch)
+    token = (await _make_link(client))["token"]
+    sid = await _start(client, token)
+    await _set_status(sid, "abandoned")
+
+    fr = await client.post(
+        f"/api/public/links/{token}/sessions/{sid}/files", json={"path": "clip.mov", "size": 10}
+    )
+    assert fr.status_code == 200
+    row = await _session_row(sid)
+    assert row.status == "in_progress"
+    assert row.last_activity_at is not None

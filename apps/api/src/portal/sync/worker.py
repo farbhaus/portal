@@ -24,6 +24,7 @@ from portal.db.session import get_sessionmaker
 from portal.lib.config import get_settings
 from portal.lib.logging import configure_logging, get_logger
 from portal.services.retention import purge_expired
+from portal.services.upload_sessions import abandon_stale_upload_sessions
 from portal.storage.frameio_backend import FrameioStorageBackend
 from portal.sync.events import process_event
 from portal.sync.queue import RUN_SYNC_JOB
@@ -147,6 +148,12 @@ async def retention_sweep(ctx: dict[str, Any]) -> dict[str, int]:
         return await purge_expired(db)
 
 
+async def abandon_stale_uploads(ctx: dict[str, Any]) -> int:
+    """Cron: flag in_progress upload sessions whose uploader tab went silent as "abandoned"."""
+    async with get_sessionmaker()() as db:
+        return await abandon_stale_upload_sessions(db)
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     configure_logging(get_settings().log_level)
     ctx["http"] = httpx.AsyncClient(
@@ -187,6 +194,7 @@ class WorkerSettings:
     cron_jobs = [
         cron(reconcile_all, minute=_reconcile_minutes),
         cron(retention_sweep, hour=3, minute=30),  # daily off-peak history prune
+        cron(abandon_stale_uploads, minute={0, 15, 30, 45}),  # clear dead "Uploading now" rows
     ]
     on_startup = startup
     on_shutdown = shutdown

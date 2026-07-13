@@ -18,6 +18,7 @@
     waiting: "bg-warning/15 text-warning",
     // warn
     expired: "bg-warning/15 text-warning",
+    incomplete: "bg-warning/15 text-warning",
     // bad
     revoked: "bg-surface-3 text-faint",
     skipped: "bg-surface-3 text-faint",

@@ -3,7 +3,9 @@
   import { Button, Card, PoweredByPortal } from "$lib/components";
   import { formatBytes } from "$lib/format";
   import {
+    abandonSession,
     fileExtension,
+    heartbeat,
     itemsFromDataTransfer,
     itemsFromFileList,
     requestCode,
@@ -38,12 +40,29 @@
   let folderInput = $state<HTMLInputElement>();
   let phase = $state<"select" | "uploading" | "done" | "error">("select");
   let error = $state<string | null>(null);
+  let sessionId = $state<string | null>(null);
   let uploadedBytes = $state(0);
   let currentFile = $state<string | null>(null);
   let doneFiles = $state<Set<string>>(new Set());
 
   const totalBytes = $derived(items.reduce((s, it) => s + it.file.size, 0));
   const percent = $derived(totalBytes > 0 ? Math.min(100, (uploadedBytes / totalBytes) * 100) : 0);
+
+  // Liveness for the server while uploading: a progress heartbeat, plus a best-effort abandon
+  // beacon if the tab goes away mid-upload — so the admin dashboard never shows ghost uploads.
+  // Reading uploadedBytes inside the interval callback is untracked, so the effect only re-runs
+  // on phase/session changes, and its cleanup drops the pagehide listener once the upload ends.
+  $effect(() => {
+    if (phase !== "uploading" || !sessionId) return;
+    const sid = sessionId;
+    const t = setInterval(() => heartbeat(data.token, sid, uploadedBytes), 20_000);
+    const onPageHide = () => abandonSession(data.token, sid);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  });
 
   function validate(newItems: UploadItem[]): string | null {
     for (const it of newItems) {
@@ -143,20 +162,22 @@
     if (items.length === 0) return;
     error = null;
     phase = "uploading";
+    sessionId = null;
     uploadedBytes = 0;
     doneFiles = new Set();
     try {
-      const sessionId = await startSession(data.token, {
+      const sid = await startSession(data.token, {
         name: name || undefined,
         email: email || undefined,
         message: message || undefined,
         password: password || undefined,
         code: code || undefined,
       });
+      sessionId = sid;
       // Code accepted by the server — consume it so it never lingers in the UI.
       verified = true;
       code = "";
-      await runUpload(data.token, sessionId, items, {
+      await runUpload(data.token, sid, items, {
         onBytes: (d) => (uploadedBytes += d),
         onFileStart: (p) => (currentFile = p),
         onFileDone: (p) => {
@@ -166,6 +187,9 @@
       });
       phase = "done";
     } catch (e) {
+      // Tell the server this session is dead so it leaves "Uploading now" right away
+      // (a retry starts a fresh session).
+      if (sessionId) abandonSession(data.token, sessionId);
       error = e instanceof Error ? e.message : "Upload failed.";
       phase = "error";
     }

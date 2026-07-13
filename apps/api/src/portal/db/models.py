@@ -186,8 +186,14 @@ class UploadSession(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(32), default="in_progress", nullable=False)
     frameio_asset_ids: Mapped[list[Any] | None] = mapped_column(JSONB)
     total_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    # Client-reported progress from the uploader page's heartbeat; total_bytes stays "final
+    # total, written at completion".
+    uploaded_bytes: Mapped[int | None] = mapped_column(BigInteger)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Last liveness signal (heartbeat / file registration). The worker sweep flags in_progress
+    # sessions as abandoned on coalesce(last_activity_at, started_at, created_at).
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     upload_link: Mapped[UploadLink] = relationship(back_populates="sessions")
 
