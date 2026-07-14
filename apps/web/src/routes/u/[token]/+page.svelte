@@ -1,9 +1,12 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { fly } from "svelte/transition";
   import { Button, Card, PoweredByPortal } from "$lib/components";
   import { formatBytes } from "$lib/format";
   import {
+    abandonSession,
     fileExtension,
+    heartbeat,
     itemsFromDataTransfer,
     itemsFromFileList,
     requestCode,
@@ -12,6 +15,7 @@
     verifyCode,
     type UploadItem,
   } from "$lib/upload";
+  import { loadUploaderPrefs, saveUploaderPrefs } from "$lib/uploader-prefs";
 
   let { data } = $props();
   const link = $derived(data.link);
@@ -32,18 +36,44 @@
   // The uploader is gated until the email is verified (for verify_email links).
   const locked = $derived(link.verify_email && !verified);
 
+  // Prefill for returning uploaders. Never touches `verified` — a verify_email
+  // link still gates on the OTP / device-trust cookie exactly as for a blank form.
+  onMount(() => {
+    const prefs = loadUploaderPrefs();
+    if (!prefs) return;
+    if (!name) name = prefs.name;
+    if (!email) email = prefs.email;
+  });
+
   let items = $state<UploadItem[]>([]);
   let dragging = $state(false);
   let filesInput = $state<HTMLInputElement>();
   let folderInput = $state<HTMLInputElement>();
   let phase = $state<"select" | "uploading" | "done" | "error">("select");
   let error = $state<string | null>(null);
+  let sessionId = $state<string | null>(null);
   let uploadedBytes = $state(0);
   let currentFile = $state<string | null>(null);
   let doneFiles = $state<Set<string>>(new Set());
 
   const totalBytes = $derived(items.reduce((s, it) => s + it.file.size, 0));
   const percent = $derived(totalBytes > 0 ? Math.min(100, (uploadedBytes / totalBytes) * 100) : 0);
+
+  // Liveness for the server while uploading: a progress heartbeat, plus a best-effort abandon
+  // beacon if the tab goes away mid-upload — so the admin dashboard never shows ghost uploads.
+  // Reading uploadedBytes inside the interval callback is untracked, so the effect only re-runs
+  // on phase/session changes, and its cleanup drops the pagehide listener once the upload ends.
+  $effect(() => {
+    if (phase !== "uploading" || !sessionId) return;
+    const sid = sessionId;
+    const t = setInterval(() => heartbeat(data.token, sid, uploadedBytes), 20_000);
+    const onPageHide = () => abandonSession(data.token, sid);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  });
 
   function validate(newItems: UploadItem[]): string | null {
     for (const it of newItems) {
@@ -143,20 +173,24 @@
     if (items.length === 0) return;
     error = null;
     phase = "uploading";
+    sessionId = null;
     uploadedBytes = 0;
     doneFiles = new Set();
     try {
-      const sessionId = await startSession(data.token, {
+      const sid = await startSession(data.token, {
         name: name || undefined,
         email: email || undefined,
         message: message || undefined,
         password: password || undefined,
         code: code || undefined,
       });
+      sessionId = sid;
       // Code accepted by the server — consume it so it never lingers in the UI.
       verified = true;
       code = "";
-      await runUpload(data.token, sessionId, items, {
+      // The server accepted these details, so they're worth remembering for next time.
+      if (name.trim() || email.trim()) saveUploaderPrefs(name.trim(), email.trim());
+      await runUpload(data.token, sid, items, {
         onBytes: (d) => (uploadedBytes += d),
         onFileStart: (p) => (currentFile = p),
         onFileDone: (p) => {
@@ -166,9 +200,24 @@
       });
       phase = "done";
     } catch (e) {
+      // Tell the server this session is dead so it leaves "Uploading now" right away
+      // (a retry starts a fresh session).
+      if (sessionId) abandonSession(data.token, sessionId);
       error = e instanceof Error ? e.message : "Upload failed.";
       phase = "error";
     }
+  }
+
+  // "Forgot something?" — back to a fresh form. Identity fields and verification
+  // survive so the uploader can send another batch without re-doing the gate.
+  function uploadMore() {
+    items = [];
+    doneFiles = new Set();
+    uploadedBytes = 0;
+    sessionId = null;
+    currentFile = null;
+    error = null;
+    phase = "select";
   }
 </script>
 
@@ -206,6 +255,9 @@
         <p class="mt-1 text-sm text-muted">
           {items.length} file{items.length === 1 ? "" : "s"} ({formatBytes(totalBytes)}) delivered.
         </p>
+        <div class="mt-5">
+          <Button {accent} onclick={uploadMore}>Forgot something? Send another</Button>
+        </div>
       </Card>
     {:else}
       <Card class="space-y-5">
@@ -287,8 +339,8 @@
               <p class="text-sm text-muted">Drag files or folders here</p>
               <p class="my-2 text-xs text-faint">or</p>
               <div class="flex justify-center gap-2">
-                <Button variant="ghost" size="sm" onclick={() => filesInput?.click()}>Choose files</Button>
-                <Button variant="ghost" size="sm" onclick={() => folderInput?.click()}>Choose folder</Button>
+                <Button variant="ghost" size="sm" onclick={() => filesInput?.click()}>Add files</Button>
+                <Button variant="ghost" size="sm" onclick={() => folderInput?.click()}>Add folder</Button>
                 <input bind:this={filesInput} type="file" multiple class="hidden" onchange={onPick} />
                 <input bind:this={folderInput} type="file" webkitdirectory class="hidden" onchange={onPick} />
               </div>
@@ -300,20 +352,27 @@
         {/if}
 
         {#if items.length > 0}
-          <div class="max-h-56 space-y-1 overflow-auto text-sm">
-            {#each items as it (it.path)}
-              <div class="flex items-center justify-between rounded px-2 py-1 {doneFiles.has(it.path) ? 'bg-success/10' : currentFile === it.path ? 'bg-surface-2' : ''}">
-                <span class="truncate">{it.path}</span>
-                <span class="ml-2 flex shrink-0 items-center gap-2 text-xs text-faint">
-                  {formatBytes(it.file.size)}
-                  {#if doneFiles.has(it.path)}<span class="text-success">✓</span>
-                  {:else if currentFile === it.path}<span class="text-muted">…</span>
-                  {:else if phase === "select"}
-                    <button onclick={() => removeItem(it.path)} class="text-faint hover:text-danger" aria-label="Remove {it.path}">✕</button>
-                  {/if}
-                </span>
-              </div>
-            {/each}
+          <div>
+            <div class="max-h-56 space-y-1 overflow-auto text-sm">
+              {#each items as it (it.path)}
+                <div class="flex items-center justify-between rounded px-2 py-1 {doneFiles.has(it.path) ? 'bg-success/10' : currentFile === it.path ? 'bg-surface-2' : ''}">
+                  <span class="truncate">{it.path}</span>
+                  <span class="ml-2 flex shrink-0 items-center gap-2 text-xs text-faint">
+                    {formatBytes(it.file.size)}
+                    {#if doneFiles.has(it.path)}<span class="text-success">✓</span>
+                    {:else if currentFile === it.path}<span class="text-muted">…</span>
+                    {:else if phase === "select"}
+                      <button onclick={() => removeItem(it.path)} class="text-faint hover:text-danger" aria-label="Remove {it.path}">✕</button>
+                    {/if}
+                  </span>
+                </div>
+              {/each}
+            </div>
+            {#if phase === "select"}
+              <p class="mt-2 text-center text-xs text-faint">
+                Add more files or folders above — everything uploads together.
+              </p>
+            {/if}
           </div>
         {/if}
 

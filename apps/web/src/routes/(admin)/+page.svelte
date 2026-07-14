@@ -76,7 +76,9 @@
               {#if u.who}<span class="text-muted"> · {u.who}</span>{/if}
             </div>
             <div class="shrink-0 text-xs text-muted">
-              {fmtBytes(u.total_bytes)}{#if u.started_at} · started {timeAgo(u.started_at)}{/if}
+              {#if u.uploaded_bytes != null}{fmtBytes(u.uploaded_bytes)} of {/if}{fmtBytes(
+                u.total_bytes
+              )}{#if u.started_at} · started {timeAgo(u.started_at)}{/if}
             </div>
           </div>
         {/each}
@@ -162,7 +164,7 @@
             </div>
             <div class="flex shrink-0 items-center gap-2">
               <span class="hidden text-xs text-faint sm:inline">{fmtBytes(r.bytes)}</span>
-              {#if r.kind === "sync"}<span class="hidden sm:block"><StatusPill status={r.status} /></span>{/if}
+              {#if r.kind === "sync" || r.status === "incomplete"}<span class="hidden sm:block"><StatusPill status={r.status} /></span>{/if}
               <span class="text-right text-xs text-faint">{timeAgo(r.at)}</span>
             </div>
           </div>

@@ -46,16 +46,24 @@
     </section>
 
     <section class="space-y-2">
-      <h2 class="font-medium text-text">Cookies</h2>
+      <h2 class="font-medium text-text">Cookies &amp; on-device storage</h2>
       <p>
-        This site uses only strictly-functional cookies — no advertising, no analytics, no
-        third-party tracking — so there's no cookie-consent banner. As someone using a link, the only
-        cookie you might get is:
+        This site uses only strictly-functional cookies and storage — no advertising, no analytics,
+        no third-party tracking — so there's no cookie-consent banner. As someone using a link, the
+        only things stored on your device are:
       </p>
       <ul class="list-disc space-y-1.5 pl-5">
         <li>
-          <code class="text-text">portal_verified</code> — set only on links that require email
-          verification, so your device is remembered and you aren't asked for a new code every visit.
+          <code class="text-text">portal_verified</code> — a cookie set only on links that require
+          email verification, so your device is remembered and you aren't asked for a new code every
+          visit.
+        </li>
+        <li>
+          <code class="text-text">portal:uploader</code> — browser local storage (not a cookie) that
+          remembers the name and email you entered with an upload, so they're prefilled if you use a
+          link again. It's saved only after you start an upload, never leaves your device, and
+          expires 30 days after your last upload. You can remove it any time by clearing this site's
+          data in your browser.
         </li>
       </ul>
     </section>

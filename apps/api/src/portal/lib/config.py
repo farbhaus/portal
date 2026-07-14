@@ -130,6 +130,12 @@ class Settings(BaseSettings):
     retention_sessions_days: int = Field(default=365)  # upload + download sessions (+ their events)
     retention_audit_log_days: int = Field(default=0)  # 0 = keep the audit trail indefinitely
 
+    # Minutes of silence before an in_progress upload session is flagged "abandoned" by the worker
+    # sweep. The uploader page heartbeats every ~20s while uploading, so this only fires when the
+    # tab is truly gone (background-tab timer throttling caps heartbeats at ~1/min — keep this
+    # comfortably above that). 0 disables the sweep.
+    upload_stale_after_minutes: int = Field(default=30)
+
     # Interactive OpenAPI docs (/api/docs + /api/openapi.json). Off by default: the schema maps
     # the whole admin API surface for an attacker and production has no use for it. Set
     # EXPOSE_API_DOCS=true for local development.

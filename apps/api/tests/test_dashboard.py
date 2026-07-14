@@ -113,6 +113,76 @@ async def test_transfers_active_recent_and_health(client: AsyncClient) -> None:
     assert health["done_24h"] == 1
 
 
+async def test_transfers_stale_and_abandoned_uploads(client: AsyncClient) -> None:
+    """Issue #41: dead sessions must not sit in "Uploading now" forever, and abandoned ones
+    that registered files surface as "incomplete" in the feeds."""
+    await _login(client)
+    now = datetime.now(UTC)
+    async with get_sessionmaker()() as db:
+        dest = Destination(display_name="D", config={"type": "frameio"})
+        db.add(dest)
+        await db.flush()
+        ul = UploadLink(token=generate_token(), destination_id=dest.id, brand_display_name="Acme")
+        db.add(ul)
+        await db.flush()
+        # Live upload: heartbeat progress + planned size from its registered files.
+        db.add(
+            UploadSession(
+                upload_link_id=ul.id,
+                status="in_progress",
+                uploaded_bytes=250,
+                frameio_asset_ids=[
+                    {"file_id": "f1", "name": "a.mov", "size": 100},
+                    {"file_id": "f2", "name": "b.mov", "size": 250},
+                ],
+                started_at=now,
+                last_activity_at=now,
+            )
+        )
+        # Ancient in_progress with no liveness signal: hidden by the 24h belt-and-braces bound
+        # even if the abandon sweep never ran.
+        db.add(
+            UploadSession(
+                upload_link_id=ul.id, status="in_progress", started_at=now - timedelta(days=2)
+            )
+        )
+        # Abandoned mid-upload with a registered file: shows as an "incomplete" transfer.
+        db.add(
+            UploadSession(
+                upload_link_id=ul.id,
+                status="abandoned",
+                uploader_name="Ze",
+                uploaded_bytes=42,
+                frameio_asset_ids=[{"file_id": "f3", "name": "c.mov", "size": 500}],
+                started_at=now - timedelta(hours=2),
+                last_activity_at=now - timedelta(hours=1),
+            )
+        )
+        # Abandoned before any file was registered: pure noise, appears nowhere.
+        db.add(
+            UploadSession(
+                upload_link_id=ul.id, status="abandoned", started_at=now - timedelta(hours=1)
+            )
+        )
+        await db.commit()
+
+    data = (await client.get("/api/dashboard/transfers")).json()
+
+    assert len(data["active_uploads"]) == 1
+    active = data["active_uploads"][0]
+    assert active["uploaded_bytes"] == 250
+    assert active["total_bytes"] == 350  # summed from registered files pre-completion
+
+    ups = [r for r in data["recent"] if r["kind"] == "upload"]
+    assert len(ups) == 1
+    assert ups[0]["status"] == "incomplete"
+    assert ups[0]["who"] == "Ze"
+    assert ups[0]["bytes"] == 42  # what actually made it up, not the planned size
+
+    hist = (await client.get("/api/dashboard/history?kind=upload")).json()
+    assert [r["status"] for r in hist["items"]] == ["incomplete"]
+
+
 async def test_done_24h_excludes_old(client: AsyncClient) -> None:
     await _login(client)
     old = datetime.now(UTC) - timedelta(days=2)
