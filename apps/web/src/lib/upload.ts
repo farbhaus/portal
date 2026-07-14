@@ -68,6 +68,32 @@ export async function completeSession(
   });
 }
 
+// Fire-and-forget liveness ping while an upload runs (carries progress for the admin dashboard).
+// Failures are harmless: the next beat revives a session the server sweep flagged too eagerly.
+export async function heartbeat(
+  token: string,
+  sessionId: string,
+  uploadedBytes: number,
+): Promise<void> {
+  try {
+    await fetch(`/api/public/links/${token}/sessions/${sessionId}/heartbeat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uploaded_bytes: uploadedBytes }),
+    });
+  } catch {
+    // Next beat (or the server sweep) covers it.
+  }
+}
+
+// Best-effort "tab is going away" signal so the dashboard clears immediately; sendBeacon
+// survives page teardown (and the server sweep catches the cases where neither arrives).
+export function abandonSession(token: string, sessionId: string): void {
+  const url = `/api/public/links/${token}/sessions/${sessionId}/abandon`;
+  if (navigator.sendBeacon?.(url)) return;
+  fetch(url, { method: "POST", keepalive: true }).catch(() => {});
+}
+
 // PUT one chunk via XHR so we get upload progress events. onDelta receives byte increments
 // (and negative deltas to roll back a failed attempt so the aggregate stays accurate).
 function putChunk(

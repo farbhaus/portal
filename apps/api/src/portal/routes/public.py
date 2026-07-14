@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -224,6 +224,11 @@ class CompleteSessionRequest(BaseModel):
     total_bytes: int | None = None
 
 
+class HeartbeatRequest(BaseModel):
+    # Bytes the browser has pushed to storage so far — surfaces live progress on the dashboard.
+    uploaded_bytes: int | None = Field(default=None, ge=0)
+
+
 def _require_usable(link: UploadLink) -> None:
     state = link_state(link)
     if state != "ok":
@@ -349,6 +354,9 @@ async def request_file_upload(
     # without extra Frame.io calls.
     entry = {"file_id": upload.backend_data["file_id"], "name": body.path, "size": body.size}
     session.frameio_asset_ids = (session.frameio_asset_ids or []) + [entry]
+    session.last_activity_at = datetime.now(UTC)
+    if session.status == "abandoned":  # a live client outranks the stale sweep
+        session.status = "in_progress"
     await db.commit()
 
     return FileResult(
@@ -456,4 +464,57 @@ async def complete_session(
         background.add_task(
             trigger_sync_for_upload, sync_account, sync_folder, uploaded_file_ids
         )
+    return PasswordVerifyResult(ok=True)
+
+
+# Like complete_*, heartbeat/abandon skip _require_usable: an upload that outlives its link's
+# expiry must still be able to signal liveness and finish cleanly.
+
+
+@router.post(
+    "/{token}/sessions/{session_id}/heartbeat",
+    response_model=PasswordVerifyResult,
+    dependencies=[limit("default")],
+)
+async def session_heartbeat(
+    token: str,
+    session_id: str,
+    body: HeartbeatRequest | None = None,
+    db: AsyncSession = Depends(get_session),
+) -> PasswordVerifyResult:
+    """Liveness ping from the uploader page (~20s cadence) while an upload is running. Sessions
+    that stop pinging get flagged "abandoned" by the worker sweep; a ping from a still-alive
+    client revives one the sweep flagged too eagerly."""
+    link = await _get_link(db, token)
+    session = await _load_session(db, link, session_id)
+    if session.status == "abandoned":
+        session.status = "in_progress"
+    session.last_activity_at = datetime.now(UTC)
+    if body is not None and body.uploaded_bytes is not None:
+        session.uploaded_bytes = body.uploaded_bytes
+    await db.commit()
+    return PasswordVerifyResult(ok=True)
+
+
+@router.post(
+    "/{token}/sessions/{session_id}/abandon",
+    response_model=PasswordVerifyResult,
+    dependencies=[limit("default")],
+)
+async def abandon_session(
+    token: str,
+    session_id: str,
+    db: AsyncSession = Depends(get_session),
+) -> PasswordVerifyResult:
+    """Best-effort "tab is going away" signal (navigator.sendBeacon — hence no request body).
+    Conditional so a beacon racing the final complete POST can never clobber "completed"
+    (complete_session sets its status unconditionally, so either commit order ends completed)."""
+    link = await _get_link(db, token)
+    session = await _load_session(db, link, session_id)
+    await db.execute(
+        update(UploadSession)
+        .where(UploadSession.id == session.id, UploadSession.status == "in_progress")
+        .values(status="abandoned")
+    )
+    await db.commit()
     return PasswordVerifyResult(ok=True)

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from portal.auth.session import require_admin
@@ -26,6 +26,7 @@ class ActiveUpload(BaseModel):
     id: str
     who: str | None
     brand: str | None
+    uploaded_bytes: int | None  # live progress from the uploader page's heartbeat
     total_bytes: int | None
     started_at: str | None
 
@@ -62,6 +63,54 @@ def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat() if dt else None
 
 
+def _planned_bytes(session: UploadSession) -> int | None:
+    """Sum of registered file sizes — the in-flight stand-in for total_bytes, which is only
+    written at session completion."""
+    entries = session.frameio_asset_ids or []
+    total = sum(int(e.get("size") or 0) for e in entries if isinstance(e, dict))
+    return total or None
+
+
+# Uploads that belong in the transfer feeds: completed ones, plus abandoned ones that actually
+# registered a file (a session someone opened and walked away from is noise, not a transfer).
+_upload_feed_filter = or_(
+    UploadSession.status == "completed",
+    and_(
+        UploadSession.status == "abandoned",
+        UploadSession.frameio_asset_ids.isnot(None),
+        func.jsonb_array_length(UploadSession.frameio_asset_ids) > 0,
+    ),
+)
+
+# Feed recency: completion time, or — for abandoned sessions — when they were last heard from.
+_upload_feed_at = func.coalesce(
+    UploadSession.completed_at,
+    UploadSession.last_activity_at,
+    UploadSession.started_at,
+    UploadSession.created_at,
+)
+
+
+def _upload_feed_item(s: UploadSession, brand: str | None) -> tuple[datetime, RecentTransfer]:
+    at = s.completed_at or s.last_activity_at or s.started_at or s.created_at
+    if s.status == "completed":
+        status, size = "completed", s.total_bytes
+    else:  # abandoned → shown as "incomplete", sized by what actually made it up
+        status, size = "incomplete", s.uploaded_bytes or _planned_bytes(s)
+    return (
+        at,
+        RecentTransfer(
+            id=str(s.id),
+            kind="upload",
+            label=brand or "Upload",
+            who=s.uploader_name or s.uploader_email,
+            bytes=size,
+            status=status,
+            at=at.isoformat(),
+        ),
+    )
+
+
 @router.get("/transfers", response_model=TransfersOut)
 async def transfers(
     _: User = Depends(require_admin),
@@ -71,11 +120,21 @@ async def transfers(
     limit = max(1, min(limit, 100))
 
     # --- live: uploads still in flight -------------------------------------
+    # The 24h bound is belt-and-braces against a dead worker: the abandon sweep normally clears
+    # silent sessions within ~upload_stale_after_minutes.
     active_rows = (
         await db.execute(
             select(UploadSession, UploadLink.brand_display_name)
             .join(UploadLink, UploadSession.upload_link_id == UploadLink.id)
-            .where(UploadSession.status == "in_progress")
+            .where(
+                UploadSession.status == "in_progress",
+                func.coalesce(
+                    UploadSession.last_activity_at,
+                    UploadSession.started_at,
+                    UploadSession.created_at,
+                )
+                >= datetime.now(UTC) - timedelta(hours=24),
+            )
             .order_by(UploadSession.started_at.desc().nullslast())
             .limit(50)
         )
@@ -85,7 +144,8 @@ async def transfers(
             id=str(s.id),
             who=s.uploader_name or s.uploader_email,
             brand=brand,
-            total_bytes=s.total_bytes,
+            uploaded_bytes=s.uploaded_bytes,
+            total_bytes=s.total_bytes if s.total_bytes is not None else _planned_bytes(s),
             started_at=_iso(s.started_at),
         )
         for s, brand in active_rows
@@ -98,27 +158,13 @@ async def transfers(
         await db.execute(
             select(UploadSession, UploadLink.brand_display_name)
             .join(UploadLink, UploadSession.upload_link_id == UploadLink.id)
-            .where(UploadSession.status == "completed")
-            .order_by(UploadSession.completed_at.desc().nullslast())
+            .where(_upload_feed_filter)
+            .order_by(_upload_feed_at.desc())
             .limit(limit)
         )
     ).all()
     for s, brand in upload_rows:
-        at = s.completed_at or s.created_at
-        feed.append(
-            (
-                at,
-                RecentTransfer(
-                    id=str(s.id),
-                    kind="upload",
-                    label=brand or "Upload",
-                    who=s.uploader_name or s.uploader_email,
-                    bytes=s.total_bytes,
-                    status="completed",
-                    at=at.isoformat(),
-                ),
-            )
-        )
+        feed.append(_upload_feed_item(s, brand))
 
     download_rows = (
         await db.execute(
@@ -230,27 +276,13 @@ async def history(
             await db.execute(
                 select(UploadSession, UploadLink.brand_display_name)
                 .join(UploadLink, UploadSession.upload_link_id == UploadLink.id)
-                .where(UploadSession.status == "completed")
-                .order_by(UploadSession.completed_at.desc().nullslast())
+                .where(_upload_feed_filter)
+                .order_by(_upload_feed_at.desc())
                 .limit(take)
             )
         ).all()
         for s, brand in upload_rows:
-            at = s.completed_at or s.created_at
-            pool.append(
-                (
-                    at,
-                    RecentTransfer(
-                        id=str(s.id),
-                        kind="upload",
-                        label=brand or "Upload",
-                        who=s.uploader_name or s.uploader_email,
-                        bytes=s.total_bytes,
-                        status="completed",
-                        at=at.isoformat(),
-                    ),
-                )
-            )
+            pool.append(_upload_feed_item(s, brand))
 
     if want_download:
         download_rows = (

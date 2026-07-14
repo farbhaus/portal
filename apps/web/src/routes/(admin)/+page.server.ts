@@ -7,6 +7,7 @@ export type ActiveUpload = {
   id: string;
   who: string | null;
   brand: string | null;
+  uploaded_bytes: number | null;
   total_bytes: number | null;
   started_at: string | null;
 };
