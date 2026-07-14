@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { fly } from "svelte/transition";
   import { Button, Card, PoweredByPortal } from "$lib/components";
   import { formatBytes } from "$lib/format";
@@ -14,6 +15,7 @@
     verifyCode,
     type UploadItem,
   } from "$lib/upload";
+  import { loadUploaderPrefs, saveUploaderPrefs } from "$lib/uploader-prefs";
 
   let { data } = $props();
   const link = $derived(data.link);
@@ -33,6 +35,15 @@
 
   // The uploader is gated until the email is verified (for verify_email links).
   const locked = $derived(link.verify_email && !verified);
+
+  // Prefill for returning uploaders. Never touches `verified` — a verify_email
+  // link still gates on the OTP / device-trust cookie exactly as for a blank form.
+  onMount(() => {
+    const prefs = loadUploaderPrefs();
+    if (!prefs) return;
+    if (!name) name = prefs.name;
+    if (!email) email = prefs.email;
+  });
 
   let items = $state<UploadItem[]>([]);
   let dragging = $state(false);
@@ -177,6 +188,8 @@
       // Code accepted by the server — consume it so it never lingers in the UI.
       verified = true;
       code = "";
+      // The server accepted these details, so they're worth remembering for next time.
+      if (name.trim() || email.trim()) saveUploaderPrefs(name.trim(), email.trim());
       await runUpload(data.token, sid, items, {
         onBytes: (d) => (uploadedBytes += d),
         onFileStart: (p) => (currentFile = p),
@@ -193,6 +206,18 @@
       error = e instanceof Error ? e.message : "Upload failed.";
       phase = "error";
     }
+  }
+
+  // "Forgot something?" — back to a fresh form. Identity fields and verification
+  // survive so the uploader can send another batch without re-doing the gate.
+  function uploadMore() {
+    items = [];
+    doneFiles = new Set();
+    uploadedBytes = 0;
+    sessionId = null;
+    currentFile = null;
+    error = null;
+    phase = "select";
   }
 </script>
 
@@ -230,6 +255,9 @@
         <p class="mt-1 text-sm text-muted">
           {items.length} file{items.length === 1 ? "" : "s"} ({formatBytes(totalBytes)}) delivered.
         </p>
+        <div class="mt-5">
+          <Button {accent} onclick={uploadMore}>Forgot something? Send another</Button>
+        </div>
       </Card>
     {:else}
       <Card class="space-y-5">
@@ -311,8 +339,8 @@
               <p class="text-sm text-muted">Drag files or folders here</p>
               <p class="my-2 text-xs text-faint">or</p>
               <div class="flex justify-center gap-2">
-                <Button variant="ghost" size="sm" onclick={() => filesInput?.click()}>Choose files</Button>
-                <Button variant="ghost" size="sm" onclick={() => folderInput?.click()}>Choose folder</Button>
+                <Button variant="ghost" size="sm" onclick={() => filesInput?.click()}>Add files</Button>
+                <Button variant="ghost" size="sm" onclick={() => folderInput?.click()}>Add folder</Button>
                 <input bind:this={filesInput} type="file" multiple class="hidden" onchange={onPick} />
                 <input bind:this={folderInput} type="file" webkitdirectory class="hidden" onchange={onPick} />
               </div>
@@ -324,20 +352,27 @@
         {/if}
 
         {#if items.length > 0}
-          <div class="max-h-56 space-y-1 overflow-auto text-sm">
-            {#each items as it (it.path)}
-              <div class="flex items-center justify-between rounded px-2 py-1 {doneFiles.has(it.path) ? 'bg-success/10' : currentFile === it.path ? 'bg-surface-2' : ''}">
-                <span class="truncate">{it.path}</span>
-                <span class="ml-2 flex shrink-0 items-center gap-2 text-xs text-faint">
-                  {formatBytes(it.file.size)}
-                  {#if doneFiles.has(it.path)}<span class="text-success">✓</span>
-                  {:else if currentFile === it.path}<span class="text-muted">…</span>
-                  {:else if phase === "select"}
-                    <button onclick={() => removeItem(it.path)} class="text-faint hover:text-danger" aria-label="Remove {it.path}">✕</button>
-                  {/if}
-                </span>
-              </div>
-            {/each}
+          <div>
+            <div class="max-h-56 space-y-1 overflow-auto text-sm">
+              {#each items as it (it.path)}
+                <div class="flex items-center justify-between rounded px-2 py-1 {doneFiles.has(it.path) ? 'bg-success/10' : currentFile === it.path ? 'bg-surface-2' : ''}">
+                  <span class="truncate">{it.path}</span>
+                  <span class="ml-2 flex shrink-0 items-center gap-2 text-xs text-faint">
+                    {formatBytes(it.file.size)}
+                    {#if doneFiles.has(it.path)}<span class="text-success">✓</span>
+                    {:else if currentFile === it.path}<span class="text-muted">…</span>
+                    {:else if phase === "select"}
+                      <button onclick={() => removeItem(it.path)} class="text-faint hover:text-danger" aria-label="Remove {it.path}">✕</button>
+                    {/if}
+                  </span>
+                </div>
+              {/each}
+            </div>
+            {#if phase === "select"}
+              <p class="mt-2 text-center text-xs text-faint">
+                Add more files or folders above — everything uploads together.
+              </p>
+            {/if}
           </div>
         {/if}
 
