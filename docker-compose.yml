@@ -47,6 +47,13 @@ services:
       timeout: 5s
       retries: 10
       start_period: 40s
+    # Docker's default json-file driver keeps container logs forever; on a long-running deploy
+    # they grow until the disk fills. Cap them at 30 MB total per container.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   portal_data:

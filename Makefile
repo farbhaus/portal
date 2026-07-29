@@ -71,4 +71,4 @@ test:  ## Run the backend test suite (spins throwaway Postgres/Redis)
 	docker run -d --rm -p 55432:5432 -e POSTGRES_USER=portal -e POSTGRES_PASSWORD=portal -e POSTGRES_DB=portal --name portal_test_pg postgres:16 >/dev/null && \
 	docker run -d --rm -p 56379:6379 --name portal_test_redis redis:7 >/dev/null && \
 	(cd apps/api && uv run pytest); rc=$$?; \
-	docker rm -f portal_test_pg portal_test_redis >/dev/null; exit $$rc
+	docker rm -fv portal_test_pg portal_test_redis >/dev/null; exit $$rc
