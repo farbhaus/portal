@@ -25,6 +25,7 @@ from portal.frameio.client import FrameioForbidden, FrameioNotFound
 from portal.lib.config import get_settings
 from portal.lib.logging import get_logger
 from portal.storage.base import DestinationConfig, StorageBackend
+from portal.sync.destination import arm_destination, check_destination
 from portal.sync.download import download_to_file
 from portal.sync.paths import PathContext, resolve_conflict, resolve_destination
 
@@ -86,6 +87,15 @@ async def execute_job(
     rule = await db.get(SyncRule, job.sync_rule_id)
     if rule is None:
         raise RuntimeError(f"sync rule {job.sync_rule_id} is gone")
+
+    # An unmounted destination is still a perfectly writable directory, so writing now would put the
+    # file on the server's own disk, where it vanishes under the share the moment it mounts again.
+    # A rule is armed once it has a completed job — see portal.sync.destination. Checked before the
+    # first Frame.io call so a share outage costs no API traffic.
+    armed = await db.scalar(
+        select(SyncJob.id).where(SyncJob.sync_rule_id == rule.id, SyncJob.status == "done").limit(1)
+    )
+    check_destination(rule.destination_path, armed=armed is not None)
 
     dest = _destination(rule)
     try:
@@ -152,6 +162,8 @@ async def execute_job(
     job.sha256 = result.sha256
     job.completed_at = datetime.now(UTC)
     job.error = None
+    # The write landed, so this destination is real: arm it against a future unmounted share.
+    arm_destination(rule.destination_path)
     log.info(
         "sync.job.done",
         job_id=str(job.id),

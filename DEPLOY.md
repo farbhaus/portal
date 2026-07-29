@@ -150,6 +150,12 @@ Notes:
   land (default `/mnt`, which `deploy.sh` creates if missing); otherwise you can remove that bind
   mount from `docker-compose.yml`. `/mnt` exists on Linux but not macOS — on a dev machine set
   `SYNC_HOST_ROOT` to a path you can create (e.g. `./portal-sync`).
+- If a sync destination is a **network share**, note that Portal writes a `.portal-destination`
+  marker in the destination root after a rule's first successful sync. If the share later stops
+  being mounted, the marker disappears with it and Portal pauses that rule (jobs sit in *waiting*
+  and resume by themselves once the share is back) instead of filling the server's own disk with
+  files that would be hidden under the mountpoint. If you ever delete the marker by hand, `touch`
+  it again to resume syncing.
 
 ## 3. Add the host reverse-proxy entry
 

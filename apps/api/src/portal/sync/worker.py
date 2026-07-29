@@ -26,6 +26,7 @@ from portal.lib.logging import configure_logging, get_logger
 from portal.services.retention import purge_expired
 from portal.services.upload_sessions import abandon_stale_upload_sessions
 from portal.storage.frameio_backend import FrameioStorageBackend
+from portal.sync.destination import DestinationUnavailable
 from portal.sync.events import process_event
 from portal.sync.queue import RUN_SYNC_JOB
 from portal.sync.runner import (
@@ -98,6 +99,18 @@ async def run_sync_job(ctx: dict[str, Any], job_id: str) -> str:
             poll = settings.sync_source_poll_seconds
             await ctx["redis"].enqueue_job(RUN_SYNC_JOB, job_id, _defer_by=poll)
             log.info("sync.job.waiting_source", job_id=job_id, poll_s=poll)
+            return "waiting"
+        except DestinationUnavailable as exc:
+            # The destination share is not mounted. Writing would dump the file on the server's own
+            # disk, hidden under the share once it returns, so wait for the mount instead — without
+            # spending the retry budget, and with no timeout: an outage lasting days should resume
+            # cleanly rather than dead-letter the whole queue.
+            job.status = "waiting"
+            job.error = str(exc)
+            await db.commit()
+            poll = settings.sync_source_poll_seconds
+            await ctx["redis"].enqueue_job(RUN_SYNC_JOB, job_id, _defer_by=poll)
+            log.warning("sync.job.destination_unavailable", job_id=job_id, poll_s=poll)
             return "waiting"
         except Exception as exc:  # noqa: BLE001 - turn any failure into retry/dead-letter
             error = _unwrap_error(exc)
