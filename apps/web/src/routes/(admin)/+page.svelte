@@ -110,7 +110,12 @@
   </div>
 
   {#if health.dead_letter > 0}
-    <a href="/sync" class="block rounded-card border border-danger/40 bg-danger/10 px-4 py-2.5 text-sm text-danger hover:bg-danger/15">
+    <!-- Link to the rule that failed: its job list is the only place the error and the
+         retry/dismiss actions live. Falls back to the rules index if the rule is gone. -->
+    <a
+      href={health.dead_letter_rule_id ? `/sync-rules/${health.dead_letter_rule_id}` : "/sync"}
+      class="block rounded-card border border-danger/40 bg-danger/10 px-4 py-2.5 text-sm text-danger hover:bg-danger/15"
+    >
       {health.dead_letter} sync job{health.dead_letter > 1 ? "s" : ""} failed and need attention →
     </a>
   {/if}

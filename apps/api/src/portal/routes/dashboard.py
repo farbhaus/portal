@@ -46,6 +46,9 @@ class SyncHealth(BaseModel):
     running: int
     dead_letter: int
     done_24h: int
+    # Rule owning the most recent failure, so the dashboard alert can link to the job list that
+    # actually shows it instead of dropping the admin on the rules index with nothing to act on.
+    dead_letter_rule_id: str | None = None
 
 
 class TransfersOut(BaseModel):
@@ -238,11 +241,18 @@ async def transfers(
         )
         or 0
     )
+    dead_letter_rule_id = await db.scalar(
+        select(SyncJob.sync_rule_id)
+        .where(SyncJob.status == "dead_letter")
+        .order_by(SyncJob.created_at.desc())
+        .limit(1)
+    )
     sync_health = SyncHealth(
         waiting=status_counts.get("waiting", 0),
         running=status_counts.get("running", 0),
         dead_letter=status_counts.get("dead_letter", 0),
         done_24h=done_24h,
+        dead_letter_rule_id=str(dead_letter_rule_id) if dead_letter_rule_id else None,
     )
 
     return TransfersOut(active_uploads=active_uploads, recent=recent, sync_health=sync_health)

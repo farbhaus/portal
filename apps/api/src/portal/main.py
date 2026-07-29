@@ -21,6 +21,7 @@ from portal.routes import (
     public,
     public_downloads,
     security,
+    sync_jobs,
     sync_rules,
     upload_links,
     webhooks,
@@ -84,6 +85,7 @@ def create_app() -> FastAPI:
     app.include_router(webhooks.router, prefix="/api")
     app.include_router(webhooks.admin_router, prefix="/api")
     app.include_router(sync_rules.router, prefix="/api")
+    app.include_router(sync_jobs.router, prefix="/api")
     app.include_router(activity.router, prefix="/api")
     app.include_router(dashboard.router, prefix="/api")
     app.include_router(privacy.router, prefix="/api")

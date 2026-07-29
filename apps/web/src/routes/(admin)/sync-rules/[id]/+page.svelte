@@ -107,9 +107,26 @@
       return;
     }
     const created = (await res.json().catch(() => ({}))).created ?? 0;
-    runNote = created > 0
-      ? `Queued ${created} file${created === 1 ? "" : "s"}.`
-      : "Already up to date — nothing new to sync.";
+    // A disabled rule reconciles to 0 without looking at anything — say so rather than claiming
+    // everything is up to date.
+    runNote = !rule.enabled
+      ? "This rule is disabled — enable it to sync."
+      : created > 0
+        ? `Queued ${created} file${created === 1 ? "" : "s"}.`
+        : "Already up to date — nothing new to sync.";
+    await invalidateAll();
+  }
+
+  async function jobAction(id: string, action: "retry" | "dismiss") {
+    error = null;
+    saved = false;
+    runNote = null;
+    const res = await fetch(`/api/sync-jobs/${id}/${action}`, { method: "POST" });
+    if (!res.ok) {
+      error = (await res.json().catch(() => ({}))).detail ?? `Could not ${action} (${res.status}).`;
+      return;
+    }
+    runNote = action === "retry" ? "Queued another attempt." : "Job dismissed.";
     await invalidateAll();
   }
 
@@ -208,6 +225,7 @@
               <th class="px-3 py-2 font-medium">Status</th>
               <th class="px-3 py-2 font-medium">Size</th>
               <th class="px-3 py-2 font-medium">When</th>
+              <th class="px-3 py-2 font-medium"><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-border">
@@ -220,9 +238,15 @@
                 </td>
                 <td class="px-3 py-2 text-muted">{fmtBytes(j.bytes)}</td>
                 <td class="px-3 py-2 text-xs text-faint">{new Date(j.created_at).toLocaleString()}</td>
+                <td class="px-3 py-2 text-right whitespace-nowrap">
+                  {#if j.status === "dead_letter"}
+                    <button class="text-xs text-muted hover:text-text" onclick={() => jobAction(j.id, "retry")}>Retry</button>
+                    <button class="ml-2 text-xs text-muted hover:text-text" onclick={() => jobAction(j.id, "dismiss")}>Dismiss</button>
+                  {/if}
+                </td>
               </tr>
               {#if j.error}
-                <tr><td colspan="4" class="px-3 pb-2 text-xs text-danger">{j.error}</td></tr>
+                <tr><td colspan="5" class="px-3 pb-2 text-xs text-danger">{j.error}</td></tr>
               {/if}
             {/each}
           </tbody>

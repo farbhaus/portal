@@ -47,9 +47,14 @@
         note = `Could not run (${res.status}).`;
       } else {
         const created = (await res.json().catch(() => ({}))).created ?? 0;
-        note = created > 0
-          ? `Queued ${created} file${created === 1 ? "" : "s"} for "${r.name}".`
-          : `"${r.name}" is already up to date — nothing new to sync.`;
+        // A disabled rule reconciles to 0 without looking at anything, so don't pass that off as
+        // "already up to date" — that reads as success when nothing happened at all.
+        note = !r.enabled
+          ? `"${r.name}" is disabled — enable it to sync.`
+          : created > 0
+            ? `Queued ${created} file${created === 1 ? "" : "s"} for "${r.name}".`
+            : `"${r.name}" is already up to date — nothing new to sync.`;
+        await invalidateAll();
       }
     } finally { busy = null; }
   }
