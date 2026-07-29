@@ -69,11 +69,6 @@ async def run_sync_job(ctx: dict[str, Any], job_id: str) -> str:
         job = await db.get(SyncJob, uuid.UUID(job_id))
         if job is None or job.status in _TERMINAL:
             return "skip"
-        # TimestampMixin.created_at is stored tz-naive; make it aware so the patient-wait math below
-        # (now(UTC) - created_at) never raises and strands the job as "running".
-        created_at = job.created_at
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=UTC)
         job.status = "running"
         job.started_at = datetime.now(UTC)
         await db.commit()
@@ -86,13 +81,26 @@ async def run_sync_job(ctx: dict[str, Any], job_id: str) -> str:
             # The original isn't downloadable yet (still finalizing). Wait patiently — re-check on
             # a fixed cadence WITHOUT spending the retry budget — and give up only after the
             # readiness timeout, so a 100 GB upload that takes a while to finalize still syncs.
-            waited = (datetime.now(UTC) - created_at).total_seconds()
+            # The window runs from this attempt's first wait, not from job.created_at: a job
+            # re-picked days later must get a full window instead of expiring on its first tick.
+            now = datetime.now(UTC)
+            waiting_since = job.source_wait_started_at
+            if waiting_since is None:
+                job.source_wait_started_at = waiting_since = now
+            elif waiting_since.tzinfo is None:
+                waiting_since = waiting_since.replace(tzinfo=UTC)
+            waited = (now - waiting_since).total_seconds()
             if waited > settings.sync_source_ready_timeout_seconds:
-                job.status = "dead_letter"
+                # The upload was abandoned on Frame.io — the original will never be downloadable.
+                # That's a terminal skip like a source that was deleted (see portal.sync.runner),
+                # not a failure for an admin to fix: dead-lettering it would light the dashboard
+                # alert forever and have reconcile re-pick it on every pass.
+                job.status = "skipped"
                 job.error = f"source never became ready: {exc}"
+                job.completed_at = now
                 await db.commit()
                 log.warning("sync.job.source_timeout", job_id=job_id, waited_s=int(waited))
-                return "dead_letter"
+                return "skipped"
             job.status = "waiting"
             job.error = str(exc)
             await db.commit()

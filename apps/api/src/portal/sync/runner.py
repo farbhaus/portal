@@ -68,6 +68,18 @@ def _is_orphaned(job: SyncJob, now: datetime, stale_after_seconds: int) -> bool:
     return (now - job.started_at).total_seconds() > stale_after_seconds
 
 
+def _is_stranded_pending(job: SyncJob, now: datetime, stale_after_seconds: int) -> bool:
+    """A job sitting "pending" that no worker ever started means its queued task was lost — the
+    worker restarted between the row being written and the task being picked up, or the queued task
+    expired. Nothing else will ever pick it up: the enqueue happened once and reconcile otherwise
+    leaves pending jobs alone, so the file strands forever. Measured from ``updated_at`` (bumped
+    whenever the row is touched) so a job re-enqueued moments ago isn't immediately re-queued again.
+    """
+    if job.status != "pending" or job.started_at is not None:
+        return False
+    return (now - job.updated_at).total_seconds() > stale_after_seconds
+
+
 def _in_scope(rule: SyncRule, parent_id: str | None) -> bool:
     """A non-recursive rule only takes files directly in its folder; recursive takes everything
     the source listing returns (we can't cheaply prove descendant-ship from a webhook event)."""
@@ -212,7 +224,9 @@ async def reconcile_rule(
         files = await backend.list_files_in_destination(dest)
 
     now = datetime.now(UTC)
-    stale_after = get_settings().sync_job_timeout_seconds
+    settings = get_settings()
+    stale_after = settings.sync_job_timeout_seconds
+    pending_stale_after = settings.sync_pending_stale_seconds
 
     created = 0
     for f in files:
@@ -227,18 +241,25 @@ async def reconcile_rule(
             await db.flush()
             await enqueue(job.id)
             created += 1
-        elif existing.status == "dead_letter" or _is_orphaned(existing, now, stale_after):
-            # Self-heal: a transient failure (source not ready in time, a network blip) or a job
-            # left "running" by a killed worker shouldn't strand a file. Reset + re-attempt.
+        elif (
+            existing.status == "dead_letter"
+            or _is_orphaned(existing, now, stale_after)
+            or _is_stranded_pending(existing, now, pending_stale_after)
+        ):
+            # Self-heal: a transient failure (a network blip), a job left "running" by a killed
+            # worker, or one whose queued task was lost shouldn't strand a file. Reset + re-attempt.
             existing.status = "pending"
             existing.retry_count = 0
             existing.error = None
             existing.started_at = None
             existing.completed_at = None
+            # Fresh attempt, fresh readiness window (see portal.sync.worker) — otherwise the reset
+            # job measures its wait from an old clock and expires again on its first tick.
+            existing.source_wait_started_at = None
             await db.flush()
             await enqueue(existing.id)
             created += 1
-        # done / skipped / pending / waiting / fresh-running: leave as-is
+        # done / skipped / waiting / fresh-pending / fresh-running: leave as-is
 
     await db.commit()
     if created:

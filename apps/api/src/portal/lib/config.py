@@ -92,6 +92,11 @@ class Settings(BaseSettings):
     # giving up only after the timeout. Big originals (100s of GB) can take a while to finalize.
     sync_source_poll_seconds: int = Field(default=120)
     sync_source_ready_timeout_seconds: int = Field(default=21600)  # 6h
+    # A "pending" job no worker ever started has lost its queued task (worker restarted before it
+    # was picked up, or the task expired). Reconcile re-enqueues one untouched for this long. Keep
+    # it comfortably above sync_reconcile_interval_minutes so a job queued moments ago isn't
+    # re-queued while it's still waiting its turn.
+    sync_pending_stale_seconds: int = Field(default=1800)  # 30m
     # Max wall-clock for a single download task. MUST exceed the time to pull your largest file —
     # arq cancels a task past this (arq's own default is only 300s, far too low for big DCPs). Also
     # the threshold past which a still-"running" job is treated as orphaned (worker died) and

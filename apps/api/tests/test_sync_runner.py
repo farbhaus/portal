@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -428,3 +428,49 @@ async def test_reclaim_orphaned_running_requeues_and_leaves_others() -> None:
         assert reclaimed is not None and reclaimed.status == "pending"
         assert reclaimed.started_at is None
         assert untouched is not None and untouched.status == "done"
+
+
+async def test_reconcile_requeues_a_stranded_pending_job(tmp_path: Path) -> None:
+    """A pending job no worker ever started lost its queued task; reconcile is the only thing left
+    that can rescue it. Before this, "Run" reported files queued and they still never ran."""
+    rule_id = await _make_rule(str(tmp_path))
+    async with get_sessionmaker()() as db:
+        job = SyncJob(sync_rule_id=rule_id, frameio_file_id="stranded", status="pending")
+        db.add(job)
+        await db.commit()
+        stranded_id = job.id
+        # Untouched for longer than sync_pending_stale_seconds.
+        job.updated_at = datetime.now(UTC) - timedelta(hours=2)
+        await db.commit()
+
+    enqueued: list[uuid.UUID] = []
+
+    async def enqueue(job_id: uuid.UUID) -> None:
+        enqueued.append(job_id)
+
+    backend = _StubBackend([RemoteFile(id="stranded", name="s")])
+    async with get_sessionmaker()() as db:
+        created = await runner.reconcile_rule(db, rule_id, backend=backend, enqueue=enqueue)  # type: ignore[arg-type]
+    assert created == 1
+    assert enqueued == [stranded_id]
+
+
+async def test_reconcile_leaves_a_freshly_queued_job_alone(tmp_path: Path) -> None:
+    """Only *stale* pending jobs are rescued — re-queueing one that's still waiting its turn would
+    run the same download twice."""
+    rule_id = await _make_rule(str(tmp_path))
+    async with get_sessionmaker()() as db:
+        job = SyncJob(sync_rule_id=rule_id, frameio_file_id="fresh", status="pending")
+        db.add(job)
+        await db.commit()
+
+    enqueued: list[uuid.UUID] = []
+
+    async def enqueue(job_id: uuid.UUID) -> None:
+        enqueued.append(job_id)
+
+    backend = _StubBackend([RemoteFile(id="fresh", name="s")])
+    async with get_sessionmaker()() as db:
+        created = await runner.reconcile_rule(db, rule_id, backend=backend, enqueue=enqueue)  # type: ignore[arg-type]
+    assert created == 0
+    assert enqueued == []

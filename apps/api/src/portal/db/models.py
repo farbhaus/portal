@@ -234,6 +234,11 @@ class SyncJob(Base, TimestampMixin):
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # When this attempt first found the source not downloadable yet. The readiness deadline runs
+    # from here rather than created_at, so a job re-picked days later gets a full window instead of
+    # expiring on its first tick. Cleared whenever the job is reset (reconcile self-heal, manual
+    # retry) and left alone by the untimed destination wait.
+    source_wait_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     sync_rule: Mapped[SyncRule] = relationship(back_populates="jobs")
 
