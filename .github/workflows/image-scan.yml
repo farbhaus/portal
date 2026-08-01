@@ -50,7 +50,7 @@ jobs:
           ignore-unfixed: true
           exit-code: '0'
       - name: Upload results to Security tab
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v4.37.3
         if: always()
         with:
           sarif_file: trivy-portal.sarif
