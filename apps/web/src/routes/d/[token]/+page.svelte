@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Button, Card, PoweredByPortal } from "$lib/components";
+  import { Button, Card, PathBreadcrumb, PoweredByPortal } from "$lib/components";
   import {
     downloadAll,
     downloadAllToFolder,
@@ -12,6 +12,7 @@
     type DownloadFile,
     type FolderProgress,
   } from "$lib/download";
+  import { childFolders, crumbs, filesIn, hasFolders, subtree } from "$lib/filetree";
 
   let { data } = $props();
   const link = $derived(data.link);
@@ -41,6 +42,24 @@
   onMount(() => {
     canPickFolder = supportsFolderPicker();
   });
+
+  // Folder browsing. A recursive folder source gives every file a relative `path`, which we turn
+  // into a navigable tree; flat sources (single file, curated selection, non-recursive folder) have
+  // no paths at all and keep rendering as the plain, source-ordered list.
+  let cwd = $state("");
+  const tree = $derived(hasFolders(files));
+  const folders = $derived(tree ? childFolders(files, cwd) : []);
+  // Rows in the current folder, and everything at or below it (what the "download all" buttons act
+  // on, with paths relative to `cwd` so a saved folder mirrors what's on screen).
+  const rows = $derived(tree ? filesIn(files, cwd) : files);
+  const scoped = $derived(tree ? subtree(files, cwd) : files);
+  const path = $derived(crumbs(cwd, "All files"));
+
+  function openFolder(folderPath: string) {
+    cwd = folderPath;
+    error = null;
+    doneMsg = null;
+  }
 
   const needsGate = $derived(
     link.password_required ||
@@ -156,7 +175,7 @@
           pct,
         };
       };
-      const r = await downloadAllToFolder(data.token, sessionId!, files, onProgress);
+      const r = await downloadAllToFolder(data.token, sessionId!, scoped, onProgress);
       if (r.failed.length)
         error = `Couldn't save ${r.failed.length} file${r.failed.length === 1 ? "" : "s"}: ${r.failed.join(", ")}`;
       if (r.saved > 0) doneMsg = `Saved ${r.saved} file${r.saved === 1 ? "" : "s"} to “${r.dirName}”.`;
@@ -167,7 +186,7 @@
   // every browser; the only path on non-Chromium browsers.
   function allToDownloads() {
     return runAll(async () => {
-      await downloadAll(data.token, sessionId!, files, (done, total) => {
+      await downloadAll(data.token, sessionId!, scoped, (done, total) => {
         allProgress = { label: `Sent ${done} / ${total} to your browser…`, pct: (done / total) * 100 };
       });
     });
@@ -224,29 +243,39 @@
                 : "View files"}
           </Button>
         {:else}
+          {#if tree}
+            <PathBreadcrumb
+              segments={path}
+              onnavigate={(i) => openFolder(path[i].path)}
+              class="text-sm"
+            />
+          {/if}
+
           <div class="flex items-center justify-between gap-2">
-            <span class="text-sm text-muted">{files.length} file{files.length === 1 ? "" : "s"}</span>
-            {#if files.length > 1}
+            <span class="text-sm text-muted">
+              {scoped.length} file{scoped.length === 1 ? "" : "s"}{cwd ? " in this folder" : ""}
+            </span>
+            {#if scoped.length > 1}
               <div class="flex items-center gap-2">
                 {#if canPickFolder}
                   <!-- Chromium can do both: stream into a chosen folder, or hand off to the
                        browser's download manager like every other browser. -->
                   <Button variant="ghost" size="sm" onclick={allToDownloads} disabled={allProgress !== null}>
-                    Download all
+                    {cwd ? "Download folder" : "Download all"}
                   </Button>
                   <Button {accent} size="sm" onclick={allToFolder} disabled={allProgress !== null}>
                     {allProgress ? "Downloading…" : "Download to folder…"}
                   </Button>
                 {:else}
                   <Button {accent} size="sm" onclick={allToDownloads} disabled={allProgress !== null}>
-                    {allProgress ? "Downloading…" : "Download all"}
+                    {allProgress ? "Downloading…" : cwd ? "Download folder" : "Download all"}
                   </Button>
                 {/if}
               </div>
             {/if}
           </div>
 
-          {#if !canPickFolder && files.length > 1}
+          {#if !canPickFolder && scoped.length > 1}
             <p class="rounded-md bg-info/10 px-3 py-2 text-xs text-info">
               To keep the original folder structure, open this link in a Chromium-based browser
               (Chrome, Edge, Arc, Brave). Other browsers save the files individually.
@@ -272,7 +301,29 @@
             <p class="text-sm text-faint">No files to download.</p>
           {:else}
             <div class="divide-y divide-border">
-              {#each files as f (f.id)}
+              {#each folders as d (d.path)}
+                <button
+                  type="button"
+                  onclick={() => openFolder(d.path)}
+                  class="flex w-full items-center gap-3 py-2.5 text-left transition-colors hover:bg-surface-2"
+                >
+                  <div class="flex h-10 w-14 items-center justify-center rounded bg-surface-2 text-faint">
+                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                    </svg>
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="truncate text-sm">{d.name}</div>
+                    <div class="text-xs text-faint">
+                      {d.fileCount} file{d.fileCount === 1 ? "" : "s"}{d.size === null ? "" : ` · ${formatBytes(d.size)}`}
+                    </div>
+                  </div>
+                  <svg class="h-4 w-4 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="9 18 15 12 9 6"/>
+                  </svg>
+                </button>
+              {/each}
+              {#each rows as f (f.id)}
                 <div class="flex items-center gap-3 py-2.5">
                   {#if link.allow_preview && f.thumbnail_url}
                     <img src={f.thumbnail_url} alt="" class="h-10 w-14 rounded object-cover" />
