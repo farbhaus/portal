@@ -157,7 +157,7 @@
       <a href="/history" class="text-xs text-muted hover:text-text">Full history →</a>
     </div>
     {#if recent.length === 0}
-      <p class="px-5 py-10 text-center text-sm text-muted">Nothing yet. Transfers will show up here.</p>
+      <p class="px-5 py-10 text-center text-sm text-muted">No transfers yet.</p>
     {:else}
       <div class="max-h-[calc(100vh-30rem)] divide-y divide-border/60 overflow-y-auto">
         {#each recent as r (r.kind + r.id)}

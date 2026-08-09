@@ -215,7 +215,7 @@
       </div>
     </div>
     {#if jobs.length === 0}
-      <p class="text-sm text-faint">No jobs yet. New files in the source folder will appear here.</p>
+      <p class="text-sm text-faint">No jobs yet.</p>
     {:else}
       <div class="overflow-hidden rounded-lg border border-border">
         <table class="w-full text-sm">

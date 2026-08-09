@@ -381,7 +381,7 @@
 </script>
 
 <div class="mx-auto max-w-2xl space-y-6">
-  <PageHeader title="Settings" subtitle="Connection, email, account, and security configuration." />
+  <PageHeader title="Settings" />
 
   {#if flash === "connected"}
     <p class="rounded-md bg-success/10 px-3 py-2 text-sm text-success">Frame.io connected.</p>
@@ -483,7 +483,7 @@
         <input bind:value={smtpUsername} autocomplete="off" placeholder="(optional)" class="mt-1 w-full {fieldCls}" />
       </label>
       <label class="block text-sm">
-        <span class="text-muted">Password {#if email.has_password}<span class="text-faint">(blank = keep)</span>{/if}</span>
+        <span class="text-muted">Password {#if email.has_password}<span class="text-faint">(leave blank to keep current)</span>{/if}</span>
         <input type="password" bind:value={smtpPassword} autocomplete="off" placeholder={email.has_password ? "••••••••" : "(optional)"} class="mt-1 w-full {fieldCls}" />
       </label>
       <label class="block text-sm sm:col-span-2">

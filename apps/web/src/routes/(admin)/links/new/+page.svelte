@@ -201,7 +201,7 @@
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
         </svg>
         <div class="font-semibold">Download link</div>
-        <div class="mt-1 text-sm text-muted">Send files out to recipients from Frame.io.</div>
+        <div class="mt-1 text-sm text-muted">Send files out to recipients.</div>
       </button>
     </div>
   {/if}

@@ -26,7 +26,7 @@
 </script>
 
 <div class="space-y-5">
-  <PageHeader title="Transfer history" subtitle="Every completed upload and download, newest first.">
+  <PageHeader title="Transfer history">
     {#snippet actions()}
       <select onchange={onFilter} class="rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm">
         <option value="all" selected={data.kind === "all"}>All transfers</option>

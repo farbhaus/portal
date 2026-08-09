@@ -122,10 +122,7 @@
 
 <div class="space-y-5">
   <div class="flex flex-wrap items-start justify-between gap-4">
-    <div class="min-w-0">
-      <h1 class="text-xl font-semibold tracking-tight">Destinations</h1>
-      <p class="mt-0.5 text-sm text-muted">Where files land in Frame.io — with the links and sync rules attached to each folder.</p>
-    </div>
+    <h1 class="min-w-0 text-xl font-semibold tracking-tight">Destinations</h1>
     <div class="flex flex-wrap items-center gap-2">
       <Button href="/sync-rules/new" variant="ghost">New sync rule</Button>
       <Button href="/destinations/new">New destination</Button>
@@ -208,7 +205,6 @@
     <div class="rounded-card border border-border bg-surface shadow-sm">
       <div class="border-b border-border px-5 py-3.5">
         <h2 class="text-sm font-semibold">Other sync rules</h2>
-        <p class="text-xs text-muted">Watching Frame.io folders that aren't a destination.</p>
       </div>
       <div class="divide-y divide-border/60">
         {#each otherRules as r (r.id)}

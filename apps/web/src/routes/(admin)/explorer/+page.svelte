@@ -339,7 +339,7 @@
 </script>
 
 <div class="space-y-5">
-  <PageHeader title="Files" subtitle="Browse your Frame.io library — download, organize, and share without leaving Portal." />
+  <PageHeader title="Files" />
 
   {#if error}<p class="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>{/if}
 

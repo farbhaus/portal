@@ -20,7 +20,7 @@
 </script>
 
 <div class="space-y-5">
-  <PageHeader title="Activity" subtitle="Append-only log of admin actions.">
+  <PageHeader title="Activity">
     {#snippet actions()}
       <select onchange={onFilter} class="rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm">
         <option value="" selected={!data.action}>All actions</option>

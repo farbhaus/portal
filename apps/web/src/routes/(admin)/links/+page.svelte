@@ -56,10 +56,7 @@
 
 <div class="space-y-5">
   <div class="flex items-start justify-between gap-4">
-    <div>
-      <h1 class="text-xl font-semibold tracking-tight">Links</h1>
-      <p class="mt-0.5 text-sm text-muted">Branded links to send files in or out — no Frame.io account needed.</p>
-    </div>
+    <h1 class="text-xl font-semibold tracking-tight">Links</h1>
     <Button href="/links/new">New link</Button>
   </div>
 
@@ -67,10 +64,7 @@
     <!-- Upload links -->
     <div class="rounded-card border border-border bg-surface shadow-sm">
       <div class="flex items-center justify-between border-b border-border px-5 py-3.5">
-        <div>
-          <h2 class="text-sm font-semibold">Upload links</h2>
-          <p class="text-xs text-muted">Collaborators drop files into a destination.</p>
-        </div>
+        <h2 class="text-sm font-semibold">Upload links</h2>
         <span class="text-xs text-faint">{uploadLinks.length}</span>
       </div>
 
@@ -117,10 +111,7 @@
     <!-- Download links -->
     <div class="rounded-card border border-border bg-surface shadow-sm">
       <div class="flex items-center justify-between border-b border-border px-5 py-3.5">
-        <div>
-          <h2 class="text-sm font-semibold">Download links</h2>
-          <p class="text-xs text-muted">Send files out to recipients.</p>
-        </div>
+        <h2 class="text-sm font-semibold">Download links</h2>
         <span class="text-xs text-faint">{downloadLinks.length}</span>
       </div>
 
