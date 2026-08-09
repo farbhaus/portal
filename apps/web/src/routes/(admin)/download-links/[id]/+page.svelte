@@ -47,6 +47,15 @@
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
+  // Log timestamps drop the seconds: four columns share a narrow card, and to-the-second precision
+  // buys nothing here (the full value stays available on hover).
+  function fmtWhen(iso: string): string {
+    return new Date(iso).toLocaleString(undefined, {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  }
+
   function sourceLabel(): string {
     const s = link.source as Record<string, unknown>;
     if (s.type === "file") return "Single file";
@@ -127,7 +136,7 @@
   }
 </script>
 
-<div class="mx-auto max-w-2xl space-y-6">
+<div class="mx-auto max-w-3xl space-y-6">
   <div>
     <a href="/download-links" class="text-sm text-muted hover:text-text">← Download links</a>
     <h1 class="mt-1 text-2xl font-semibold">Edit download link</h1>
@@ -220,21 +229,36 @@
     {#if data.events.length === 0}
       <p class="text-sm text-faint">No downloads yet.</p>
     {:else}
-      <div class="overflow-hidden rounded-lg border border-border">
-        <table class="w-full text-sm">
+      <!-- Scrolls rather than clips: a long file name must never be silently truncated in an audit
+           log, and the four columns can't all shrink on a narrow viewport. -->
+      <div class="overflow-x-auto rounded-lg border border-border">
+        <!-- Fixed layout: with auto layout the table sizes to min-content, and an unbreakable long
+             email or an IPv6 address then shoves the file name out of view. -->
+        <table class="w-full min-w-lg table-fixed text-sm">
           <thead class="border-b border-border text-left text-muted">
             <tr>
-              <th class="px-3 py-2 font-medium">When</th>
-              <th class="px-3 py-2 font-medium">Viewer</th>
-              <th class="px-3 py-2 font-medium">File</th>
+              <th class="w-[17%] px-3 py-2 font-medium">When</th>
+              <th class="w-[28%] px-3 py-2 font-medium">Viewer</th>
+              <th class="w-[20%] px-3 py-2 font-medium">IP</th>
+              <th class="w-[35%] px-3 py-2 font-medium">File</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-border">
             {#each data.events as ev (ev.started_at + ev.frameio_file_id)}
               <tr>
-                <td class="px-3 py-2 text-xs whitespace-nowrap text-faint">{new Date(ev.started_at).toLocaleString()}</td>
-                <td class="px-3 py-2 text-muted">{ev.viewer_email ?? ev.viewer_name ?? ev.ip ?? "—"}</td>
-                <td class="px-3 py-2 font-mono text-xs">{ev.file_name ?? ev.frameio_file_id}</td>
+                <td class="px-3 py-2 align-top text-xs text-faint" title={new Date(ev.started_at).toLocaleString()}>{fmtWhen(ev.started_at)}</td>
+                <td class="px-3 py-2 align-top text-sm break-words text-muted">
+                  {#if ev.viewer_name || ev.viewer_email}
+                    <span class="block">{ev.viewer_name ?? ev.viewer_email}</span>
+                    {#if ev.viewer_name && ev.viewer_email}
+                      <span class="block text-xs text-faint">{ev.viewer_email}</span>
+                    {/if}
+                  {:else}
+                    <span class="text-faint">Not required</span>
+                  {/if}
+                </td>
+                <td class="px-3 py-2 align-top font-mono text-xs break-all text-muted" title={ev.user_agent ?? ""}>{ev.ip ?? "—"}</td>
+                <td class="px-3 py-2 align-top font-mono text-xs break-all">{ev.file_name ?? ev.frameio_file_id}</td>
               </tr>
             {/each}
           </tbody>

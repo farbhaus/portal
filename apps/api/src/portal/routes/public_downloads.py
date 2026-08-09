@@ -31,6 +31,7 @@ from portal.lib.config import get_settings
 from portal.lib.errors import NotFoundError
 from portal.lib.lockout import check_password_lockout, register_password_failure
 from portal.lib.logging import get_logger
+from portal.lib.net import client_ip
 from portal.lib.ratelimit import limit
 from portal.services.app_settings import resolve_branding
 from portal.storage.base import DestinationConfig
@@ -206,7 +207,7 @@ async def start_session(
         download_link_id=link.id,
         viewer_name=body.name,
         viewer_email=body.email,
-        ip=request.client.host if request.client else None,
+        ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
         # Snapshot id/name/size so per-file URL mints need no extra Frame.io calls (folder sources
         # in particular were re-listed on every mint).
@@ -239,6 +240,7 @@ async def get_download_url(
     token: str,
     session_id: str,
     file_id: str,
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_session),
 ) -> DownloadUrlResult:
@@ -305,6 +307,7 @@ async def get_download_url(
             .values(downloads_count=DownloadLink.downloads_count + 1)
         )
 
+    ip = client_ip(request)
     db.add(
         DownloadEvent(
             download_session_id=session.id,
@@ -312,10 +315,12 @@ async def get_download_url(
             file_name=matched.get("name"),
             bytes_served=matched.get("size"),
             completed=True,
+            ip=ip,
+            user_agent=request.headers.get("user-agent"),
         )
     )
     await db.commit()
-    log.info("public.download.url_minted", token=token, file_id=file_id)
+    log.info("public.download.url_minted", token=token, file_id=file_id, ip=ip)
     return DownloadUrlResult(url=result.url)
 
 

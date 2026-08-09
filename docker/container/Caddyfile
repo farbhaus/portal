@@ -4,6 +4,20 @@
 # Encrypt cert; "localhost" uses Caddy's internal CA). The ":80" here is just a fallback default.
 # Unlike the multi-container docker/Caddyfile (which targets the portal_api / portal_web service
 # names), here every process shares the container's loopback, so it routes to 127.0.0.1.
+{
+	servers {
+		# Preserve the X-Forwarded-For chain from the hop in front of us. Caddy only *appends* to
+		# an incoming XFF when the peer is trusted — otherwise it REPLACES the header with the peer
+		# address, as anti-spoofing. Behind a host proxy the peer is the docker bridge gateway
+		# (172.x.x.x), so untrusted-by-default meant every forwarded client IP was thrown away here
+		# and the API logged the gateway (172.18.0.1) as the downloader. The private ranges are the
+		# only addresses that can reach this Caddy from in front: the published port is bound to the
+		# host's loopback. In standalone mode Caddy is the edge and real clients arrive from public
+		# addresses — untrusted, so their XFF is still replaced with the true peer, as it must be.
+		trusted_proxies static private_ranges
+	}
+}
+
 {$PORTAL_SITE_ADDRESS::80} {
 	# Security headers on every response (HTML comes from the SvelteKit server, not the API, so
 	# setting them here covers both). `Set` semantics replace any upstream value. CSP is limited to

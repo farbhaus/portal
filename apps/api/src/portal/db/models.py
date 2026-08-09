@@ -335,6 +335,11 @@ class DownloadEvent(Base):
     file_name: Mapped[str | None] = mapped_column(String(512))
     completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     bytes_served: Mapped[int | None] = mapped_column(BigInteger)
+    # Captured per download, not just once per session: a session id is a bearer token that can be
+    # reused later or from elsewhere, so "who fetched this file" is only answerable at event level.
+    # Null on rows written before these columns existed — read them via the session as a fallback.
+    ip: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

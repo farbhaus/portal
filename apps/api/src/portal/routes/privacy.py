@@ -2,7 +2,8 @@
 
 Portal's personal data about link recipients lives in a few places:
   - upload_sessions   — uploader_name / uploader_email / uploader_message
-  - download_sessions — viewer_name / viewer_email / ip / user_agent (+ their download_events)
+  - download_sessions — viewer_name / viewer_email / ip / user_agent
+  - download_events   — the per-download ip / user_agent of that session's files
   - email_verifications — a pending one-time code keyed by email
 
 These endpoints let the operator (the data controller) honour access requests (export) and erasure
@@ -110,6 +111,8 @@ async def export_subject(
                     "frameio_file_id": ev.frameio_file_id,
                     "completed": ev.completed,
                     "bytes_served": ev.bytes_served,
+                    "ip": ev.ip,
+                    "user_agent": ev.user_agent,
                     "started_at": _iso(ev.started_at),
                 }
             )
@@ -230,6 +233,12 @@ async def erase_subject(
                 update(DownloadSession)
                 .where(DownloadSession.id.in_(dl_ids))
                 .values(viewer_name=None, viewer_email=None, ip=None, user_agent=None)
+            )
+            # The events carry their own copy of the address, so clearing the session isn't enough.
+            await db.execute(
+                update(DownloadEvent)
+                .where(DownloadEvent.download_session_id.in_(dl_ids))
+                .values(ip=None, user_agent=None)
             )
     else:  # delete — download_events cascade via the FK's ON DELETE CASCADE
         if up_ids:

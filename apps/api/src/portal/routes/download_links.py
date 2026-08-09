@@ -287,6 +287,7 @@ class DownloadEventOut(BaseModel):
     viewer_name: str | None
     viewer_email: str | None
     ip: str | None
+    user_agent: str | None
     completed: bool
     started_at: str
 
@@ -313,13 +314,16 @@ async def list_events(
         .order_by(DownloadEvent.started_at.desc())
         .limit(limit)
     )
+    # The identity the recipient gave is per-session; the address is per-download. Events written
+    # before download_events grew its own ip/user_agent fall back to the session's.
     return [
         DownloadEventOut(
             frameio_file_id=ev.frameio_file_id,
             file_name=ev.file_name,
             viewer_name=sess.viewer_name,
             viewer_email=sess.viewer_email,
-            ip=sess.ip,
+            ip=ev.ip or sess.ip,
+            user_agent=ev.user_agent or sess.user_agent,
             completed=ev.completed,
             started_at=ev.started_at.isoformat(),
         )

@@ -10,6 +10,7 @@ from portal.db.models import AuditLog, DownloadEvent, DownloadLink, DownloadSess
 from portal.db.session import get_sessionmaker
 from portal.downloads.links import branding, resolve_source, validate_source
 from portal.frameio.client import DownloadFile, FileItem, PickerItem, ProjectItem
+from portal.lib.config import get_settings
 from portal.routes import download_links as dllinks
 from portal.routes import public_downloads as pubdl
 
@@ -280,6 +281,47 @@ async def test_public_resolve_and_session_and_download(client: AsyncClient, monk
         assert len(events) == 1 and events[0].frameio_file_id == "file-1"
         row = await db.get(DownloadLink, __import__("uuid").UUID(link["id"]))
         assert row is not None and row.downloads_count == 1
+
+
+async def test_download_log_records_real_client_ip(client: AsyncClient, monkeypatch) -> None:
+    """The log must show the recipient's address, not the proxy the request arrived from.
+
+    Two trusted hops → the real client is the 2nd X-Forwarded-For entry from the right. Reading the
+    socket peer instead (the old behaviour) recorded the docker bridge gateway for every recipient.
+    """
+    await _login(client)
+    _use_stub(monkeypatch)
+    monkeypatch.setattr(get_settings(), "trusted_proxy_hops", 2)
+    link = await _make_link(client, viewer_fields_required={"name": True, "email": True})
+    token = link["token"]
+    headers = {"X-Forwarded-For": "spoofed, 203.0.113.7, 10.0.0.1", "User-Agent": "Recipient/1.0"}
+
+    started = await client.post(
+        f"/api/public/downloads/{token}/sessions",
+        json={"name": "Jane Cutter", "email": "jane@example.com"},
+        headers=headers,
+    )
+    assert started.status_code == 200, started.text
+    sid = started.json()["session_id"]
+    minted = await client.post(
+        f"/api/public/downloads/{token}/sessions/{sid}/files/file-1/url", headers=headers
+    )
+    assert minted.status_code == 200
+
+    async with get_sessionmaker()() as db:
+        session = (await db.execute(select(DownloadSession))).scalars().one()
+        assert session.ip == "203.0.113.7"
+        event = (await db.execute(select(DownloadEvent))).scalars().one()
+        assert event.ip == "203.0.113.7"
+        assert event.user_agent == "Recipient/1.0"
+
+    events = await client.get(f"/api/download-links/{link['id']}/events")
+    assert events.status_code == 200
+    row = events.json()[0]
+    assert row["ip"] == "203.0.113.7"
+    assert row["viewer_name"] == "Jane Cutter"
+    assert row["viewer_email"] == "jane@example.com"
+    assert row["file_name"] == "file-1.mov"
 
 
 async def test_folder_source_exposes_relative_paths(client: AsyncClient, monkeypatch) -> None:

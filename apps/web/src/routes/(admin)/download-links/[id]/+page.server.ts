@@ -9,6 +9,7 @@ export type DownloadEvent = {
   viewer_name: string | null;
   viewer_email: string | null;
   ip: string | null;
+  user_agent: string | null;
   completed: boolean;
   started_at: string;
 };
