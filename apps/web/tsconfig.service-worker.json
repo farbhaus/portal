@@ -1,0 +1,17 @@
+{
+  // svelte-check never sees src/service-worker.ts — Kit's generated tsconfig explicitly excludes it
+  // (it needs the webworker lib, not the DOM). This config type-checks it separately; `npm run
+  // check` runs both.
+  "compilerOptions": {
+    "lib": ["esnext", "webworker"],
+    "types": [],
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/service-worker.ts", "src/lib/zip-protocol.ts"]
+}

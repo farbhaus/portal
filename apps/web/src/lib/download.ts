@@ -1,6 +1,7 @@
 // Recipient-side download helpers. Portal only mints short-lived signed URLs; the browser
 // fetches bytes directly from Frame.io's storage — nothing flows through Portal.
 
+import { zipPaths } from "$lib/filetree";
 import { formatBytes as fmtBytes } from "$lib/format";
 
 export type DownloadFile = {
@@ -58,9 +59,11 @@ async function signedUrl(token: string, sessionId: string, fileId: string): Prom
   return (await asJson(res)).url as string;
 }
 
-// Trigger a browser download by navigating a hidden iframe to the signed URL. Using an iframe
-// (rather than location/anchor) lets us fire several sequential downloads without navigating away.
-function triggerDownload(url: string): void {
+// Trigger a browser download by navigating a hidden iframe to the URL. Using an iframe (rather than
+// location/anchor) lets us fire several sequential downloads without navigating away — and for the
+// streamed-ZIP path (zipdownload.ts) it is the only reliable option, because an anchor with
+// `download` is not consistently routed through a service worker.
+export function triggerDownload(url: string): void {
   const iframe = document.createElement("iframe");
   iframe.style.display = "none";
   iframe.src = url;
@@ -79,12 +82,17 @@ export async function downloadAll(
   sessionId: string,
   files: DownloadFile[],
   onProgress?: (done: number, total: number) => void,
-): Promise<void> {
+  signal?: AbortSignal,
+): Promise<{ cancelled: boolean }> {
   for (let i = 0; i < files.length; i++) {
+    // Cancelling stops handing over further files; ones already passed to the browser keep going in
+    // its download manager, which is where the recipient can stop them.
+    if (signal?.aborted) return { cancelled: true };
     triggerDownload(await signedUrl(token, sessionId, files[i].id));
     onProgress?.(i + 1, files.length);
     if (i < files.length - 1) await sleep(800);
   }
+  return { cancelled: false };
 }
 
 // ── "Download all" into a recipient-chosen folder (Chromium File System Access API) ──────────
@@ -121,6 +129,7 @@ export type FolderResult = {
   dirName: string; // name of the folder the recipient picked (for the completion message)
   saved: number; // files written successfully
   failed: string[]; // names of files that couldn't be saved
+  cancelled: boolean; // the recipient stopped it part-way
 };
 
 export function supportsFolderPicker(): boolean {
@@ -162,17 +171,28 @@ export async function downloadAllToFolder(
   sessionId: string,
   files: DownloadFile[],
   onProgress?: (p: FolderProgress) => void,
+  signal?: AbortSignal,
 ): Promise<FolderResult> {
   const root: FsDirHandle = await (window as any).showDirectoryPicker({ mode: "readwrite" });
   const dirCache = new Map<string, FsDirHandle>();
   const failed: string[] = [];
+  // Frame.io lets two files share a name inside one folder; writing both under that name would
+  // leave the recipient with only the last one and no hint the other existed. Same de-duplication
+  // the ZIP path uses, so both ways of saving produce identical trees.
+  const paths = zipPaths(files);
   // Total is known only if every file reports a size; otherwise fall back to count-based progress.
   const bytesTotal = files.every((f) => f.size != null)
     ? files.reduce((sum, f) => sum + (f.size ?? 0), 0)
     : null;
   let bytesDone = 0;
 
+  let cancelled = false;
+  let saved = 0;
   for (let i = 0; i < files.length; i++) {
+    if (signal?.aborted) {
+      cancelled = true;
+      break;
+    }
     const file = files[i];
     let writable: FsWritable | undefined;
     const report = () =>
@@ -185,10 +205,11 @@ export async function downloadAllToFolder(
       });
     report();
     try {
-      const res = await fetch(await signedUrl(token, sessionId, file.id));
+      const res = await fetch(await signedUrl(token, sessionId, file.id), { signal });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-      const dir = await dirForPath(root, file.path, dirCache);
-      const handle = await dir.getFileHandle(file.name, { create: true });
+      const slash = paths[i].lastIndexOf("/");
+      const dir = await dirForPath(root, slash < 0 ? "" : paths[i].slice(0, slash), dirCache);
+      const handle = await dir.getFileHandle(paths[i].slice(slash + 1), { create: true });
       writable = await handle.createWritable();
       const reader = res.body.getReader();
       for (;;) {
@@ -199,12 +220,19 @@ export async function downloadAllToFolder(
         report();
       }
       await writable.close();
+      saved++;
     } catch {
+      // A part-written file is worse than none: abort() discards it rather than leaving a truncated
+      // clip on disk that looks complete.
       await writable?.abort?.().catch(() => {});
+      if (signal?.aborted) {
+        cancelled = true;
+        break;
+      }
       failed.push(file.name);
     }
   }
-  return { dirName: root.name, saved: files.length - failed.length, failed };
+  return { dirName: root.name, saved, failed, cancelled };
 }
 
 // Null-aware wrapper (a file size can be unknown); core formatting lives in format.ts.

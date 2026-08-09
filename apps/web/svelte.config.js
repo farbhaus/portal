@@ -6,6 +6,9 @@ const config = {
   preprocess: vitePreprocess(),
   kit: {
     adapter: adapter(),
+    // We register the worker ourselves, from the download page only (see lib/zipdownload.ts): Kit's
+    // auto-registration injects it into every page, and the admin app has no use for a worker.
+    serviceWorker: { register: false },
   },
 };
 

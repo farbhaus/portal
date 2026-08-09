@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node build",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run check:sw",
+    "check:sw": "tsc -p tsconfig.service-worker.json"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.5.7",
@@ -23,7 +24,8 @@
     "vite": "^6.0.0"
   },
   "dependencies": {
-    "@simplewebauthn/browser": "^13.3.0"
+    "@simplewebauthn/browser": "^13.3.0",
+    "client-zip": "^2.5.0"
   },
   "overrides": {
     "cookie": "^0.7.0"

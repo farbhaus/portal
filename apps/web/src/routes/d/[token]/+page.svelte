@@ -13,6 +13,14 @@
     type FolderProgress,
   } from "$lib/download";
   import { childFolders, crumbs, filesIn, hasFolders, subtree } from "$lib/filetree";
+  import {
+    downloadAllAsZip,
+    isZipUnavailable,
+    MAX_ZIP_ENTRIES,
+    safeZipName,
+    zipSupported,
+    type ZipProgress,
+  } from "$lib/zipdownload";
 
   let { data } = $props();
   const link = $derived(data.link);
@@ -35,12 +43,21 @@
   // bypass the browser's download manager, so this is the only progress the recipient sees.
   let allProgress = $state<{ label: string; pct: number | null } | null>(null);
   let doneMsg = $state<string | null>(null);
-  // Chrome/Edge can stream "Download all" into a folder the recipient picks (preserving the
-  // subfolder tree); other browsers fall back to flat per-file downloads. Resolved after mount so
-  // it stays false during SSR (no `window`) and doesn't cause a hydration mismatch.
+  // A ZIP is assembled live by our service worker, so leaving the page cancels it (see the guard
+  // below); the other two paths don't need the tab to stay open.
+  let zipping = $state(false);
+  // Live while a "download all" runs, so the recipient can stop it from the page.
+  let aborter = $state<AbortController | null>(null);
+  // Three ways to keep the folder structure, best first: Chrome/Edge stream into a folder the
+  // recipient picks; everyone else gets a ZIP assembled by our service worker; if neither is
+  // available it's flat per-file downloads. Both flags resolve after mount so they stay false
+  // during SSR (no `window`) and don't cause a hydration mismatch.
   let canPickFolder = $state(false);
-  onMount(() => {
+  let zipReady = $state(false);
+  onMount(async () => {
     canPickFolder = supportsFolderPicker();
+    // Registers the worker up front so it is already warm when the recipient clicks.
+    zipReady = await zipSupported();
   });
 
   // Folder browsing. A recursive folder source gives every file a relative `path`, which we turn
@@ -54,6 +71,9 @@
   const rows = $derived(tree ? filesIn(files, cwd) : files);
   const scoped = $derived(tree ? subtree(files, cwd) : files);
   const path = $derived(crumbs(cwd, "All files"));
+  const canZip = $derived(zipReady && scoped.length <= MAX_ZIP_ENTRIES);
+  // The archive is named after what the recipient is looking at: the folder they're in, or the link.
+  const zipName = $derived(safeZipName(cwd ? (path.at(-1)?.name ?? "") : link.display_name));
 
   function openFolder(folderPath: string) {
     cwd = folderPath;
@@ -146,24 +166,32 @@
 
   // Shared wrapper around a "download all" action: clears banners, swallows a cancelled picker,
   // and always clears the progress bar at the end.
-  async function runAll(action: () => Promise<void>) {
+  async function runAll(action: (signal: AbortSignal) => Promise<void>) {
     if (!sessionId || allProgress) return;
     error = null;
     doneMsg = null;
+    aborter = new AbortController();
     try {
-      await action();
+      await action(aborter.signal);
     } catch (e) {
       // The recipient dismissing the folder picker isn't an error.
       if (!(e instanceof DOMException && e.name === "AbortError"))
         error = e instanceof Error ? e.message : "Download failed.";
     } finally {
       allProgress = null;
+      aborter = null;
     }
+  }
+
+  // Stop whatever "download all" is running. Every path takes the same signal, so one button ends
+  // any of them and hands the controls straight back — no page reload needed.
+  function cancelAll() {
+    aborter?.abort();
   }
 
   // Chromium only: stream every file into a folder the recipient picks, with real byte progress.
   function allToFolder() {
-    return runAll(async () => {
+    return runAll(async (signal) => {
       const onProgress = (p: FolderProgress) => {
         const pct = p.bytesTotal ? Math.min(100, (p.bytesDone / p.bytesTotal) * 100) : null;
         const count = `${p.fileIndex + 1} / ${p.filesTotal}`;
@@ -175,20 +203,83 @@
           pct,
         };
       };
-      const r = await downloadAllToFolder(data.token, sessionId!, scoped, onProgress);
+      const r = await downloadAllToFolder(data.token, sessionId!, scoped, onProgress, signal);
       if (r.failed.length)
         error = `Couldn't save ${r.failed.length} file${r.failed.length === 1 ? "" : "s"}: ${r.failed.join(", ")}`;
-      if (r.saved > 0) doneMsg = `Saved ${r.saved} file${r.saved === 1 ? "" : "s"} to “${r.dirName}”.`;
+      if (r.cancelled)
+        doneMsg = `Stopped — ${r.saved} of ${scoped.length} file${scoped.length === 1 ? "" : "s"} saved to “${r.dirName}”.`;
+      else if (r.saved > 0)
+        doneMsg = `Saved ${r.saved} file${r.saved === 1 ? "" : "s"} to “${r.dirName}”.`;
     });
   }
 
+  // Stream one ZIP through the service worker, keeping the folder tree. The browser's own download
+  // manager writes it to disk (and shows the authoritative progress); our bar is the secondary
+  // signal, and the only one during the first mint before any bytes move.
+  function allToZip() {
+    zipping = true;
+    return runAll(async (signal) => {
+      const onProgress = (p: ZipProgress) => {
+        const pct = p.bytesTotal ? Math.min(100, (p.bytesDone / p.bytesTotal) * 100) : null;
+        const count = `${p.fileIndex + 1} / ${p.filesTotal}`;
+        allProgress = {
+          label:
+            p.bytesTotal !== null
+              ? `Zipping ${p.fileName} — ${formatBytes(p.bytesDone)} of ${formatBytes(p.bytesTotal)} (${count})`
+              : `Zipping ${p.fileName} (${count})`,
+          pct,
+        };
+      };
+      let r: Awaited<ReturnType<typeof downloadAllAsZip>>;
+      try {
+        r = await downloadAllAsZip(data.token, sessionId!, scoped, zipName, onProgress, signal);
+      } catch (e) {
+        // The archive never started — the capability probe should have caught this, so it means the
+        // worker went away between the probe and the click. Drop to the per-file path rather than
+        // leaving the recipient staring at a button that does nothing.
+        if (!isZipUnavailable(e)) throw e;
+        zipReady = false;
+        error = "Couldn't prepare the archive here. Use “Download all” instead.";
+        return;
+      }
+      // Cancelling leaves a partial .zip in the browser's downloads — say so, because the file is
+      // there and looks plausible.
+      if (r.cancelled) {
+        doneMsg = "Download stopped. Any part-downloaded .zip in your downloads is incomplete.";
+        return;
+      }
+      if (r.failed.length)
+        error = `${r.failed.length} file${r.failed.length === 1 ? "" : "s"} couldn't be added; see _FAILED_FILES.txt in the archive.`;
+      doneMsg = `Saved ${r.saved} file${r.saved === 1 ? "" : "s"} to ${zipName}.zip.`;
+    }).finally(() => (zipping = false));
+  }
+
+  // Closing the tab tears down the worker feeding the archive, so warn first. Only for the ZIP
+  // path — the other two survive (or never left) the browser's own download manager.
+  $effect(() => {
+    if (!zipping) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  });
+
   // Hand each file to the browser's own download manager (default Downloads folder). Available on
-  // every browser; the only path on non-Chromium browsers.
+  // every browser; the last resort when neither of the folder-preserving paths is available.
   function allToDownloads() {
-    return runAll(async () => {
-      await downloadAll(data.token, sessionId!, scoped, (done, total) => {
-        allProgress = { label: `Sent ${done} / ${total} to your browser…`, pct: (done / total) * 100 };
-      });
+    return runAll(async (signal) => {
+      const r = await downloadAll(
+        data.token,
+        sessionId!,
+        scoped,
+        (done, total) => {
+          allProgress = {
+            label: `Sent ${done} / ${total} to your browser…`,
+            pct: (done / total) * 100,
+          };
+        },
+        signal,
+      );
+      if (r.cancelled) doneMsg = "Stopped sending files to your browser.";
     });
   }
 </script>
@@ -256,31 +347,43 @@
               {scoped.length} file{scoped.length === 1 ? "" : "s"}{cwd ? " in this folder" : ""}
             </span>
             {#if scoped.length > 1}
+              <!-- Both folder-preserving paths are offered where available. The ZIP is worth having
+                   even on Chromium: it needs no picker and avoids Chrome's "allow multiple
+                   downloads?" prompt that the per-file path triggers. -->
               <div class="flex items-center gap-2">
-                {#if canPickFolder}
-                  <!-- Chromium can do both: stream into a chosen folder, or hand off to the
-                       browser's download manager like every other browser. -->
-                  <Button variant="ghost" size="sm" onclick={allToDownloads} disabled={allProgress !== null}>
-                    {cwd ? "Download folder" : "Download all"}
-                  </Button>
-                  <Button {accent} size="sm" onclick={allToFolder} disabled={allProgress !== null}>
-                    {allProgress ? "Downloading…" : "Download to folder…"}
+                {#if canZip}
+                  <Button
+                    variant={canPickFolder ? "ghost" : "primary"}
+                    {accent}
+                    size="sm"
+                    onclick={allToZip}
+                    disabled={allProgress !== null}
+                  >
+                    {allProgress ? "Downloading…" : "Download .zip"}
                   </Button>
                 {:else}
-                  <Button {accent} size="sm" onclick={allToDownloads} disabled={allProgress !== null}>
-                    {allProgress ? "Downloading…" : cwd ? "Download folder" : "Download all"}
+                  <Button
+                    variant={canPickFolder ? "ghost" : "primary"}
+                    {accent}
+                    size="sm"
+                    onclick={allToDownloads}
+                    disabled={allProgress !== null}
+                  >
+                    {allProgress && !canPickFolder
+                      ? "Downloading…"
+                      : cwd
+                        ? "Download folder"
+                        : "Download all"}
+                  </Button>
+                {/if}
+                {#if canPickFolder}
+                  <Button {accent} size="sm" onclick={allToFolder} disabled={allProgress !== null}>
+                    {allProgress ? "Downloading…" : "Download to folder…"}
                   </Button>
                 {/if}
               </div>
             {/if}
           </div>
-
-          {#if !canPickFolder && scoped.length > 1}
-            <p class="rounded-md bg-info/10 px-3 py-2 text-xs text-info">
-              To keep the original folder structure, open this link in a Chromium-based browser
-              (Chrome, Edge, Arc, Brave). Other browsers save the files individually.
-            </p>
-          {/if}
 
           {#if allProgress}
             <div class="space-y-1.5" role="status" aria-live="polite">
@@ -291,7 +394,17 @@
                   <div class="h-full rounded-full transition-[width] duration-150" style="width:{allProgress.pct}%;background:{accent}"></div>
                 {/if}
               </div>
-              <p class="truncate text-xs text-faint">{allProgress.label}</p>
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="truncate text-xs text-faint">{allProgress.label}</p>
+                  {#if zipping}
+                    <p class="text-xs text-faint">
+                      Keep this tab open until the archive finishes saving.
+                    </p>
+                  {/if}
+                </div>
+                <Button variant="subtle" size="sm" onclick={cancelAll} class="shrink-0">Cancel</Button>
+              </div>
             </div>
           {:else if doneMsg}
             <p class="rounded-md bg-accent/10 px-3 py-2 text-sm" style="color:{accent}">{doneMsg}</p>

@@ -73,6 +73,25 @@ export function subtree(files: DownloadFile[], cwd: string): DownloadFile[] {
   return out;
 }
 
+/**
+ * The in-zip path of every file, in listing order: its folder plus a name made unique within that
+ * folder. Frame.io allows two files to share a name in one folder, and a ZIP holding two identical
+ * entry names loses one of them silently on extraction — so collisions become "clip (2).mov".
+ */
+export function zipPaths(files: DownloadFile[]): string[] {
+  const seen = new Set<string>();
+  return files.map((file) => {
+    const dir = norm(file.path);
+    const dot = file.name.lastIndexOf(".");
+    // Treat a leading dot as part of the name, not an extension (".DS_Store" has no stem).
+    const [stem, ext] = dot > 0 ? [file.name.slice(0, dot), file.name.slice(dot)] : [file.name, ""];
+    let name = file.name;
+    for (let n = 2; seen.has(`${dir}/${name}`.toLowerCase()); n++) name = `${stem} (${n})${ext}`;
+    seen.add(`${dir}/${name}`.toLowerCase());
+    return dir ? `${dir}/${name}` : name;
+  });
+}
+
 /** Breadcrumb segments for `cwd`, starting with the root (named by the caller). */
 export function crumbs(cwd: string, rootName: string): { name: string; path: string }[] {
   const segments = cwd ? cwd.split("/") : [];
