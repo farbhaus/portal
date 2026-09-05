@@ -18,7 +18,7 @@ dependencies = [
     "redis>=5.2",
     "arq>=0.26",
     "python-multipart>=0.0.20",
-    "authlib>=1.4",
+    "authlib>=1.8.0",
     "httpx>=0.28",
     "frameio>=1.2.6,<2",
     "aiosmtplib>=5.1.2",
@@ -33,7 +33,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=0.25",
     "httpx>=0.28",
-    "ruff>=0.16.4",
+    "ruff>=0.16.5",
     "mypy>=2.3.1",
 ]
 
