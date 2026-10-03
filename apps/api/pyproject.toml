@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Self-hosted Frame.io-backed file transfer platform for post-production"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.141.1",
+    "fastapi>=0.142.2",
     "uvicorn[standard]>=0.54.0",
     "sqlalchemy[asyncio]>=2.1.1",
     "asyncpg>=0.30",
@@ -33,7 +33,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=0.25",
     "httpx>=0.28",
-    "ruff>=0.16.8",
+    "ruff>=0.16.9",
     "mypy>=2.3.1",
 ]
 
