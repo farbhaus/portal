@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invalidateAll } from "$app/navigation";
   import { Button, PathBreadcrumb, StatusPill } from "$lib/components";
-  import type { Destination, SyncRule } from "./+page.server";
+  import type { Destination, SyncRule } from "./+page";
 
   let { data } = $props();
   const destinations = $derived(data.destinations as Destination[]);

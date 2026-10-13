@@ -11,7 +11,7 @@
     type FolderItem,
   } from "$lib/components";
   import { UPLOAD_TOKENS } from "$lib/tokens";
-  import type { Destination } from "../../destinations/+page.server";
+  import type { Destination } from "../../destinations/+page";
 
   let { data } = $props();
 

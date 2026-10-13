@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invalidateAll } from "$app/navigation";
   import { Button, PathBreadcrumb, StatusPill, CopyButton } from "$lib/components";
-  import type { UploadLink, DownloadLink } from "./+page.server";
+  import type { UploadLink, DownloadLink } from "./+page";
 
   let { data } = $props();
   const uploadLinks = $derived(data.uploadLinks as UploadLink[]);

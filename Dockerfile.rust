@@ -1,0 +1,59 @@
+# Rust all-in-one Portal image. Same OS stack as the Python image (Postgres 16, Redis, Caddy,
+# supervisor) but the API + web are a single Rust binary serving the static SPA, with no Python
+# venv and no Node runtime. Built with:  docker build -f Dockerfile.rust -t portal-rust:dev .
+
+# ---- web build (build-time only; output is static) -------------------------------------------
+FROM node:22-trixie-slim AS web-build
+WORKDIR /web
+COPY apps/web/package.json apps/web/package-lock.json ./
+RUN npm ci
+COPY apps/web/ ./
+RUN npm run build
+
+# ---- rust build ------------------------------------------------------------------------------
+FROM rust:1.98-slim AS rust-build
+# Some crates (via webauthn/x509) link OpenSSL, so the builder needs pkg-config + headers.
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY apps/api-rs/Cargo.toml apps/api-rs/Cargo.lock ./
+COPY apps/api-rs/src ./src
+RUN cargo build --release --locked
+
+# ---- final image -----------------------------------------------------------------------------
+FROM debian:trixie-slim AS final
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl gnupg lsb-release postgresql-common redis-server redis-tools supervisor; \
+    /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y; \
+    apt-get install -y --no-install-recommends postgresql-16; \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=caddy:2 /usr/bin/caddy /usr/bin/caddy
+
+ENV PATH="/usr/lib/postgresql/16/bin:$PATH" \
+    DATABASE_URL="postgresql://portal@127.0.0.1:5432/portal" \
+    REDIS_URL="redis://127.0.0.1:6379/0" \
+    HOST="127.0.0.1" \
+    PORT="8000" \
+    WEB_DIR="/app/web/build" \
+    XDG_DATA_HOME="/data/caddy" \
+    XDG_CONFIG_HOME="/data/caddy"
+
+RUN groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin app
+
+WORKDIR /app
+COPY --from=rust-build /src/target/release/portal-api /usr/local/bin/portal-api
+COPY apps/api-rs/schema.sql /app/schema.sql
+COPY --from=web-build /web/build /app/web/build
+
+COPY docker/container/rust/Caddyfile /etc/caddy/Caddyfile
+COPY docker/container/rust/supervisord.conf /etc/supervisor/supervisord.conf
+COPY docker/container/rust/portal-entrypoint.sh docker/container/rust/portal-start-api.sh docker/container/rust/portal-start-worker.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/portal-entrypoint.sh /usr/local/bin/portal-start-api.sh /usr/local/bin/portal-start-worker.sh
+
+VOLUME ["/data"]
+EXPOSE 80
+ENTRYPOINT ["/usr/local/bin/portal-entrypoint.sh"]

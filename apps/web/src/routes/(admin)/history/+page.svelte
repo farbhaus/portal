@@ -2,7 +2,7 @@
   import { goto } from "$app/navigation";
   import { PageHeader, EmptyState } from "$lib/components";
   import { formatBytes } from "$lib/format";
-  import type { Transfer } from "./+page.server";
+  import type { Transfer } from "./+page";
 
   let { data } = $props();
   const items = $derived(data.items as Transfer[]);

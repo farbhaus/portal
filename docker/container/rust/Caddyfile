@@ -1,0 +1,15 @@
+# Internal router for the Rust all-in-one image. The Rust service serves BOTH the API and the
+# static SPA on one origin (127.0.0.1:8000), so every path proxies to it — no Node process and no
+# separate /api split.
+{$PORTAL_SITE_ADDRESS::80} {
+	header {
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "frame-ancestors 'none'"
+		-Server
+	}
+	@secure expression `{http.request.scheme} == "https"`
+	header @secure Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	reverse_proxy 127.0.0.1:8000
+}

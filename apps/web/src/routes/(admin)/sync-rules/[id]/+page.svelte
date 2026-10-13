@@ -2,7 +2,7 @@
   import { goto, invalidateAll } from "$app/navigation";
   import { PathBreadcrumb, TemplateTokenInput } from "$lib/components";
   import { SYNC_TOKENS } from "$lib/tokens";
-  import type { SyncJob } from "./+page.server";
+  import type { SyncJob } from "./+page";
 
   let { data } = $props();
   const rule = $derived(data.rule);

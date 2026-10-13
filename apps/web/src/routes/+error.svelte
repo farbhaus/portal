@@ -1,6 +1,6 @@
 <script lang="ts">
   // Branded fallback for thrown errors — most importantly the 404 that the public upload/download
-  // pages raise for a missing, deleted, or mistyped link (routes/d, routes/u +page.server.ts).
+  // pages raise for a missing, deleted, or mistyped link (routes/d, routes/u +page.ts).
   // Without this, SvelteKit renders its unstyled default page.
   import { page } from "$app/state";
   import { Card, PoweredByPortal } from "$lib/components";

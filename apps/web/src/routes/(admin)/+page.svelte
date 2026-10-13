@@ -2,7 +2,7 @@
   import { invalidateAll } from "$app/navigation";
   import { Card, Button, StatusPill, CopyButton } from "$lib/components";
   import { formatBytes } from "$lib/format";
-  import type { RecentTransfer } from "./+page.server";
+  import type { RecentTransfer } from "./+page";
 
   let { data } = $props();
 

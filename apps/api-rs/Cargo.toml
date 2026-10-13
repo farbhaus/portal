@@ -1,0 +1,38 @@
+[package]
+name = "portal-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aes-gcm = "0.11.1"
+anyhow = "1.0.104"
+axum = { version = "0.8.9", features = ["multipart"] }
+base32 = "0.5.1"
+base64 = "0.23.1"
+bcrypt = "0.19.3"
+bytes = "1.12.1"
+chrono = { version = "0.4.45", features = ["serde"] }
+fastrand = "2.5.0"
+futures = "0.3.34"
+getrandom = "0.4.3"
+hex = "0.4.3"
+hmac = "0.13.0"
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1-rustls", "builder", "hostname", "ring", "webpki-roots"] }
+qrcode = { version = "0.14.1", features = ["svg"] }
+rand = "0.10.3"
+redis = { version = "1.7.1", features = ["tokio-comp", "connection-manager"] }
+regex = "1.13.1"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "http2", "json", "query"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha1 = "0.11.0"
+sha2 = "0.11.1"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "uuid", "chrono", "json"] }
+thiserror = "2.0.21"
+tokio = { version = "1.53.2", features = ["full"] }
+tower-http = { version = "0.7.1", features = ["fs", "set-header"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+uuid = { version = "1.28.0", features = ["v4", "serde"] }
+webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation", "danger-credential-internals"] }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { PageHeader, Table, EmptyState } from "$lib/components";
-  import type { Activity } from "./+page.server";
+  import type { Activity } from "./+page";
 
   let { data } = $props();
   const events = $derived(data.events as Activity[]);
