@@ -15,7 +15,7 @@ COPY apps/web/ ./
 RUN npm run build
 
 # ---- rust build --------------------------------------------------------------------------------
-FROM rust:1.98-slim AS rust-build
+FROM rust:1.99-slim AS rust-build
 # webauthn-rs links OpenSSL, so the builder needs pkg-config + headers.
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
