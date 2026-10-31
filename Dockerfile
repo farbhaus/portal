@@ -15,7 +15,7 @@ COPY apps/web/ ./
 RUN npm run build
 
 # ---- rust build --------------------------------------------------------------------------------
-FROM rust:1.98-slim AS rust-build
+FROM rust:1.99-slim AS rust-build
 # webauthn-rs links OpenSSL, so the builder needs pkg-config + headers.
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -29,6 +29,7 @@ RUN mkdir src && echo 'fn main() {}' > src/main.rs \
 COPY apps/api-rs/src ./src
 # Compiled into the binary (src/migrate.rs): the head schema and the migration steps.
 COPY apps/api-rs/schema.sql ./schema.sql
+COPY apps/api-rs/openapi.yaml ./openapi.yaml
 COPY apps/api-rs/migrations ./migrations
 RUN touch src/main.rs && cargo build --release --locked --bin portal-api
 

@@ -59,6 +59,28 @@ pub struct Admin {
     pub email: String,
 }
 
+/// `Authorization: Bearer <token>` for machine clients. The token is a single shared secret from
+/// `PORTAL_API_TOKEN`; when set, every admin endpoint accepts it as the active admin.
+fn bearer_token(parts: &Parts) -> Option<String> {
+    let value = parts.headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
+    let token = value
+        .strip_prefix("Bearer ")
+        .or_else(|| value.strip_prefix("bearer "))?
+        .trim();
+    if token.is_empty() { None } else { Some(token.to_string()) }
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 impl FromRequestParts<AppState> for Admin {
     type Rejection = Response;
 
@@ -66,6 +88,25 @@ impl FromRequestParts<AppState> for Admin {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
+        if let Some(token) = bearer_token(parts) {
+            let Some(expected) = state.settings.api_token.as_deref() else {
+                return Err(detail(StatusCode::UNAUTHORIZED, "Authentication required"));
+            };
+            if !constant_time_eq(token.as_bytes(), expected.as_bytes()) {
+                return Err(detail(StatusCode::UNAUTHORIZED, "Authentication required"));
+            }
+            // v1 has one admin; audit rows still need a user id.
+            let row = sqlx::query_as::<_, (Uuid, String)>(
+                "SELECT id, email FROM users WHERE is_active ORDER BY created_at LIMIT 1",
+            )
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|_| detail(StatusCode::UNAUTHORIZED, "Authentication required"))?;
+            return match row {
+                Some((id, email)) => Ok(Admin { id, email }),
+                None => Err(detail(StatusCode::UNAUTHORIZED, "Authentication required")),
+            };
+        }
         let Some(uid) = session_user_id(parts) else {
             return Err(detail(StatusCode::UNAUTHORIZED, "Authentication required"));
         };

@@ -2,6 +2,8 @@
 // the picker makes. A FolderRef is exactly what an upload link stores as its `folder` and what a
 // sync rule stores as its `source` (minus `recursive`).
 
+import type { LiveWorkSync } from "$lib/links";
+
 export type PathSegment = { id: string; name: string };
 
 export type FolderRef = {
@@ -14,6 +16,8 @@ export type FolderRef = {
   folder_name?: string | null;
   // Breadcrumb from the project root (named after the project) down to the folder.
   path?: PathSegment[] | null;
+  // Upload links only: which local folders FioTransfer syncs with this project.
+  sync?: LiveWorkSync | null;
 };
 
 // What a download link serves. Display-only extras (path, label, names) ride along in the stored
@@ -153,6 +157,19 @@ export const search = (account: string, q: string) =>
   getJSON<SearchHit[]>(`/api/frameio/search?account_id=${encodeURIComponent(account)}&q=${encodeURIComponent(q)}`);
 export const resolvePath = (account: string, folder: string) =>
   getJSON<ResolvedPath>(`/api/frameio/path?account_id=${encodeURIComponent(account)}&folder_id=${encodeURIComponent(folder)}`);
+
+export async function createProject(account: string, workspace: string, name: string): Promise<ProjectItem> {
+  const res = await fetch("/api/frameio/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ account_id: account, workspace_id: workspace, name }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new FrameioApiError(body.detail ?? `Could not create the project (${res.status})`, res.status);
+  }
+  return res.json();
+}
 
 export async function createFolder(account: string, parent: string, name: string): Promise<Named> {
   const res = await fetch("/api/frameio/folders", {

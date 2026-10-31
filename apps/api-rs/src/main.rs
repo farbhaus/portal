@@ -84,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
     // calls carry the session cookie with no proxy in between.
     let api = Router::<AppState>::new()
         .route("/health", get(routes::health::health))
+        .route("/openapi.yaml", get(routes::docs::openapi))
         .route("/auth/login", post(auth::login))
         .route("/auth/me", get(routes::account::me))
         .route("/auth/logout", post(routes::account::logout))

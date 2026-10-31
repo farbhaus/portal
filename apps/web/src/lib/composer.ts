@@ -28,9 +28,15 @@ export async function loadComposerContext(fetch: Fetch) {
   };
   const presets: Preset[] = presetsRes.ok ? await presetsRes.json() : [];
   const brands: BrandProfile[] = brandsRes.ok ? await brandsRes.json() : [];
+  // The Live_Work folder names Portal already holds, for the composer's drop-down: a person picks a
+  // folder that already exists instead of retyping (or misspelling) its name.
+  const projectFolders = [...new Set(uploads.map((u) => u.turbosort?.trim()).filter((v): v is string => !!v))].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+  );
   return {
     uploads,
     rules,
+    projectFolders,
     branding,
     presets,
     brands,

@@ -1,0 +1,546 @@
+openapi: 3.0.3
+info:
+  title: Portal API
+  version: "0.1.0"
+  description: |
+    Portal's admin REST API. The web app uses the same endpoints.
+
+    Authenticate either with the `portal_session` cookie from `POST /api/auth/login`, or with
+    `Authorization: Bearer <PORTAL_API_TOKEN>` when the server sets `PORTAL_API_TOKEN`.
+
+    This document covers the stable admin resources. The SvelteKit web build's network calls are
+    the reference for any field not listed here.
+servers:
+  - url: https://portal.example.com
+    description: Your Portal base URL (BASE_URL)
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+paths:
+  /api/health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: Service, database and Redis status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  db: { type: boolean }
+                  redis: { type: boolean }
+                  version: { type: string }
+  /api/auth/login:
+    post:
+      summary: Password login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Logged in (sets portal_session), or a TOTP challenge
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totp_required: { type: boolean }
+                  id: { type: string, nullable: true }
+                  email: { type: string, nullable: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/auth/logout:
+    post:
+      summary: Log out
+      responses:
+        "204": { description: Logged out }
+  /api/auth/me:
+    get:
+      summary: Current admin
+      responses:
+        "200":
+          description: Current admin
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  email: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/upload-links:
+    get:
+      summary: List upload links
+      responses:
+        "200":
+          description: Upload links
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/UploadLink" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      summary: Create an upload link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UploadLinkCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadLink" }
+        "409":
+          description: Frame.io is not connected
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /api/upload-links/{link_id}:
+    parameters:
+      - $ref: "#/components/parameters/LinkId"
+    get:
+      summary: Read an upload link
+      responses:
+        "200":
+          description: Upload link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadLink" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Update an upload link
+      description: Only keys present in the body are applied. Send `turbosort` as null to clear the project folder name.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UploadLinkUpdate" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadLink" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      summary: Delete an upload link
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/upload-links/{link_id}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/LinkId"
+    post:
+      summary: Revoke an upload link
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadLink" }
+  /api/upload-links/{link_id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/LinkId"
+    post:
+      summary: Restore a revoked upload link
+      responses:
+        "200":
+          description: Restored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadLink" }
+  /api/sync-rules:
+    get:
+      summary: List sync rules
+      responses:
+        "200":
+          description: Sync rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SyncRule" }
+    post:
+      summary: Create a sync rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SyncRuleCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRule" }
+        "409":
+          description: Frame.io is not connected
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sync-rules/{rule_id}:
+    parameters:
+      - $ref: "#/components/parameters/RuleId"
+    get:
+      summary: Read a sync rule
+      responses:
+        "200":
+          description: Sync rule
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRule" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Update a sync rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SyncRuleUpdate" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncRule" }
+    delete:
+      summary: Delete a sync rule
+      responses:
+        "204": { description: Deleted }
+  /api/sync-rules/{rule_id}/run:
+    parameters:
+      - $ref: "#/components/parameters/RuleId"
+    post:
+      summary: Reconcile a sync rule now
+      responses:
+        "200":
+          description: Number of jobs queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  created: { type: integer }
+  /api/sync-rules/{rule_id}/jobs:
+    parameters:
+      - $ref: "#/components/parameters/RuleId"
+      - name: limit
+        in: query
+        schema: { type: integer, default: 100, maximum: 500 }
+    get:
+      summary: List sync jobs for a rule
+      responses:
+        "200":
+          description: Jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SyncJob" }
+  /api/frameio/status:
+    get:
+      summary: Frame.io connection status
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connected: { type: boolean }
+                  adobe_email: { type: string, nullable: true }
+                  expires_at: { type: string, format: date-time, nullable: true }
+                  needs_refresh: { type: boolean }
+                  scopes: { type: string }
+  /api/frameio/accounts:
+    get:
+      summary: List Frame.io accounts
+      responses:
+        "200":
+          description: Accounts
+          content:
+            application/json:
+              schema: { type: array, items: { type: object, additionalProperties: true } }
+  /api/frameio/workspaces:
+    get:
+      summary: List workspaces in an account
+      parameters:
+        - { name: account_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Workspaces
+          content:
+            application/json:
+              schema: { type: array, items: { type: object, additionalProperties: true } }
+  /api/frameio/projects:
+    get:
+      summary: List projects in a workspace
+      parameters:
+        - { name: account_id, in: query, required: true, schema: { type: string } }
+        - { name: workspace_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema: { type: array, items: { type: object, additionalProperties: true } }
+  /api/frameio/folders:
+    get:
+      summary: List subfolders
+      parameters:
+        - { name: account_id, in: query, required: true, schema: { type: string } }
+        - { name: folder_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Folders
+          content:
+            application/json:
+              schema: { type: array, items: { type: object, additionalProperties: true } }
+  /api/frameio/files:
+    get:
+      summary: List files in a folder
+      parameters:
+        - { name: account_id, in: query, required: true, schema: { type: string } }
+        - { name: folder_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Files
+          content:
+            application/json:
+              schema: { type: array, items: { type: object, additionalProperties: true } }
+  /api/frameio/search:
+    get:
+      summary: Search projects and folders by name
+      parameters:
+        - { name: account_id, in: query, required: true, schema: { type: string } }
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2 } }
+      responses:
+        "200":
+          description: Matches
+          content:
+            application/json:
+              schema: { type: array, items: { type: object, additionalProperties: true } }
+  /api/openapi.yaml:
+    get:
+      summary: This document
+      security: []
+      responses:
+        "200":
+          description: OpenAPI 3.1 YAML
+          content:
+            application/yaml:
+              schema: { type: string }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: The server's PORTAL_API_TOKEN
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: portal_session
+  parameters:
+    LinkId:
+      name: link_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RuleId:
+      name: rule_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Unauthorized:
+      description: Authentication required or invalid credentials
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationError:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyRequests:
+      description: Rate limited
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string }
+    Folder:
+      type: object
+      required: [type, account_id, folder_id]
+      properties:
+        type: { type: string, enum: [frameio] }
+        account_id: { type: string }
+        workspace_id: { type: string, nullable: true }
+        project_id: { type: string, nullable: true }
+        project_name: { type: string, nullable: true }
+        folder_id: { type: string }
+        folder_name: { type: string, nullable: true }
+        path:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+        path_resolved_at: { type: string, format: date-time, nullable: true }
+    UploadLinkCreate:
+      type: object
+      required: [folder]
+      properties:
+        name: { type: string, nullable: true }
+        folder: { $ref: "#/components/schemas/Folder" }
+        turbosort:
+          type: string
+          nullable: true
+          description: Project folder name under the user's root. FioTransfer reads it from `GET /api/upload-links`; Portal writes nothing into Frame.io for it.
+        expires_at: { type: string, format: date-time, nullable: true }
+        password: { type: string, nullable: true }
+        verify_email: { type: boolean, default: false }
+        max_file_size: { type: integer, nullable: true }
+        allowed_extensions: { type: array, items: { type: string }, nullable: true }
+        uploader_fields_required:
+          type: object
+          properties:
+            name: { type: boolean }
+            email: { type: boolean }
+            message: { type: boolean }
+        subfolder_template: { type: string, nullable: true }
+        brand_display_name: { type: string, nullable: true }
+        brand_subtitle: { type: string, nullable: true }
+        brand_profile_id: { type: string, format: uuid, nullable: true }
+        notify_emails: { type: string, nullable: true, description: Comma-separated } 
+        remind_before_expiry: { type: boolean }
+    UploadLinkUpdate:
+      type: object
+      properties:
+        name: { type: string, nullable: true }
+        folder: { $ref: "#/components/schemas/Folder" }
+        turbosort: { type: string, nullable: true }
+        password: { type: string, nullable: true }
+        verify_email: { type: boolean }
+        max_file_size: { type: integer, nullable: true }
+        allowed_extensions: { type: array, items: { type: string }, nullable: true }
+        uploader_fields_required:
+          type: object
+          properties:
+            name: { type: boolean }
+            email: { type: boolean }
+            message: { type: boolean }
+        subfolder_template: { type: string, nullable: true }
+        brand_display_name: { type: string, nullable: true }
+        brand_subtitle: { type: string, nullable: true }
+        brand_profile_id: { type: string, format: uuid, nullable: true }
+        notify_emails: { type: string, nullable: true }
+        remind_before_expiry: { type: boolean }
+    UploadLink:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [upload] }
+        name: { type: string }
+        token: { type: string }
+        public_url: { type: string, format: uri }
+        state: { type: string, enum: [ok, expired, revoked] }
+        folder: { $ref: "#/components/schemas/Folder" }
+        turbosort: { type: string, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+        password_protected: { type: boolean }
+        max_file_size: { type: integer, nullable: true }
+        allowed_extensions: { type: array, items: { type: string }, nullable: true }
+        uploader_fields_required:
+          type: object
+          properties:
+            name: { type: boolean }
+            email: { type: boolean }
+            message: { type: boolean }
+        verify_email: { type: boolean }
+        target_folder_id: { type: string, nullable: true }
+        target_folder_name: { type: string, nullable: true }
+        subfolder_template: { type: string, nullable: true }
+        brand_display_name: { type: string, nullable: true }
+        brand_subtitle: { type: string, nullable: true }
+        brand_profile_id: { type: string, format: uuid, nullable: true }
+        notify_emails: { type: array, items: { type: string }, nullable: true }
+        remind_before_expiry: { type: boolean }
+        revoked_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+    SyncRuleCreate:
+      type: object
+      required: [name, source, destination_path]
+      properties:
+        name: { type: string }
+        source: { $ref: "#/components/schemas/Folder" }
+        destination_path: { type: string, example: /mnt/SSDPool/portal_sync }
+        conflict_policy:
+          type: string
+          enum: [rename_suffix, skip, overwrite]
+          default: rename_suffix
+        path_template: { type: string, nullable: true }
+        enabled: { type: boolean, default: true }
+    SyncRuleUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        destination_path: { type: string }
+        conflict_policy: { type: string, enum: [rename_suffix, skip, overwrite] }
+        path_template: { type: string, nullable: true }
+        enabled: { type: boolean }
+    SyncRule:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        source: { $ref: "#/components/schemas/Folder" }
+        destination_path: { type: string }
+        conflict_policy: { type: string }
+        path_template: { type: string, nullable: true }
+        enabled: { type: boolean }
+        subscription_active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        activity: { type: object, additionalProperties: true }
+    SyncJob:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        frameio_file_id: { type: string }
+        file_name: { type: string, nullable: true }
+        status: { type: string }
+        bytes: { type: integer, nullable: true }
+        sha256: { type: string, nullable: true }
+        error: { type: string, nullable: true }
+        retry_count: { type: integer }
+        started_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }

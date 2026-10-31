@@ -522,6 +522,12 @@ impl FrameioClient {
         Ok(current)
     }
 
+    /// Forget the cached ids along `parts` under `root_folder_id`, so the next
+    /// `ensure_folder_path` looks them up on Frame.io again — for when one was deleted there.
+    pub async fn forget_folder_path(&self, root_folder_id: &str, parts: &[String]) {
+        forget_cached_path(&mut *self.folder_cache.lock().await, root_folder_id, parts);
+    }
+
     /// Mint a short-lived signed download URL (`include=media_links.original`).
     pub async fn get_download_url(&self, account_id: &str, file_id: &str) -> Result<String, FrameioError> {
         let f = self
@@ -674,9 +680,36 @@ fn parse_search_hits(hits: &[Value]) -> Vec<SearchHit> {
     out
 }
 
+/// Drop the `ensure_folder_path` cache entries along `parts` under `root`, stopping where the
+/// chain isn't cached.
+fn forget_cached_path(cache: &mut HashMap<(String, String), String>, root: &str, parts: &[String]) {
+    let mut current = root.to_string();
+    for part in parts {
+        match cache.remove(&(current, part.clone())) {
+            Some(id) => current = id,
+            None => break,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forget_cached_path_drops_only_that_chain() {
+        let s = |v: &str| v.to_string();
+        let mut cache = HashMap::from([
+            ((s("root"), s("2026-10-23")), s("d1")),
+            ((s("d1"), s("Friday")), s("d2")),
+            ((s("root"), s("2026-10-22")), s("d0")),
+            ((s("d0"), s("Thursday")), s("d3")),
+        ]);
+        forget_cached_path(&mut cache, "root", &[s("2026-10-23"), s("Friday"), s("uncached")]);
+        let mut left: Vec<&str> = cache.values().map(String::as_str).collect();
+        left.sort();
+        assert_eq!(left, vec!["d0", "d3"]);
+    }
 
     #[test]
     fn search_keeps_name_matches_and_drops_root_folders() {

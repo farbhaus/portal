@@ -2,7 +2,7 @@ name: Docker Image CI
 
 # Builds the all-in-one farbhaus/portal image and smoke-tests it (boots on a fresh volume, serves
 # the app, accepts a login). On branch pushes / PRs that's all. On a version tag (vX.Y.Z) it then
-# PUSHES to Docker Hub.
+# PUSHES to Docker Hub and creates the matching GitHub Release.
 #
 # Publishing prerequisites (see the "Going public / publishing" checklist in CLAUDE.md), all inert
 # until a v* tag is pushed:
@@ -94,3 +94,28 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
+
+  # Only on a version tag, once the image is on Docker Hub: publish the GitHub Release, with notes
+  # generated from the PRs merged since the previous tag. A suffixed tag (v2.1.0-rc.1) becomes a
+  # pre-release, just as it doesn't move the image's :latest. A release already made by hand is
+  # left alone. Its own job so only this step holds a write token.
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Create the GitHub Release
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; leaving it as is."
+            exit 0
+          fi
+          flags=()
+          [[ "$TAG" == *-* ]] && flags+=(--prerelease)
+          gh release create "$TAG" --verify-tag --generate-notes "${flags[@]}"

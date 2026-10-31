@@ -95,6 +95,24 @@ impl FrameioStorageBackend {
         })
     }
 
+    /// Resolve (or create) `dirs` under `root_folder_id` and start a local upload of `name` there.
+    async fn upload_into(
+        &self,
+        account_id: &str,
+        root_folder_id: &str,
+        dirs: &[String],
+        name: &str,
+        size: i64,
+    ) -> Result<(String, (String, Option<String>, Vec<(i64, String)>)), FrameioError> {
+        let folder_id = if dirs.is_empty() {
+            root_folder_id.to_string()
+        } else {
+            self.client.ensure_folder_path(account_id, root_folder_id, dirs).await?
+        };
+        let upload = self.client.create_local_upload(account_id, &folder_id, name, size).await?;
+        Ok((folder_id, upload))
+    }
+
     pub async fn create_upload_session(
         &self,
         dest: &DestinationConfig,
@@ -104,15 +122,16 @@ impl FrameioStorageBackend {
         let account_id = dest.require("account_id").map_err(FrameioError::Other)?;
         let root_folder_id = dest.require("folder_id").map_err(FrameioError::Other)?;
         let (dirs, name) = split_path(filename).map_err(FrameioError::Other)?;
-        let folder_id = if dirs.is_empty() {
-            root_folder_id
-        } else {
-            self.client.ensure_folder_path(&account_id, &root_folder_id, &dirs).await?
-        };
-        let (file_id, media_type, chunks) = self
-            .client
-            .create_local_upload(&account_id, &folder_id, &name, size)
-            .await?;
+        let (folder_id, (file_id, media_type, chunks)) =
+            match self.upload_into(&account_id, &root_folder_id, &dirs, &name, size).await {
+                // Subfolder ids are cached for the life of the process. If one has since been
+                // deleted on Frame.io, forget the path and resolve it again (recreating it).
+                Err(FrameioError::NotFound) if !dirs.is_empty() => {
+                    self.client.forget_folder_path(&root_folder_id, &dirs).await;
+                    self.upload_into(&account_id, &root_folder_id, &dirs, &name, size).await?
+                }
+                r => r?,
+            };
         Ok(UploadSession {
             id: file_id.clone(),
             destination: dest.clone(),

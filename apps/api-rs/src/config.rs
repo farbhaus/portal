@@ -28,6 +28,8 @@ pub struct Settings {
     pub admin_email: String,
     /// `ADMIN_PASSWORD` — the first-boot admin's password (seed only).
     pub admin_password: String,
+    /// `PORTAL_API_TOKEN` — optional bearer token for machine access to the admin API.
+    pub api_token: Option<String>,
     /// `ALLOW_INSECURE_DEFAULTS` — permit the `.env.example` placeholder secrets (local-only runs).
     pub allow_insecure_defaults: bool,
     /// `FRAMEIO_REDIRECT_URI`, defaulting to `{base_url}/api/frameio/oauth/callback`.
@@ -172,6 +174,10 @@ impl Settings {
             admin_email: std::env::var("ADMIN_EMAIL")
                 .unwrap_or_else(|_| "admin@example.com".to_string()),
             admin_password: std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "change-me".to_string()),
+            api_token: std::env::var("PORTAL_API_TOKEN")
+                .ok()
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty()),
             allow_insecure_defaults: env_bool("ALLOW_INSECURE_DEFAULTS", false),
             frameio_redirect_uri: std::env::var("FRAMEIO_REDIRECT_URI").unwrap_or_default(),
             sync_max_retries: env_i64("SYNC_MAX_RETRIES", 5) as i32,
