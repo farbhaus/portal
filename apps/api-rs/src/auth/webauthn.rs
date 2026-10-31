@@ -17,7 +17,7 @@ use sqlx::Row;
 use url::Url;
 use webauthn_rs::prelude::*;
 
-use crate::auth::{Admin, SessionExt};
+use crate::auth::{Admin, SessionAdmin, SessionExt};
 use crate::error::detail;
 use crate::state::AppState;
 
@@ -43,7 +43,7 @@ fn webauthn(state: &AppState) -> Option<Webauthn> {
         .ok()
 }
 
-pub async fn register_begin(State(state): State<AppState>, admin: Admin, SessionExt(session): SessionExt) -> Response {
+pub async fn register_begin(State(state): State<AppState>, SessionAdmin(admin): SessionAdmin, SessionExt(session): SessionExt) -> Response {
     let Some(wan) = webauthn(&state) else {
         return detail(StatusCode::INTERNAL_SERVER_ERROR, "WebAuthn is misconfigured");
     };
@@ -75,7 +75,7 @@ pub async fn register_begin(State(state): State<AppState>, admin: Admin, Session
     }
 }
 
-pub async fn register_complete(State(state): State<AppState>, admin: Admin, SessionExt(session): SessionExt, Json(body): Json<Value>) -> Response {
+pub async fn register_complete(State(state): State<AppState>, SessionAdmin(admin): SessionAdmin, SessionExt(session): SessionExt, Json(body): Json<Value>) -> Response {
     let Some(wan) = webauthn(&state) else {
         return detail(StatusCode::INTERNAL_SERVER_ERROR, "WebAuthn is misconfigured");
     };
@@ -215,7 +215,7 @@ pub async fn list_passkeys(State(state): State<AppState>, admin: Admin) -> Respo
     Json(Value::Array(out)).into_response()
 }
 
-pub async fn delete_passkey(State(state): State<AppState>, admin: Admin, axum::extract::Path(passkey_id): axum::extract::Path<uuid::Uuid>) -> Response {
+pub async fn delete_passkey(State(state): State<AppState>, SessionAdmin(admin): SessionAdmin, axum::extract::Path(passkey_id): axum::extract::Path<uuid::Uuid>) -> Response {
     let _ = sqlx::query("DELETE FROM webauthn_credentials WHERE id=$1 AND user_id=$2")
         .bind(passkey_id).bind(admin.id).execute(&state.db).await;
     StatusCode::NO_CONTENT.into_response()

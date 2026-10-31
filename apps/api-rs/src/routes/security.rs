@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use sqlx::Row;
 
 use crate::auth::totp as totp_svc;
-use crate::auth::Admin;
+use crate::auth::{Admin, SessionAdmin};
 use crate::crypto::TokenCipher;
 use crate::error::detail;
 use crate::state::AppState;
@@ -138,7 +138,7 @@ pub async fn update_branding(State(state): State<AppState>, _: Admin, Json(body)
 
 // ── TOTP setup ───────────────────────────────────────────────────────────────
 
-pub async fn totp_begin(State(state): State<AppState>, admin: Admin) -> Response {
+pub async fn totp_begin(State(state): State<AppState>, SessionAdmin(admin): SessionAdmin) -> Response {
     let enabled: Option<bool> = sqlx::query_scalar("SELECT totp_enabled FROM users WHERE id=$1")
         .bind(admin.id).fetch_optional(&state.db).await.ok().flatten();
     if enabled == Some(true) {
@@ -153,7 +153,7 @@ pub async fn totp_begin(State(state): State<AppState>, admin: Admin) -> Response
     Json(json!({ "secret": secret, "otpauth_uri": uri, "qr_svg": qr })).into_response()
 }
 
-pub async fn totp_enable(State(state): State<AppState>, admin: Admin, Json(body): Json<Value>) -> Response {
+pub async fn totp_enable(State(state): State<AppState>, SessionAdmin(admin): SessionAdmin, Json(body): Json<Value>) -> Response {
     let row: Option<(bool, Option<String>)> =
         sqlx::query_as("SELECT totp_enabled, totp_secret_encrypted FROM users WHERE id=$1")
             .bind(admin.id).fetch_optional(&state.db).await.ok().flatten();
@@ -181,7 +181,7 @@ pub async fn totp_enable(State(state): State<AppState>, admin: Admin, Json(body)
     Json(json!({ "recovery_codes": codes })).into_response()
 }
 
-pub async fn totp_disable(State(state): State<AppState>, admin: Admin, Json(body): Json<Value>) -> Response {
+pub async fn totp_disable(State(state): State<AppState>, SessionAdmin(admin): SessionAdmin, Json(body): Json<Value>) -> Response {
     let row: Option<(bool, Option<String>, Option<Value>, String)> =
         sqlx::query_as("SELECT totp_enabled, totp_secret_encrypted, totp_recovery_codes, password_hash FROM users WHERE id=$1")
             .bind(admin.id).fetch_optional(&state.db).await.ok().flatten();

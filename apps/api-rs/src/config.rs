@@ -92,6 +92,10 @@ const INSECURE_DEFAULTS: [(&str, &str); 3] = [
     ("token_encryption_key", "change-me-token-encryption-key"),
 ];
 
+/// The shortest `PORTAL_API_TOKEN` the service starts with. The token is full admin over the API,
+/// so it has to be a generated secret, not a password; the `.env.example` recipe makes 43.
+pub const API_TOKEN_MIN_LEN: usize = 32;
+
 impl Settings {
     /// Refuse to start if any secret is still the `.env.example` placeholder — port of
     /// `require_secure_secrets`. Left at its default, `session_secret` makes session cookies
@@ -112,14 +116,22 @@ impl Settings {
             })
             .map(|(name, _)| *name)
             .collect();
-        if offenders.is_empty() {
-            return Ok(());
+        if !offenders.is_empty() {
+            anyhow::bail!(
+                "Refusing to start with default secret(s): {}. Set strong values in .env (see \
+                 deploy/.env.example), or set ALLOW_INSECURE_DEFAULTS=true for local-only use.",
+                offenders.join(", ")
+            )
         }
-        anyhow::bail!(
-            "Refusing to start with default secret(s): {}. Set strong values in .env (see \
-             deploy/.env.example), or set ALLOW_INSECURE_DEFAULTS=true for local-only use.",
-            offenders.join(", ")
-        )
+        if let Some(token) = &self.api_token
+            && token.chars().count() < API_TOKEN_MIN_LEN {
+                anyhow::bail!(
+                    "Refusing to start: PORTAL_API_TOKEN is shorter than {API_TOKEN_MIN_LEN} characters. \
+                     Generate one with `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='`, or leave it \
+                     unset to turn token auth off."
+                )
+            }
+        Ok(())
     }
 
     /// The tracing filter for `LOG_LEVEL`, mapping Python's level names onto tracing's.
@@ -243,5 +255,24 @@ mod tests {
         assert!(s.require_secure_secrets().is_ok());
         s.admin_password = "change-me".into();
         assert!(s.require_secure_secrets().is_err());
+    }
+
+    #[test]
+    fn refuses_a_short_api_token() {
+        let mut s = Settings::from_env();
+        s.allow_insecure_defaults = false;
+        s.admin_password = "a-real-password".into();
+        s.session_secret = "x".repeat(32);
+        s.token_encryption_key = "y".repeat(32);
+        s.api_token = None;
+        assert!(s.require_secure_secrets().is_ok());
+        s.api_token = Some("short-token".into());
+        let err = s.require_secure_secrets().unwrap_err().to_string();
+        assert!(err.contains("PORTAL_API_TOKEN is shorter than 32"), "{err}");
+        s.api_token = Some("t".repeat(API_TOKEN_MIN_LEN));
+        assert!(s.require_secure_secrets().is_ok());
+        s.api_token = Some("short-token".into());
+        s.allow_insecure_defaults = true;
+        assert!(s.require_secure_secrets().is_ok());
     }
 }
