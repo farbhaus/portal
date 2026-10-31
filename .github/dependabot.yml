@@ -26,6 +26,19 @@ updates:
         patterns: [ "*" ]
         update-types: [ "minor", "patch" ]
 
+  # MCP server deps (mcp/, a separate crate with its own Cargo.lock; not in the image).
+  - package-ecosystem: cargo
+    directory: /mcp
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: [ "version-update:semver-major" ]
+    groups:
+      mcp:
+        patterns: [ "*" ]
+        update-types: [ "minor", "patch" ]
+
   # Python reference API deps — uv ecosystem reads pyproject.toml + uv.lock directly.
   - package-ecosystem: uv
     directory: /apps/api

@@ -23,7 +23,7 @@ struct PortalServer {
 impl PortalServer {
     fn new() -> anyhow::Result<Self> {
         let base_url = std::env::var("PORTAL_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:18090".to_string())
+            .unwrap_or_else(|_| "http://127.0.0.1:18080".to_string())
             .trim_end_matches('/')
             .to_string();
         let token = std::env::var("PORTAL_API_TOKEN")
@@ -78,6 +78,22 @@ impl PortalServer {
     }
 }
 
+/// A Portal id that goes into a URL path. Portal's ids are UUIDs, and anything else is refused
+/// before it reaches the URL: a `../` in an id would otherwise resolve to another endpoint (an
+/// "upload link" delete landing on `/api/frameio/projects/{id}`).
+fn path_id<'a>(name: &str, value: &'a str) -> Result<&'a str, ErrorData> {
+    let v = value.trim();
+    let hex = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit());
+    let groups: Vec<&str> = v.split('-').collect();
+    let ok = groups.len() == 5
+        && groups.iter().zip([8, 4, 4, 4, 12]).all(|(g, n)| hex(g, n));
+    if ok {
+        Ok(v)
+    } else {
+        Err(ErrorData::invalid_params(format!("{name} must be a Portal id (a UUID)"), None))
+    }
+}
+
 fn pretty(value: Value) -> Result<String, ErrorData> {
     serde_json::to_string_pretty(&value)
         .map_err(|e| ErrorData::internal_error(format!("Could not encode response: {e}"), None))
@@ -92,14 +108,17 @@ struct LinkId {
 struct UpdateLink {
     link_id: String,
     /// Fields to PATCH. Only supplied keys change; `turbosort: null` clears the project folder name.
+    /// The FioTransfer sync rides in `folder`: send the link's `folder` with a `sync` block
+    /// (`{"mode":"add_only","drive":{"local":"1_DRIVE"},"exports":{"local":"0_EXPORTS"}}`), or
+    /// `sync: null` to remove it.
     fields: Value,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct SetProjectZeus {
+struct SetProjectFolder {
     link_id: String,
     /// Project folder name, or null to clear it.
-    livework_folder: Option<String>,
+    project_folder: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -109,7 +128,7 @@ struct CreateUploadLink {
     workspace_id: String,
     project_id: String,
     folder_id: String,
-    /// Project folder name under the user's root; FioTransfer reads it from `GET /api/upload-links`.
+    /// The project's local folder name; FioTransfer reads it from `GET /api/upload-links`.
     turbosort: Option<String>,
     /// RFC 3339 timestamp.
     expires_at: Option<String>,
@@ -161,17 +180,18 @@ impl PortalServer {
         pretty(self.call(reqwest::Method::GET, "/api/health", None, &[]).await?)
     }
 
-    #[tool(description = "List upload links, including public URL, state and Project Zeus folder.")]
+    #[tool(description = "List upload links, including public URL, state, project folder (turbosort) and FioTransfer sync.")]
     async fn list_upload_links(&self) -> Result<String, ErrorData> {
         pretty(self.call(reqwest::Method::GET, "/api/upload-links", None, &[]).await?)
     }
 
     #[tool(description = "Read one upload link by id.")]
     async fn get_upload_link(&self, Parameters(LinkId { link_id }): Parameters<LinkId>) -> Result<String, ErrorData> {
+        let link_id = path_id("link_id", &link_id)?;
         pretty(self.call(reqwest::Method::GET, &format!("/api/upload-links/{link_id}"), None, &[]).await?)
     }
 
-    #[tool(description = "Create an upload link for a Frame.io folder. Set turbosort to the Live_Work folder name.")]
+    #[tool(description = "Create an upload link for a Frame.io folder. Set turbosort to the project's local folder name.")]
     async fn create_upload_link(
         &self,
         Parameters(p): Parameters<CreateUploadLink>,
@@ -204,10 +224,11 @@ impl PortalServer {
 
     #[tool(description = "Patch an upload link. Only the supplied fields change.")]
     async fn update_upload_link(&self, Parameters(p): Parameters<UpdateLink>) -> Result<String, ErrorData> {
+        let link_id = path_id("link_id", &p.link_id)?;
         pretty(
             self.call(
                 reqwest::Method::PATCH,
-                &format!("/api/upload-links/{}", p.link_id),
+                &format!("/api/upload-links/{link_id}"),
                 Some(p.fields),
                 &[],
             )
@@ -215,16 +236,17 @@ impl PortalServer {
         )
     }
 
-    #[tool(description = "Set or clear (null) the Project Zeus Live_Work folder for an upload link.")]
-    async fn set_project_zeus(
+    #[tool(description = "Set or clear (null) the project's local folder name (turbosort) for an upload link.")]
+    async fn set_project_folder(
         &self,
-        Parameters(p): Parameters<SetProjectZeus>,
+        Parameters(p): Parameters<SetProjectFolder>,
     ) -> Result<String, ErrorData> {
+        let link_id = path_id("link_id", &p.link_id)?;
         pretty(
             self.call(
                 reqwest::Method::PATCH,
-                &format!("/api/upload-links/{}", p.link_id),
-                Some(json!({ "turbosort": p.livework_folder })),
+                &format!("/api/upload-links/{link_id}"),
+                Some(json!({ "turbosort": p.project_folder })),
                 &[],
             )
             .await?,
@@ -233,6 +255,7 @@ impl PortalServer {
 
     #[tool(description = "Delete an upload link.")]
     async fn delete_upload_link(&self, Parameters(LinkId { link_id }): Parameters<LinkId>) -> Result<String, ErrorData> {
+        let link_id = path_id("link_id", &link_id)?;
         pretty(self.call(reqwest::Method::DELETE, &format!("/api/upload-links/{link_id}"), None, &[]).await?)
     }
 
@@ -243,6 +266,7 @@ impl PortalServer {
 
     #[tool(description = "Read one sync rule.")]
     async fn get_sync_rule(&self, Parameters(RuleId { rule_id }): Parameters<RuleId>) -> Result<String, ErrorData> {
+        let rule_id = path_id("rule_id", &rule_id)?;
         pretty(self.call(reqwest::Method::GET, &format!("/api/sync-rules/{rule_id}"), None, &[]).await?)
     }
 
@@ -273,6 +297,7 @@ impl PortalServer {
 
     #[tool(description = "Reconcile a sync rule now: queue any missing files.")]
     async fn run_sync_rule(&self, Parameters(RuleId { rule_id }): Parameters<RuleId>) -> Result<String, ErrorData> {
+        let rule_id = path_id("rule_id", &rule_id)?;
         pretty(self.call(reqwest::Method::POST, &format!("/api/sync-rules/{rule_id}/run"), None, &[]).await?)
     }
 
@@ -357,4 +382,26 @@ async fn main() -> anyhow::Result<()> {
     let service = server.serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_id;
+
+    #[test]
+    fn path_ids_are_uuids_only() {
+        let id = "8008cf70-f28e-474d-a209-d67afb9fddb6";
+        assert_eq!(path_id("link_id", id).ok(), Some(id));
+        assert_eq!(path_id("link_id", " 8008CF70-F28E-474D-A209-D67AFB9FDDB6 ").ok(), Some("8008CF70-F28E-474D-A209-D67AFB9FDDB6"));
+        for bad in [
+            "",
+            "../frameio/projects/8008cf70-f28e-474d-a209-d67afb9fddb6",
+            "%2e%2e/frameio/files/x",
+            "8008cf70-f28e-474d-a209-d67afb9fddb6/../../settings",
+            "8008cf70f28e474da209d67afb9fddb6",
+            "8008cf70-f28e-474d-a209-d67afb9fddbz",
+        ] {
+            assert!(path_id("link_id", bad).is_err(), "{bad:?} must be refused");
+        }
+    }
 }

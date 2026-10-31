@@ -6,7 +6,10 @@ info:
     Portal's admin REST API. The web app uses the same endpoints.
 
     Authenticate either with the `portal_session` cookie from `POST /api/auth/login`, or with
-    `Authorization: Bearer <PORTAL_API_TOKEN>` when the server sets `PORTAL_API_TOKEN`.
+    `Authorization: Bearer <PORTAL_API_TOKEN>` when the server sets `PORTAL_API_TOKEN`. The token
+    can't change how the admin signs in (password, two-factor and passkey routes answer 403 to it),
+    every write it makes is recorded in the admin log as `api_token.used`, and wrong tokens are
+    locked out per client IP (429).
 
     This document covers the stable admin resources. The SvelteKit web build's network calls are
     the reference for any field not listed here.
@@ -344,7 +347,7 @@ paths:
       security: []
       responses:
         "200":
-          description: OpenAPI 3.1 YAML
+          description: OpenAPI 3.0 YAML
           content:
             application/yaml:
               schema: { type: string }
@@ -415,6 +418,26 @@ components:
               id: { type: string }
               name: { type: string }
         path_resolved_at: { type: string, format: date-time, nullable: true }
+        sync:
+          allOf: [{ $ref: "#/components/schemas/LinkSync" }]
+          nullable: true
+          description: Upload links only. On PATCH, a folder without this key keeps the stored block; null removes it.
+    LinkSync:
+      type: object
+      description: |
+        FioTransfer sync for an upload link. Portal only stores it; the FioTransfer client reads it
+        from `GET /api/upload-links` and moves the files. At least one lane is required.
+      properties:
+        mode: { type: string, enum: [add_only], default: add_only, description: Files are added in both directions and nothing is ever deleted }
+        drive: { $ref: "#/components/schemas/LinkSyncLane" }
+        exports: { $ref: "#/components/schemas/LinkSyncLane" }
+    LinkSyncLane:
+      type: object
+      required: [local]
+      description: "`drive` downloads its Frame.io folder into `local`; `exports` uploads `local` into its Frame.io folder. The two lanes' `local` names must differ."
+      properties:
+        local: { type: string, description: "One folder name: no / \\ % or control characters, not . or .." }
+        folder_id: { type: string, format: uuid, description: Frame.io folder; omitted means the link's own folder }
     UploadLinkCreate:
       type: object
       required: [folder]
@@ -424,7 +447,7 @@ components:
         turbosort:
           type: string
           nullable: true
-          description: Project folder name under the user's root. FioTransfer reads it from `GET /api/upload-links`; Portal writes nothing into Frame.io for it.
+          description: The project's local folder name (one folder name; null or "" clears it). FioTransfer reads it from `GET /api/upload-links`; Portal writes nothing into Frame.io for it.
         expires_at: { type: string, format: date-time, nullable: true }
         password: { type: string, nullable: true }
         verify_email: { type: boolean, default: false }

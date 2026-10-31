@@ -2,6 +2,7 @@
 # Backend uses uv with the committed uv.lock so CI matches the deployed image.
 # The Rust API (apps/api-rs, what the image ships) gets clippy + tests on the toolchain the
 # Dockerfile builds with, and a check that its schema files still match the Alembic migrations.
+# The MCP server (mcp/, its own crate and lockfile, not in the image) gets clippy + tests too.
 # The Python API (apps/api) stays as the reference implementation and where migrations are written.
 name: CI
 
@@ -100,6 +101,28 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/api-rs
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Run tests
+        run: cargo test --locked
+
+  mcp:
+    name: MCP server — clippy & tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Rust (same toolchain as the API job)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.98'
+          components: clippy
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mcp
       - name: Clippy (warnings are errors)
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Run tests

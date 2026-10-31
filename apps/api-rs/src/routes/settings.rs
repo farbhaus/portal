@@ -9,7 +9,7 @@ use axum::Json;
 use serde_json::{json, Value};
 use sqlx::Row;
 
-use crate::auth::Admin;
+use crate::auth::{Admin, SessionAdmin};
 use crate::state::AppState;
 
 pub async fn email_status(State(state): State<AppState>, _: Admin) -> Response {
@@ -159,7 +159,7 @@ pub async fn update_frameio_config(State(state): State<AppState>, admin: Admin, 
     super::settings::frameio_config_status(State(state), admin).await
 }
 
-pub async fn change_password(State(state): State<AppState>, admin: Admin, Json(body): Json<Value>) -> Response {
+pub async fn change_password(State(state): State<AppState>, SessionAdmin(admin): SessionAdmin, Json(body): Json<Value>) -> Response {
     let current = body.get("current_password").and_then(|v| v.as_str()).unwrap_or("");
     let new_password = body.get("new_password").and_then(|v| v.as_str()).unwrap_or("");
     let hash: Option<String> = sqlx::query_scalar("SELECT password_hash FROM users WHERE id=$1")

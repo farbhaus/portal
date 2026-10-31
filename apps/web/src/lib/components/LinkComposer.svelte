@@ -33,7 +33,7 @@
   import Switch from "./Switch.svelte";
   import ConfirmButton from "./ConfirmButton.svelte";
   import { coveringRules, createFolder, crumbNames, listFolders, nasPathFor, resolvePath, type DownloadSource, type FolderRef, type Named, type RuleLike } from "$lib/frameio";
-  import { expiresText, kindNoun, sourceSummary, type DownloadLink, type LiveWorkSync, type UploadLink } from "$lib/links";
+  import { expiresText, kindNoun, sourceSummary, type DownloadLink, type LinkSync, type LinkSyncLane, type UploadLink } from "$lib/links";
   import { copyWithToast, errorDetail, toast } from "$lib/toast.svelte";
   import { formatBytes, accentText } from "$lib/format";
   import { UPLOAD_TOKENS } from "$lib/tokens";
@@ -62,7 +62,7 @@
     link?: UploadLink | DownloadLink | null;
     recents?: FolderRef[];
     rules?: RuleLike[];
-    /** Live_Work folder names already in use, for the project-folder drop-down. */
+    /** Project folder names already in use, for the project-folder drop-down. */
     projectFolders?: string[];
     branding: Branding;
     initialFolder?: FolderRef | null;
@@ -102,12 +102,12 @@
   let driveLocal = $state("1_DRIVE");
   let exportsLocal = $state("0_EXPORTS");
   let driveFolder = $state<FolderRef | null>(null);
-  // The inbound lane. A new link brings the client's drive down (the owner's ask), and an existing
-  // link follows what it stores: `drive` present means the switch is on.
+  // The inbound lane. A new link brings the client's drive down by default, and an existing link
+  // follows what it stores: `drive` present means the switch is on.
   let importsOn = $state(true);
-  // The outbound lane. A new link has one (the owner's ask: exports unless he says otherwise), and
-  // it points at the link's own folder until a child of the project is chosen. An existing link
-  // follows what it stores: `exports` present means the switch is on.
+  // The outbound lane. A new link has one by default, and it points at the link's own folder until
+  // a child of the project is chosen. An existing link follows what it stores: `exports` present
+  // means the switch is on.
   let exportsOn = $state(true);
   let exportsFolder = $state<FolderRef | null>(null);
   // The two sync sides choose from the first level of the project only: the link's folder names
@@ -119,8 +119,8 @@
   let newName = $state<{ drive: string; exports: string }>({ drive: "", exports: "" });
   let creating = $state<"drive" | "exports" | null>(null);
   let createIssue = $state<{ side: "drive" | "exports"; message: string } | null>(null);
-  // Once a row has been chosen by hand (or asked for a new folder), the default-named folder
-  // must not take the row back when the level is read again.
+  // Once a row has been chosen by hand (or asked for a new folder, or was saved on the link), the
+  // default-named folder must not take the row back when the level is read again.
   let touched = $state<{ drive: boolean; exports: boolean }>({ drive: false, exports: false });
   let maxDownloads = $state("");
   let preview = $state(true);
@@ -191,6 +191,9 @@
         // Same for the inbound lane: no `drive` keeps the switch off, so editing it never starts
         // downloading a drive the link deliberately did not have.
         importsOn = !!s?.drive;
+        // A saved lane is already a choice, even one with no folder id ("this link's folder"): a
+        // `1_DRIVE` or `0_EXPORTS` child that appeared since must not take it over on the next save.
+        touched = { drive: !!s?.drive, exports: !!s?.exports };
       } else {
         const s = link.source;
         source = { source: s as DownloadSource, label: (s.label as string) ?? sourceSummary(s), path: (s.path as FolderRef["path"]) ?? [], count: null, bytes: (s.bytes as number) ?? null };
@@ -589,7 +592,7 @@
 
   // ── save ────────────────────────────────────────────────────────────────
   /** `folder.sync` as the API stores it, or null when the switch is off. */
-  function syncPayload(): LiveWorkSync | null {
+  function syncPayload(): LinkSync | null {
     if (!syncOn) return null;
     return {
       mode: "add_only",
@@ -602,6 +605,14 @@
         ? { exports: { local: exportsLocal.trim() || "0_EXPORTS", ...(exportsFolder ? { folder_id: exportsFolder.folder_id } : {}) } }
         : {}),
     };
+  }
+
+  /** Whether two `sync` blocks say the same thing, whatever order the stored JSON keeps its keys in. */
+  function sameSync(a: LinkSync | null, b: LinkSync | null): boolean {
+    if (!a || !b) return !a === !b;
+    const lane = (l?: LinkSyncLane | null) => (l ? [l.local, l.folder_id ?? ""] : null);
+    const same = (x: LinkSyncLane | null | undefined, y: LinkSyncLane | null | undefined) => JSON.stringify(lane(x)) === JSON.stringify(lane(y));
+    return (a.mode ?? "add_only") === (b.mode ?? "add_only") && same(a.drive, b.drive) && same(a.exports, b.exports);
   }
 
   function body(): Record<string, unknown> {
@@ -618,9 +629,9 @@
     if (pwMode === "set" && password) b.password = password;
     if (pwMode === "clear") b.password = "";
     if (kind === "upload") {
-      // The live-work sync rides inside `folder`, so the folder is sent whenever either changes.
+      // The FioTransfer sync rides inside `folder`, so the folder is sent whenever either changes.
       const sync = syncPayload();
-      const syncChanged = JSON.stringify(sync) !== JSON.stringify(up?.folder?.sync ?? null);
+      const syncChanged = !sameSync(sync, up?.folder?.sync ?? null);
       const folderChanged = !editing || !!folder && (folder.folder_id !== up?.folder?.folder_id || folder.account_id !== up?.folder?.account_id);
       if (folder && (folderChanged || syncChanged)) {
         // Clearing the switch sends `sync: null`, which removes the block.
@@ -1053,13 +1064,14 @@
             <div class={line}>
               <div class={label}><label for="lc-project-folder">Local folder</label></div>
               <div class="grid gap-1.5">
-                <input id="lc-project-folder" class="{input} disabled:opacity-40" list="lc-project-folders" bind:value={turbosort} placeholder="Your project folder (leave empty for none)" autocomplete="off" disabled={!syncOn} />
+                <!-- Not tied to the switch: the name is stored (and can be cleared) on its own. -->
+                <input id="lc-project-folder" class={input} list="lc-project-folders" bind:value={turbosort} placeholder="Your project folder (leave empty for none)" autocomplete="off" />
                 <datalist id="lc-project-folders">
                   {#each projectFolders as f (f)}
                     <option value={f}></option>
                   {/each}
                 </datalist>
-<p class="text-xs text-faint">The folder this project lives in on your machine: pick one already in use, or type a new name. FioTransfer reads it from Portal and keeps <span class="font-mono">1_DRIVE</span> and <span class="font-mono">0_EXPORTS</span> in step.</p>
+                <p class="text-xs text-faint">The folder this project lives in on your machine: pick one already in use, or type a new name. FioTransfer reads it from Portal and keeps <span class="font-mono">1_DRIVE</span> and <span class="font-mono">0_EXPORTS</span> in step.</p>
               </div>
             </div>
             {#if syncOn}

@@ -8,7 +8,8 @@ import { formatBytes } from "$lib/format";
 export type LinkState = "ok" | "expired" | "revoked";
 
 /**
- * Per-link "sync to live work", stored inside an upload link's `folder` JSON.
+ * Per-link FioTransfer sync, stored inside an upload link's `folder` JSON. Portal only stores it;
+ * the FioTransfer client reads it from `GET /api/upload-links` and does the transfers.
  *
  * `drive` is the client's drop folder: FioTransfer downloads it into the local folder named
  * `local`. `exports` is ours: the local folder named `local` is uploaded into it. Either side may
@@ -18,11 +19,11 @@ export type LinkState = "ok" | "expired" | "revoked";
  * `add_only` is the whole rule: files are added in both directions and nothing is ever deleted, so
  * Frame.io can be cleared once the local copy exists.
  */
-export type LiveWorkSyncFolder = { local: string; folder_id?: string | null };
-export type LiveWorkSync = {
+export type LinkSyncLane = { local: string; folder_id?: string | null };
+export type LinkSync = {
   mode?: "add_only";
-  drive?: LiveWorkSyncFolder | null;
-  exports?: LiveWorkSyncFolder | null;
+  drive?: LinkSyncLane | null;
+  exports?: LinkSyncLane | null;
 };
 
 type LinkBase = {
@@ -45,7 +46,7 @@ type LinkBase = {
 
 export type UploadLink = LinkBase & {
   kind: "upload";
-  // Where uploads land; also carries the optional live-work `sync`.
+  // Where uploads land; also carries the optional FioTransfer `sync`.
   folder: FolderRef | null;
   max_file_size: number | null;
   allowed_extensions: string[] | null;
