@@ -75,13 +75,14 @@ fn str_or_none(v: Option<&Value>) -> Option<String> {
     if s.is_empty() { None } else { Some(s.to_string()) }
 }
 
-/// The `.turbosort` value: one Live_Work project folder name, no path separators.
+/// The `turbosort` value: the project's local folder name, which FioTransfer reads. One path
+/// segment: no separators, no control characters, not `.`/`..`.
 fn clean_turbosort(value: &str) -> Result<String, Response> {
     let v = value.trim();
     if v.is_empty() {
         return Err(detail(StatusCode::UNPROCESSABLE_ENTITY, "Project folder must not be empty"));
     }
-    if v == "." || v == ".." || v.contains('/') || v.contains('\\') || v.contains('\n') || v.contains('\r') {
+    if v == "." || v == ".." || v.contains('/') || v.contains('\\') || v.chars().any(char::is_control) {
         return Err(detail(StatusCode::UNPROCESSABLE_ENTITY, "Project folder must be a single folder name"));
     }
     Ok(v.to_string())
@@ -91,10 +92,11 @@ fn turbosort_of(folder: &Value) -> Option<String> {
     folder.get("turbosort").and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
-/// `folder.sync` — per-link "sync to live work". FioTransfer downloads the client's drive into a
-/// local folder and uploads another local folder into Frame.io, adding files in both directions
-/// and never deleting any (`add_only`), so a person can clear Frame.io once they have their own
-/// copy without losing what is on the NAS.
+/// `folder.sync` — per-link FioTransfer sync. Portal only stores it; the FioTransfer client reads
+/// it from `GET /api/upload-links`, downloads the client's drive into a local folder and uploads
+/// another local folder into Frame.io, adding files in both directions and never deleting any
+/// (`add_only`), so a person can clear Frame.io once they have their own copy without losing what
+/// is on the NAS.
 ///
 /// The only mode there is; an unknown one is rejected rather than guessed at.
 const SYNC_MODES: [&str; 1] = ["add_only"];
@@ -632,6 +634,15 @@ mod tests {
         let v = json!([".MOV", "mov", " r3d ", ""]);
         assert_eq!(normalize_extensions(Some(&v)), Some(json!(["mov", "r3d"])));
         assert_eq!(normalize_extensions(Some(&json!([]))), None);
+    }
+
+    #[test]
+    fn turbosort_is_one_folder_name() {
+        assert_eq!(clean_turbosort(" 20261028_ACME ").ok(), Some("20261028_ACME".to_string()));
+        for bad in [".", "..", "a/b", "a\\b", "a\nb", "a\tb", "a\u{0}b"] {
+            assert!(clean_turbosort(bad).is_err(), "{bad:?} must be rejected");
+        }
+        assert!(clean_turbosort("   ").is_err());
     }
 
     #[test]
