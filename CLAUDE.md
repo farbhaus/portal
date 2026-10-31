@@ -17,7 +17,9 @@ Monorepo, shipped as **one all-in-one container** (`farbhaus/portal`):
   `portal-api`: the HTTP API plus the static web app on one origin; `portal-api worker` is the
   sync worker (a Redis delayed queue), `portal-api migrate` / `seed` run from the entrypoint.
   Source in `apps/api-rs/src/`:
-  - `routes/` HTTP endpoints · `auth.rs` + `auth/` admin login (passkeys/WebAuthn, TOTP) ·
+  - `routes/` HTTP endpoints · `auth.rs` + `auth/` admin login (passkeys/WebAuthn, TOTP; the
+    `Admin` extractor also takes the optional `PORTAL_API_TOKEN` bearer, while `SessionAdmin` —
+    browser login only — guards password, two-factor and passkey changes) ·
     `session.rs` Starlette-compatible signed session cookies · `frameio/` Frame.io client +
     OAuth/connection · `storage/` backend-agnostic storage interface · `downloads/` download-link
     sources · `sync/` watch-folder sync engine + worker + queue · `verify/` email verification ·
@@ -28,6 +30,11 @@ Monorepo, shipped as **one all-in-one container** (`farbhaus/portal`):
   Alembic migrations (`apps/api/alembic/`) the schema is authored with, and its pytest suite is the
   behavioural spec the Rust service was ported from. `tools/rustify/` diffs the two services
   byte for byte (`capture.py`/`diff.py`, `authdiff.py`, `interop.py`) and holds `schema_check.sh`.
+  Features added since the Rust release are **Rust-only** and absent from the Python reference
+  (and its tests): the `PORTAL_API_TOKEN` bearer auth, upload links' `turbosort` and `folder.sync`.
+- `mcp/` — `portal-mcp`, a Rust stdio MCP server (rmcp) over the admin API, authenticating with
+  `PORTAL_API_TOKEN`. Its own crate and `Cargo.lock`, not in the image; CI runs clippy + tests on
+  it. Path ids must pass its UUID check (`path_id`) so a `../` can't reach another endpoint.
 - `apps/web/` — SvelteKit frontend, built with `adapter-static` (`ssr = false`) into static files
   the Rust service serves; every load is a same-origin `fetch("/api/…")`. `src/routes/` includes
   `d/` (download), `u/` (upload), `login/`, `(admin)/`; `src/lib/` shared + `src/lib/components`.
@@ -104,6 +111,11 @@ routes / upload engine / sync engine
   one `links` table (`kind` = `upload` | `download`; migration `e1f2a3b4c5d6` merged the old
   `upload_links`/`download_links` and dropped `destinations`). The Python reference's models still
   describe the old tables — its tests build from the models, so they don't notice.
+- An upload link's `folder` may also carry `sync` (FioTransfer lanes: `drive` Frame.io → local,
+  `exports` local → Frame.io, `mode: add_only`; validated by `validate_sync` in
+  `routes/upload_links.rs`) and `turbosort` (the project's local folder name). Portal only stores
+  and returns them for the external FioTransfer client — no Portal code moves files for them. Not
+  the same as the top-level `sync` in `GET /api/links`, which is Portal sync-rule coverage.
 - Pickers (admin-only, under `/api/frameio`): list accounts/workspaces/projects/folders/files;
   cursor pagination via `links.next` → `after`, capped at `PICKER_MAX_ITEMS`.
 
