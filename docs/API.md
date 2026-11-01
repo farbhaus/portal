@@ -51,50 +51,55 @@ curl -X POST https://portal.example.com/api/upload-links \
       "account_id": "…",
       "workspace_id": "…",
       "project_id": "…",
-      "folder_id": "…"
-    },
-    "turbosort": "20261028_ACME-SpringSpot"
+      "folder_id": "…",
+      "sync": {}
+    }
   }'
 ```
 
-The response includes `public_url` (the client-facing link) and `turbosort`.
+The response includes `public_url` (the client-facing link).
 
-`turbosort` is optional. When set, it names the project's local folder (one folder name: no `/`,
-`\`, control characters, `.` or `..`); FioTransfer reads it from `GET /api/upload-links`. Portal
-writes nothing into Frame.io for it. Sending `null` (or `""`) clears the field.
+### Sync to FioTransfer (`folder.sync`)
 
-### FioTransfer sync (`folder.sync`)
-
-An upload link can carry a sync block inside its `folder`. Portal only stores and returns it — the
-FioTransfer client reads it from `GET /api/upload-links` and moves the files:
+An upload link can carry a `sync` block inside its `folder`. Its presence is the "Sync to
+FioTransfer" switch, and `{}` is enough. Portal only stores and returns it: the FioTransfer client
+reads `GET /api/upload-links` and gives each synced link a folder on the user's disk. What the
+client uploads comes down into its `IN` folder; what the user puts in `OUT` goes up to the return
+folder.
 
 ```json
 "folder": {
   "type": "frameio", "account_id": "…", "folder_id": "…",
   "sync": {
-    "mode": "add_only",
-    "drive":   { "local": "1_DRIVE",   "folder_id": "<Frame.io folder the client's drive comes from>" },
-    "exports": { "local": "0_EXPORTS", "folder_id": "<Frame.io folder exports go up to>" }
+    "upload": { "folder_id": "<return folder: OUT goes up here>" }
   }
 }
 ```
 
-- `drive` downloads that Frame.io folder into the local folder `local`; `exports` uploads the local
-  folder `local` into that Frame.io folder. Either lane may be left out, but not both.
-- `folder_id` is optional and means "the link's own folder"; `local` is one folder name, and the
-  two lanes' `local` names must differ.
-- `add_only` is the only mode: files are added in both directions and nothing is ever deleted.
+| Field | Meaning | If absent |
+|---|---|---|
+| `sync` | The link is synced | Not synced |
+| `sync.upload.folder_id` | The return folder `OUT` goes up to | No `OUT` |
+| `sync.download.folder_id` | Where `IN` comes from | The link's own folder |
+| `sync.name` | The project folder's name on disk | The link's name |
+| `sync.download.local`, `sync.upload.local` | Per-link names for `IN` / `OUT` | The names set in FioTransfer |
+
+- Names are one folder name of at most 255 bytes: no `/`, `\`, `%`, control characters, `.` or `..`.
+- The return folder must differ from the folder `IN` comes from, and the two `local` names must
+  differ when both are set.
+- Files are only ever added, on either side; nothing is deleted.
 - On `PATCH`, a `folder` without a `sync` key keeps the stored block; `"sync": null` removes it.
 
-Not to be confused with the top-level `sync` array in `GET /api/links`, which lists the Portal
-sync rules (Frame.io → NAS) that already cover a link's folder.
+Older links may carry the earlier lanes, which are still accepted and stored as sent: `drive`
+(read as `download`), `exports` (read as `upload`) and `mode` (only `add_only`). A block may name
+a direction once, under either key. The link-level `turbosort` field is the older project folder
+name, read when `sync.name` is absent; the admin UI no longer sets it.
 
 ## Other resources
 
 The same bearer token works on the rest of the admin API, including:
 
 - `/api/links`, `/api/download-links`
-- `/api/sync-rules` (Frame.io → NAS sync rules)
 - `/api/frameio/accounts`, `/api/frameio/workspaces`, `/api/frameio/projects`,
   `/api/frameio/folders`, `/api/frameio/files`
 - `/api/activity`, `/api/dashboard`, `/api/settings`

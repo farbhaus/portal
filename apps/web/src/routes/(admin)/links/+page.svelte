@@ -186,7 +186,7 @@
   const dotTone: Record<string, string> = { ok: "bg-success", muted: "bg-faint", warn: "bg-warning", bad: "bg-danger" };
 
   const grid =
-    "grid items-center gap-x-3.5 grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1fr)_170px_150px] lg:grid-cols-[minmax(0,1.5fr)_minmax(170px,1.15fr)_92px_176px_150px] xl:grid-cols-[minmax(0,1.6fr)_104px_minmax(190px,1.2fr)_92px_190px_150px]";
+    "grid items-center gap-x-3.5 grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1fr)_170px_150px] lg:grid-cols-[minmax(0,1.5fr)_minmax(170px,1.15fr)_92px_176px_150px] xl:grid-cols-[minmax(0,1.6fr)_minmax(190px,1.2fr)_92px_190px_150px]";
 </script>
 
 <div class="space-y-4 text-[13px]">
@@ -246,7 +246,6 @@
   <div>
     <div class="{grid} h-8 border-b border-border px-3 text-[11.5px] font-medium text-faint">
       <span>Link</span>
-      <span class="hidden xl:block">NAS sync</span>
       <span class="hidden lg:block">Activity</span>
       <span class="hidden lg:block">Expires</span>
       <span class="hidden md:block">Status</span>
@@ -274,7 +273,6 @@
         {@const live = l.activity.live[0]}
         {@const prog = live ? liveProgress(live) : null}
         {@const path = linkPath(l)}
-        {@const covered = l.sync.filter((s) => s.enabled)}
         {@const isOpen = open.has(l.id)}
         <div class="border-b border-border {isOpen ? 'bg-surface/60' : ''} {l.state !== 'ok' ? 'opacity-80' : ''}">
           <div
@@ -299,6 +297,7 @@
                   <span class="truncate">{l.name}</span>
                   {#if l.password_protected}<span class="text-faint" title="Password"><Icon name="lock" size={13} /></span>{/if}
                   {#if l.verify_email}<span class="text-faint" title="Email code"><Icon name="mail" size={13} /></span>{/if}
+                  {#if l.kind === "upload" && l.folder?.sync}<span class="text-faint" title="Synced to FioTransfer"><Icon name="sync" size={13} /></span>{/if}
                 </div>
                 <div class="truncate text-xs text-faint">
                   {#each path as p, i (i)}{#if i > 0}<span class="px-1">/</span>{/if}<span class={i === path.length - 1 ? "text-muted" : ""}>{p}</span>{/each}
@@ -309,18 +308,6 @@
                   {#if live}{live.who ?? "Someone"} uploading{prog?.pct != null ? ` · ${Math.floor(prog.pct)}%` : ""}{:else}{st.text} · expires {expiresText(l).toLowerCase()}{/if}
                 </div>
               </div>
-            </div>
-
-            <div class="hidden xl:block">
-              {#if l.kind === "download"}
-                <span class="text-faint">—</span>
-              {:else if covered.length}
-                <span class="inline-flex h-[22px] items-center gap-1 rounded-full border border-success/25 bg-success/10 px-2 text-[11.5px] font-medium text-success" title="Synced by “{covered[0].name}” to {covered[0].destination_path}">
-                  <Icon name="sync" size={13} />Synced
-                </span>
-              {:else}
-                <span class="inline-flex h-[22px] items-center rounded-full border border-border px-2 text-[11.5px] font-medium text-muted">Not synced</span>
-              {/if}
             </div>
 
             <div class="hidden min-w-0 lg:block">
@@ -383,14 +370,9 @@
                 <span class="text-faint">{l.kind === "upload" ? "Lands in" : "Sends"}</span>
                 <span class="min-w-0 break-words text-body">{[path.join(" / "), l.kind === "download" ? sourceSummary(l.source) : ""].filter(Boolean).join(" · ")}</span>
                 {#if l.kind === "upload"}
-                  <span class="text-faint">NAS</span>
-                  <span class="min-w-0 text-body">
-                    {#if covered.length}
-                      <span class="font-mono text-[11.5px] break-all text-text">{covered[0].destination_path}</span> <span class="text-faint">via “{covered[0].name}”{covered[0].exact ? "" : " (parent folder)"}</span>
-                    {:else}
-                      Not synced · <a href="/sync-rules/new?account_id={encodeURIComponent(l.folder?.account_id ?? '')}&folder_id={encodeURIComponent(l.folder?.folder_id ?? '')}" class="text-accent-hover hover:underline">Sync this folder</a>
-                    {/if}
-                  </span>
+                  {@const sync = l.folder?.sync}
+                  <span class="text-faint">FioTransfer</span>
+                  <span class="text-body">{sync ? (sync.upload?.folder_id || sync.exports?.folder_id ? "Synced, with a return folder" : "Synced") : "Not synced"}</span>
                 {/if}
                 <span class="text-faint">Protection</span>
                 <span class="text-body">{[l.verify_email && "Email code", l.password_protected && "Password"].filter(Boolean).join(" · ") || "None"}</span>

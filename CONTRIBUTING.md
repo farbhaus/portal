@@ -6,7 +6,7 @@ checks a change needs to pass.
 ## Repo layout
 
 ```
-apps/api-rs/ the Portal service (Rust, axum + sqlx): API, the static web app, the sync worker
+apps/api-rs/ the Portal service (Rust, axum + sqlx): API, the static web app, the background worker
   src/  application        schema.sql + migrations/  the schema the image applies
 apps/web/    SvelteKit 5 frontend (admin UI + public /u and /d pages), Tailwind v4, built to
              static files the Rust service serves
@@ -46,7 +46,8 @@ cargo test --locked -- --ignored                     # + the live-DNS check
 To run it against a local Postgres + Redis: `DATABASE_URL=postgresql://… REDIS_URL=redis://…
 SESSION_SECRET=… TOKEN_ENCRYPTION_KEY=… ADMIN_PASSWORD=… cargo run -- migrate`, then `cargo run --
 seed` and `WEB_DIR=../web/build cargo run` (API + web app on `HOST:PORT`, default
-`127.0.0.1:8000`; build the web app first) and `cargo run -- worker` (the sync worker).
+`127.0.0.1:8000`; build the web app first) and `cargo run -- worker` (reminders, retention, abandoned
+uploads).
 
 ### Schema changes
 

@@ -1,7 +1,7 @@
 
 //! `GET /api/links` — every upload and download link in one list, newest first, with what the
-//! Links page shows on each row: where an upload link delivers (and which sync rules cover that
-//! folder), what has happened on the link, and any upload arriving right now.
+//! Links page shows on each row: where an upload link delivers, what has happened on the link, and
+//! any upload arriving right now.
 //!
 //! DB-only (never calls Frame.io): a handful of grouped queries, whatever the number of links.
 
@@ -19,7 +19,6 @@ use uuid::Uuid;
 use crate::auth::Admin;
 use crate::error::detail;
 use crate::routes::{download_links, upload_links};
-use crate::services::sync_coverage::{coverage_json, load_rules};
 use crate::state::AppState;
 
 /// An upload is "arriving now" while its page keeps sending heartbeats (every 20s).
@@ -62,7 +61,6 @@ pub async fn list_links(State(state): State<AppState>, _: Admin) -> Response {
             return detail(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error");
         }
     };
-    let rules = load_rules(&state.db).await;
 
     // ── upload activity ─────────────────────────────────────────────────────
     let mut up_stats: HashMap<Uuid, (i64, i64, Option<DateTime<Utc>>)> = HashMap::new();
@@ -153,7 +151,6 @@ pub async fn list_links(State(state): State<AppState>, _: Admin) -> Response {
         let id: Uuid = row.get("id");
         let mut v = upload_links::render_row(&state, row);
         let (count, bytes, last_at) = up_stats.get(&id).cloned().unwrap_or((0, 0, None));
-        v["sync"] = json!(coverage_json(&v["folder"], &rules));
         v["activity"] = json!({
             "count": count,
             "bytes": bytes,
@@ -167,7 +164,6 @@ pub async fn list_links(State(state): State<AppState>, _: Admin) -> Response {
         let id: Uuid = row.get("id");
         let mut v = download_links::render_row(&state, row);
         let (count, last_at) = down_stats.get(&id).cloned().unwrap_or((0, None));
-        v["sync"] = json!([]);
         v["activity"] = json!({
             "count": count,
             "last_at": iso(last_at),
@@ -236,8 +232,8 @@ pub async fn email_link(State(state): State<AppState>, admin: Admin, Json(body):
     Json(json!({ "ok": true })).into_response()
 }
 
-/// `GET /api/nav` — the counts the navigation shows: active links, uploads arriving now, sync jobs
-/// in flight, and sync jobs that failed. One query; pages fetch it again on every live change.
+/// `GET /api/nav` — the counts the navigation shows: active links and uploads arriving now. One
+/// query; pages fetch it again on every live change.
 pub async fn nav_summary(State(state): State<AppState>, _: Admin) -> Response {
     let row = sqlx::query(
         "SELECT
@@ -245,9 +241,7 @@ pub async fn nav_summary(State(state): State<AppState>, _: Admin) -> Response {
               AS links_active,
             (SELECT count(*) FROM upload_sessions WHERE status = 'in_progress'
                 AND COALESCE(last_activity_at, started_at, created_at) >= now() - make_interval(secs => $1))
-              AS uploads_live,
-            (SELECT count(*) FROM sync_jobs WHERE status IN ('pending', 'running')) AS sync_active,
-            (SELECT count(*) FROM sync_jobs WHERE status = 'dead_letter') AS sync_failed",
+              AS uploads_live",
     )
     .bind(LIVE_WINDOW_SECONDS as f64)
     .fetch_one(&state.db)
@@ -256,8 +250,6 @@ pub async fn nav_summary(State(state): State<AppState>, _: Admin) -> Response {
         Ok(r) => Json(json!({
             "links_active": r.get::<i64, _>("links_active"),
             "uploads_live": r.get::<i64, _>("uploads_live"),
-            "sync_active": r.get::<i64, _>("sync_active"),
-            "sync_failed": r.get::<i64, _>("sync_failed"),
         }))
         .into_response(),
         Err(e) => {

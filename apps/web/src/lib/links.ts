@@ -1,26 +1,28 @@
 // Links as the admin API returns them (GET /api/links, /api/upload-links, /api/download-links),
 // and the plain-language status and timing the Links pages show.
 
-import type { CoveringRule, DownloadSource, FolderRef } from "$lib/frameio";
+import type { DownloadSource, FolderRef } from "$lib/frameio";
 import { crumbNames } from "$lib/frameio";
 import { formatBytes } from "$lib/format";
 
 export type LinkState = "ok" | "expired" | "revoked";
 
 /**
- * Per-link FioTransfer sync, stored inside an upload link's `folder` JSON. Portal only stores it;
- * the FioTransfer client reads it from `GET /api/upload-links` and does the transfers.
+ * "Sync to FioTransfer", stored inside an upload link's `folder` JSON. Portal only stores it; the
+ * FioTransfer client reads it from `GET /api/upload-links` and gives the link a folder on the
+ * user's disk: what the client uploads comes down into IN, and what the user puts in OUT goes up
+ * to the return folder (`upload.folder_id`; without one there is no OUT). Its presence is the
+ * switch, so `{}` is a whole sync. Nothing is ever deleted, on either side.
  *
- * `drive` is the client's drop folder: FioTransfer downloads it into the local folder named
- * `local`. `exports` is ours: the local folder named `local` is uploaded into it. Either side may
- * be left out — that lane is simply off — but a `sync` with neither is not a sync. An omitted
- * `folder_id` means "the link's own folder".
- *
- * `add_only` is the whole rule: files are added in both directions and nothing is ever deleted, so
- * Frame.io can be cleared once the local copy exists.
+ * `name` and the `local` names override the on-disk names; the composer never sets them but keeps
+ * them. `drive`, `exports` and `mode` are the older lanes (read as `download` and `upload`), kept
+ * as stored on the links that have them.
  */
-export type LinkSyncLane = { local: string; folder_id?: string | null };
+export type LinkSyncLane = { local?: string | null; folder_id?: string | null };
 export type LinkSync = {
+  name?: string | null;
+  download?: LinkSyncLane | null;
+  upload?: LinkSyncLane | null;
   mode?: "add_only";
   drive?: LinkSyncLane | null;
   exports?: LinkSyncLane | null;
@@ -84,7 +86,7 @@ export type LinkActivity = {
   live: LiveUpload[];
 };
 
-export type LinkItem = (UploadLink | DownloadLink) & { sync: CoveringRule[]; activity: LinkActivity };
+export type LinkItem = (UploadLink | DownloadLink) & { activity: LinkActivity };
 
 export type UploadSessionRow = {
   id: string;

@@ -1,7 +1,7 @@
 
 //! `GET /api/events` — a server-sent event stream that tells admin pages when something they show
-//! has changed (an upload progressed or finished, a sync job moved, a file was downloaded, a link
-//! was added or removed), so they reload then instead of polling on a timer.
+//! has changed (an upload progressed or finished, a file was downloaded, a link was added or
+//! removed), so they reload then instead of polling on a timer.
 //!
 //! One poller per process compares a cheap fingerprint of those tables every couple of seconds,
 //! only while at least one admin page is listening, and bumps a version every subscriber watches.
@@ -28,8 +28,6 @@ const POLL_EVERY: Duration = Duration::from_secs(2);
 const FINGERPRINT_SQL: &str = "SELECT concat_ws('|',
     (SELECT max(updated_at) FROM upload_sessions),
     (SELECT count(*) FROM upload_sessions WHERE status = 'in_progress'),
-    (SELECT max(updated_at) FROM sync_jobs),
-    (SELECT count(*) FROM sync_jobs),
     (SELECT count(*) FROM download_events),
     (SELECT count(*) FROM links),
     (SELECT max(updated_at) FROM links))";

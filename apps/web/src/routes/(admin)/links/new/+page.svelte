@@ -10,8 +10,6 @@
   mode="create"
   kind={data.kind}
   {recents}
-  rules={data.rules}
-  projectFolders={data.projectFolders}
   branding={data.branding}
   initialFolder={data.folder ?? lastFolder() ?? recents[0] ?? null}
   openSourcePicker={data.pick}

@@ -75,8 +75,10 @@ fn str_or_none(v: Option<&Value>) -> Option<String> {
     if s.is_empty() { None } else { Some(s.to_string()) }
 }
 
-/// The `turbosort` value: the project's local folder name, which FioTransfer reads. One path
-/// segment: no separators, no control characters, not `.`/`..`.
+/// The `turbosort` value: the older name for the project's folder on disk, which FioTransfer still
+/// reads when `sync.name` is absent. The composer no longer sets it; the API keeps it so links
+/// that have one keep their folder. One path segment: no separators, no control characters, not
+/// `.`/`..`.
 fn clean_turbosort(value: &str) -> Result<String, Response> {
     let v = value.trim();
     if v.is_empty() {
@@ -92,25 +94,32 @@ fn turbosort_of(folder: &Value) -> Option<String> {
     folder.get("turbosort").and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
-/// `folder.sync` — per-link FioTransfer sync. Portal only stores it; the FioTransfer client reads
-/// it from `GET /api/upload-links`, downloads the client's drive into a local folder and uploads
-/// another local folder into Frame.io, adding files in both directions and never deleting any
-/// (`add_only`), so a person can clear Frame.io once they have their own copy without losing what
-/// is on the NAS.
+/// `folder.sync` — the link's "Sync to FioTransfer" switch. Portal only stores it; the FioTransfer
+/// client reads it from `GET /api/upload-links` and gives the link a folder on the user's disk:
+/// what the client uploads comes down into its `IN`, and what the user puts in `OUT` goes up to
+/// the return folder. Files are only ever added, on either side, never deleted.
 ///
-/// The only mode there is; an unknown one is rejected rather than guessed at.
+/// Its presence is the switch, so `{}` is a whole sync. Every field in it is optional:
+/// - `upload.folder_id`: the return folder `OUT` goes up to; without it there is no `OUT`.
+/// - `download.folder_id`: where `IN` comes from, when it isn't the link's own folder.
+/// - `name`, `download.local`, `upload.local`: on-disk names, when they shouldn't be the link's
+///   name and the `IN`/`OUT` names set in FioTransfer.
+///
+/// The older lanes are still taken and stored as sent, so links set up that way keep their
+/// folders: the client reads `drive` as `download` and `exports` as `upload`, and ignores `mode`
+/// (only ever `add_only`).
 const SYNC_MODES: [&str; 1] = ["add_only"];
 
-/// One local folder name: a single path segment, no separators, no `%`, no control characters and
-/// not `.`/`..` — it names one folder inside the project on the NAS.
-fn clean_sync_folder(side: &str, value: &str) -> Result<String, String> {
+/// One on-disk name: a single path segment of at most 255 bytes, no separators, no `%`, no
+/// control characters and not `.`/`..`.
+fn clean_sync_name(field: &str, value: &str) -> Result<String, String> {
     let v = value.trim();
     if v.is_empty() {
-        return Err(format!("sync.{side}.local must not be empty"));
+        return Err(format!("{field} must not be empty"));
     }
     if v == "." || v == ".." || v.contains('/') || v.contains('\\') || v.contains('%')
-        || v.chars().any(char::is_control) {
-        return Err(format!("sync.{side}.local must be a single folder name"));
+        || v.chars().any(char::is_control) || v.len() > 255 {
+        return Err(format!("{field} must be a single folder name"));
     }
     Ok(v.to_string())
 }
@@ -124,53 +133,74 @@ fn sync_folder_id(side: &str, value: &str) -> Result<String, String> {
     Ok(v.to_string())
 }
 
-/// Validate `folder.sync` and return it as stored. `None` means the link has no sync: the key was
-/// absent or null. Absent `folder_id`s stay absent — the consumer reads them as "the link's own
-/// folder". `mode` is stored explicitly so the client never has to guess.
-///
-/// The two sides are independent switches in the composer, so either may be sent on its own:
-/// `drive` alone is a link that only downloads the client's drive, `exports` alone is a link that
-/// only uploads. A block with neither is not a sync at all and is rejected.
-pub fn validate_sync(raw: Option<&Value>) -> Result<Option<Value>, String> {
+/// One direction of a sync block, cleaned: its optional `local` name and `folder_id`.
+fn sync_lane(sync: &Map<String, Value>, key: &str) -> Result<Option<Map<String, Value>>, String> {
+    let Some(v) = sync.get(key).filter(|v| !v.is_null()) else { return Ok(None) };
+    let Some(lane) = v.as_object() else { return Err(format!("sync.{key} must be an object")) };
+    let mut out = Map::new();
+    if let Some(local) = lane.get("local").filter(|v| !v.is_null()) {
+        let Some(local) = local.as_str() else { return Err(format!("sync.{key}.local must be a string")) };
+        out.insert("local".to_string(), json!(clean_sync_name(&format!("sync.{key}.local"), local)?));
+    }
+    if let Some(id) = lane.get("folder_id").filter(|v| !v.is_null()) {
+        let Some(id) = id.as_str() else { return Err(format!("sync.{key}.folder_id must be a Frame.io folder id")) };
+        out.insert("folder_id".to_string(), json!(sync_folder_id(key, id)?));
+    }
+    Ok(Some(out))
+}
+
+/// A cleaned sync direction and the key it came in under (`upload`, or the older `exports`).
+type SyncDirection = (String, Map<String, Value>);
+
+/// A direction under its name or the older one it replaced (never both).
+fn sync_direction(sync: &Map<String, Value>, key: &str, older: &str) -> Result<Option<SyncDirection>, String> {
+    match (sync_lane(sync, key)?, sync_lane(sync, older)?) {
+        (Some(_), Some(_)) => Err(format!("sync.{older} is the older name for sync.{key}: send one of them")),
+        (Some(lane), None) => Ok(Some((key.to_string(), lane))),
+        (None, Some(lane)) => Ok(Some((older.to_string(), lane))),
+        (None, None) => Ok(None),
+    }
+}
+
+/// Validate `folder.sync` for a link delivering into `link_folder_id`, and return it as stored.
+/// `None` means the link isn't synced: the key was absent or null. Absent fields stay absent, so
+/// FioTransfer applies its own defaults.
+pub fn validate_sync(raw: Option<&Value>, link_folder_id: &str) -> Result<Option<Value>, String> {
     let Some(raw) = raw.filter(|v| !v.is_null()) else { return Ok(None) };
     let Some(obj) = raw.as_object() else { return Err("sync must be an object".to_string()) };
-    let accepted = SYNC_MODES.map(|m| format!("'{m}'")).join(", ");
-    let mode = match obj.get("mode") {
-        None | Some(Value::Null) => SYNC_MODES[0].to_string(),
-        Some(Value::String(m)) if SYNC_MODES.contains(&m.as_str()) => m.clone(),
-        Some(_) => return Err(format!("sync.mode must be one of [{accepted}]")),
-    };
-    let side = |name: &str| -> Result<Option<Value>, String> {
-        let Some(v) = obj.get(name).filter(|v| !v.is_null()) else { return Ok(None) };
-        let Some(s) = v.as_object() else { return Err(format!("sync.{name} must be an object")) };
-        let Some(local) = s.get("local").and_then(|v| v.as_str()) else {
-            return Err(format!("sync.{name}.local is required"));
-        };
-        let mut out = Map::new();
-        out.insert("local".to_string(), json!(clean_sync_folder(name, local)?));
-        if let Some(id) = s.get("folder_id").and_then(|v| v.as_str()) {
-            out.insert("folder_id".to_string(), json!(sync_folder_id(name, id)?));
-        }
-        Ok(Some(Value::Object(out)))
-    };
-    // At least one side has to be there: a sync block with neither lane does nothing.
-    let drive = side("drive")?;
-    let exports = side("exports")?;
-    if drive.is_none() && exports.is_none() {
-        return Err("sync needs at least one of drive or exports".to_string());
-    }
-    // The two local folders must be different — but only when both sides are stored.
-    if let (Some(drive), Some(exp)) = (&drive, &exports)
-        && exp.get("local") == drive.get("local") {
-            return Err("sync.drive.local and sync.exports.local must be different folders".to_string());
-        }
     let mut out = Map::new();
-    out.insert("mode".to_string(), json!(mode));
-    if let Some(drive) = drive {
-        out.insert("drive".to_string(), drive);
+    match obj.get("mode") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(m)) if SYNC_MODES.contains(&m.as_str()) => {
+            out.insert("mode".to_string(), json!(m));
+        }
+        Some(_) => {
+            let accepted = SYNC_MODES.map(|m| format!("'{m}'")).join(", ");
+            return Err(format!("sync.mode must be one of [{accepted}]"));
+        }
     }
-    if let Some(exp) = exports {
-        out.insert("exports".to_string(), exp);
+    if let Some(name) = obj.get("name").filter(|v| !v.is_null()) {
+        let Some(name) = name.as_str() else { return Err("sync.name must be a string".to_string()) };
+        out.insert("name".to_string(), json!(clean_sync_name("sync.name", name)?));
+    }
+    let down = sync_direction(obj, "download", "drive")?;
+    let up = sync_direction(obj, "upload", "exports")?;
+    let field = |dir: &Option<SyncDirection>, f: &str| {
+        dir.as_ref().and_then(|(_, lane)| lane.get(f)).and_then(|v| v.as_str()).map(|s| s.to_string())
+    };
+    if let (Some((dk, _)), Some((uk, _))) = (&down, &up)
+        && field(&down, "local").is_some() && field(&down, "local") == field(&up, "local") {
+            return Err(format!("sync.{dk}.local and sync.{uk}.local must be different folders"));
+        }
+    // OUT goes up somewhere IN doesn't come down from.
+    if let (Some((uk, _)), Some(up_folder)) = (&up, field(&up, "folder_id")) {
+        let down_folder = field(&down, "folder_id").unwrap_or_else(|| link_folder_id.to_string());
+        if up_folder == down_folder {
+            return Err(format!("sync.{uk}.folder_id must be a different folder from the one IN comes from"));
+        }
+    }
+    for (key, lane) in [down, up].into_iter().flatten() {
+        out.insert(key, Value::Object(lane));
     }
     Ok(Some(Value::Object(out)))
 }
@@ -251,13 +281,13 @@ fn not_found() -> Response {
 /// Check a picked Frame.io folder and build the config stored on the link: ids, the folder's name
 /// from Frame.io, and the display breadcrumb (the picker's, else resolved best-effort).
 pub async fn validated_folder(state: &AppState, raw: &Value) -> Result<Value, Response> {
-    // `sync` is ours alone: check it here, before any Frame.io call, and carry it into the stored
-    // config. It rides along in `folder`, so it is returned verbatim by every read.
-    let sync = validate_sync(raw.get("sync")).map_err(|m| detail(StatusCode::UNPROCESSABLE_ENTITY, &m))?;
     let get = |k: &str| str_or_none(raw.get(k));
     let (Some(account_id), Some(folder_id)) = (get("account_id"), get("folder_id")) else {
         return Err(detail(StatusCode::UNPROCESSABLE_ENTITY, "folder needs account_id and folder_id"));
     };
+    // `sync` is ours alone: check it here, before any Frame.io call, and carry it into the stored
+    // config. It rides along in `folder`, so it is returned verbatim by every read.
+    let sync = validate_sync(raw.get("sync"), &folder_id).map_err(|m| detail(StatusCode::UNPROCESSABLE_ENTITY, &m))?;
     let folder = match state.frameio.get_folder(&account_id, &folder_id).await {
         Ok(f) => f,
         Err(crate::frameio::FrameioError::NotConnected) => {
@@ -645,49 +675,99 @@ mod tests {
         assert!(clean_turbosort("   ").is_err());
     }
 
+    const LINK: &str = "11111111-1111-4111-8111-111111111111";
+    const RETURN: &str = "6f4121b3-628d-4b7a-91ea-8b1ac4a3f0a3";
+    const OTHER: &str = "8008cf70-f28e-474d-a209-d67afb9fddb6";
+
     #[test]
     fn sync_is_optional_and_null_clears_it() {
-        assert_eq!(validate_sync(None), Ok(None));
-        assert_eq!(validate_sync(Some(&Value::Null)), Ok(None));
+        assert_eq!(validate_sync(None, LINK), Ok(None));
+        assert_eq!(validate_sync(Some(&Value::Null), LINK), Ok(None));
     }
 
     #[test]
-    fn sync_stores_add_only_and_keeps_each_side_as_given() {
-        // Omitted folder ids stay omitted: the client reads them as "the link's own folder".
-        let raw = json!({ "drive": { "local": " 1_DRIVE " } });
-        assert_eq!(
-            validate_sync(Some(&raw)),
-            Ok(Some(json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" } })))
-        );
+    fn an_empty_sync_is_the_switch_on() {
+        // Nothing is invented: FioTransfer fills in its own defaults.
+        assert_eq!(validate_sync(Some(&json!({})), LINK), Ok(Some(json!({}))));
+    }
+
+    #[test]
+    fn sync_keeps_the_return_folder_and_names_as_given() {
+        let raw = json!({ "upload": { "folder_id": format!(" {RETURN} ") } });
+        assert_eq!(validate_sync(Some(&raw), LINK), Ok(Some(json!({ "upload": { "folder_id": RETURN } }))));
         let raw = json!({
-            "mode": "add_only",
-            "drive": { "local": "1_DRIVE", "folder_id": "8008cf70-f28e-474d-a209-d67afb9fddb6" },
-            "exports": { "local": "0_EXPORTS", "folder_id": "6f4121b3-628d-4b7a-91ea-8b1ac4a3f0a3" },
+            "name": " Acme Spot 30s ",
+            "download": { "folder_id": OTHER, "local": "IN" },
+            "upload": { "folder_id": RETURN, "local": "OUT" },
         });
         assert_eq!(
-            validate_sync(Some(&raw)),
+            validate_sync(Some(&raw), LINK),
             Ok(Some(json!({
-                "mode": "add_only",
-                "drive": { "local": "1_DRIVE", "folder_id": "8008cf70-f28e-474d-a209-d67afb9fddb6" },
-                "exports": { "local": "0_EXPORTS", "folder_id": "6f4121b3-628d-4b7a-91ea-8b1ac4a3f0a3" },
+                "name": "Acme Spot 30s",
+                "download": { "folder_id": OTHER, "local": "IN" },
+                "upload": { "folder_id": RETURN, "local": "OUT" },
             })))
         );
     }
 
     #[test]
-    fn sync_local_folder_is_one_path_segment() {
-        for bad in [".", "..", "1_DRIVE/out", "1_DRIVE\\out", "1_DRIVE%2Fout", "a\nb", "a\tb"] {
-            let raw = json!({ "drive": { "local": bad } });
+    fn older_lanes_are_stored_as_sent() {
+        // Links set up before the switch keep their folders: same keys, same values.
+        let raw = json!({
+            "mode": "add_only",
+            "drive": { "local": " 1_DRIVE " },
+            "exports": { "local": "0_EXPORTS", "folder_id": RETURN },
+        });
+        assert_eq!(
+            validate_sync(Some(&raw), LINK),
+            Ok(Some(json!({
+                "mode": "add_only",
+                "drive": { "local": "1_DRIVE" },
+                "exports": { "local": "0_EXPORTS", "folder_id": RETURN },
+            })))
+        );
+        assert_eq!(
+            validate_sync(Some(&json!({ "mode": "mirror" })), LINK),
+            Err("sync.mode must be one of ['add_only']".to_string())
+        );
+    }
+
+    #[test]
+    fn a_direction_comes_under_one_name_only() {
+        let raw = json!({ "upload": { "folder_id": RETURN }, "exports": { "local": "0_EXPORTS" } });
+        assert_eq!(
+            validate_sync(Some(&raw), LINK),
+            Err("sync.exports is the older name for sync.upload: send one of them".to_string())
+        );
+        let raw = json!({ "download": {}, "drive": { "local": "1_DRIVE" } });
+        assert_eq!(
+            validate_sync(Some(&raw), LINK),
+            Err("sync.drive is the older name for sync.download: send one of them".to_string())
+        );
+        // A null side is no side.
+        let raw = json!({ "drive": null, "download": { "local": "IN" } });
+        assert_eq!(validate_sync(Some(&raw), LINK), Ok(Some(json!({ "download": { "local": "IN" } }))));
+    }
+
+    #[test]
+    fn sync_names_are_one_path_segment() {
+        for bad in [".", "..", "IN/out", "IN\\out", "IN%2Fout", "a\nb", "a\tb"] {
+            let raw = json!({ "upload": { "local": bad } });
             assert_eq!(
-                validate_sync(Some(&raw)),
-                Err("sync.drive.local must be a single folder name".to_string()),
+                validate_sync(Some(&raw), LINK),
+                Err("sync.upload.local must be a single folder name".to_string()),
                 "{bad:?} must be rejected"
             );
         }
+        let long = "a".repeat(256);
+        assert_eq!(
+            validate_sync(Some(&json!({ "name": long })), LINK),
+            Err("sync.name must be a single folder name".to_string())
+        );
+        assert!(validate_sync(Some(&json!({ "name": "a".repeat(255) })), LINK).is_ok());
         for empty in ["", "  "] {
-            let raw = json!({ "drive": { "local": empty } });
             assert_eq!(
-                validate_sync(Some(&raw)),
+                validate_sync(Some(&json!({ "drive": { "local": empty } })), LINK),
                 Err("sync.drive.local must not be empty".to_string()),
                 "{empty:?} must be rejected"
             );
@@ -696,92 +776,52 @@ mod tests {
 
     #[test]
     fn sync_folder_ids_must_be_frameio_ids() {
-        let raw = json!({ "drive": { "local": "1_DRIVE", "folder_id": "1_DRIVE" } });
         assert_eq!(
-            validate_sync(Some(&raw)),
-            Err("sync.drive.folder_id must be a Frame.io folder id".to_string())
+            validate_sync(Some(&json!({ "download": { "folder_id": "1_DRIVE" } })), LINK),
+            Err("sync.download.folder_id must be a Frame.io folder id".to_string())
         );
-        let raw = json!({ "drive": { "local": "1_DRIVE" }, "exports": { "local": "0_EXPORTS", "folder_id": "" } });
         assert_eq!(
-            validate_sync(Some(&raw)),
+            validate_sync(Some(&json!({ "exports": { "local": "0_EXPORTS", "folder_id": "" } })), LINK),
             Err("sync.exports.folder_id must be a Frame.io folder id".to_string())
         );
     }
 
     #[test]
-    fn sync_shape_and_mode_errors_name_what_is_accepted() {
-        assert_eq!(validate_sync(Some(&json!("add_only"))), Err("sync must be an object".to_string()));
+    fn sync_shape_errors_name_the_field() {
+        assert_eq!(validate_sync(Some(&json!("add_only")), LINK), Err("sync must be an object".to_string()));
         assert_eq!(
-            validate_sync(Some(&json!({}))),
-            Err("sync needs at least one of drive or exports".to_string())
+            validate_sync(Some(&json!({ "upload": "OUT" })), LINK),
+            Err("sync.upload must be an object".to_string())
         );
-        assert_eq!(
-            validate_sync(Some(&json!({ "drive": "1_DRIVE" }))),
-            Err("sync.drive must be an object".to_string())
-        );
-        assert_eq!(
-            validate_sync(Some(&json!({ "drive": {} }))),
-            Err("sync.drive.local is required".to_string())
-        );
-        assert_eq!(
-            validate_sync(Some(&json!({ "mode": "mirror", "drive": { "local": "1_DRIVE" } }))),
-            Err("sync.mode must be one of ['add_only']".to_string())
-        );
+        assert_eq!(validate_sync(Some(&json!({ "name": 7 })), LINK), Err("sync.name must be a string".to_string()));
     }
 
     #[test]
-    fn sync_takes_either_side_on_its_own() {
-        // Exports alone: a link that only uploads. No `drive` key is invented.
-        let raw = json!({ "exports": { "local": " 0_EXPORTS " } });
+    fn the_return_folder_is_not_where_in_comes_from() {
+        // IN defaults to the link's own folder.
         assert_eq!(
-            validate_sync(Some(&raw)),
-            Ok(Some(json!({ "mode": "add_only", "exports": { "local": "0_EXPORTS" } })))
+            validate_sync(Some(&json!({ "upload": { "folder_id": LINK } })), LINK),
+            Err("sync.upload.folder_id must be a different folder from the one IN comes from".to_string())
         );
-        let raw = json!({ "mode": "add_only", "exports": { "local": "0_EXPORTS", "folder_id": "6f4121b3-628d-4b7a-91ea-8b1ac4a3f0a3" } });
+        let raw = json!({ "download": { "folder_id": RETURN }, "upload": { "folder_id": RETURN } });
         assert_eq!(
-            validate_sync(Some(&raw)),
-            Ok(Some(json!({
-                "mode": "add_only",
-                "exports": { "local": "0_EXPORTS", "folder_id": "6f4121b3-628d-4b7a-91ea-8b1ac4a3f0a3" },
-            })))
+            validate_sync(Some(&raw), LINK),
+            Err("sync.upload.folder_id must be a different folder from the one IN comes from".to_string())
         );
-        // Drive alone is still what it was.
-        assert_eq!(
-            validate_sync(Some(&json!({ "drive": { "local": "1_DRIVE" } }))),
-            Ok(Some(json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" } })))
-        );
-        // A null side is no side.
-        let raw = json!({ "drive": null, "exports": { "local": "0_EXPORTS" } });
-        assert_eq!(
-            validate_sync(Some(&raw)),
-            Ok(Some(json!({ "mode": "add_only", "exports": { "local": "0_EXPORTS" } })))
-        );
-        // Neither side is not a sync, and says so.
-        assert_eq!(
-            validate_sync(Some(&json!({ "mode": "add_only" }))),
-            Err("sync needs at least one of drive or exports".to_string())
-        );
-        assert_eq!(
-            validate_sync(Some(&json!({ "drive": null, "exports": null }))),
-            Err("sync needs at least one of drive or exports".to_string())
-        );
+        // IN moved elsewhere frees the link's own folder for OUT.
+        let raw = json!({ "download": { "folder_id": OTHER }, "upload": { "folder_id": LINK } });
+        assert!(validate_sync(Some(&raw), LINK).is_ok());
     }
 
     #[test]
     fn sync_sides_must_name_different_local_folders() {
-        let raw = json!({
-            "drive": { "local": "1_DRIVE" },
-            "exports": { "local": " 1_DRIVE " },
-        });
+        let raw = json!({ "drive": { "local": "1_DRIVE" }, "exports": { "local": " 1_DRIVE " } });
         assert_eq!(
-            validate_sync(Some(&raw)),
+            validate_sync(Some(&raw), LINK),
             Err("sync.drive.local and sync.exports.local must be different folders".to_string())
         );
-        // The rule only bites when both sides are stored: one side may be named anything.
-        let raw = json!({ "exports": { "local": "1_DRIVE" } });
-        assert_eq!(
-            validate_sync(Some(&raw)),
-            Ok(Some(json!({ "mode": "add_only", "exports": { "local": "1_DRIVE" } })))
-        );
+        // The rule only bites when both sides name one: one side may be named anything.
+        let raw = json!({ "upload": { "local": "IN" } });
+        assert_eq!(validate_sync(Some(&raw), LINK), Ok(Some(json!({ "upload": { "local": "IN" } }))));
     }
 }

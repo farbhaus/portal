@@ -5,7 +5,7 @@ import type { FolderRef } from "$lib/frameio";
 export const load: PageLoad = async ({ fetch, url }) => {
   const ctx = await loadComposerContext(fetch);
   const type = url.searchParams.get("type");
-  // "Receive into this folder" from elsewhere (Files, a sync rule): ?account_id=&folder_id=
+  // "Receive into this folder" from elsewhere (Files, ⌘K): ?account_id=&folder_id=
   let folder: FolderRef | null = null;
   const account = url.searchParams.get("account_id");
   const folderId = url.searchParams.get("folder_id");

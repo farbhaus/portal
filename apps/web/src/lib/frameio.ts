@@ -1,6 +1,5 @@
 // Frame.io folders and download sources as the admin UI handles them, plus the small API calls
-// the picker makes. A FolderRef is exactly what an upload link stores as its `folder` and what a
-// sync rule stores as its `source` (minus `recursive`).
+// the picker makes. A FolderRef is exactly what an upload link stores as its `folder`.
 
 import type { LinkSync } from "$lib/links";
 
@@ -16,7 +15,7 @@ export type FolderRef = {
   folder_name?: string | null;
   // Breadcrumb from the project root (named after the project) down to the folder.
   path?: PathSegment[] | null;
-  // Upload links only: which local folders FioTransfer syncs with this project.
+  // Upload links only: "Sync to FioTransfer" and its return folder.
   sync?: LinkSync | null;
 };
 
@@ -26,22 +25,6 @@ export type DownloadSource =
   | { type: "file"; account_id: string; file_id: string; path?: PathSegment[]; label?: string; names?: string[]; bytes?: number }
   | { type: "selection"; account_id: string; file_ids: string[]; path?: PathSegment[]; label?: string; names?: string[]; bytes?: number }
   | { type: "folder"; account_id: string; folder_id: string; recursive: boolean; path?: PathSegment[]; label?: string };
-
-export type CoveringRule = {
-  id: string;
-  name: string;
-  destination_path: string;
-  enabled: boolean;
-  exact: boolean;
-};
-
-export type RuleLike = {
-  id: string;
-  name: string;
-  destination_path: string;
-  enabled: boolean;
-  source: { account_id?: string; folder_id?: string; recursive?: boolean };
-};
 
 /** Folder names from the project down, for display ("Northlight / Spring / Day 3"). */
 export function crumbNames(f: Partial<FolderRef> | null | undefined): string[] {
@@ -56,31 +39,6 @@ export function crumbNames(f: Partial<FolderRef> | null | undefined): string[] {
 
 export function folderLabel(f: Partial<FolderRef> | null | undefined): string {
   return crumbNames(f).join(" / ");
-}
-
-/** The sync rules that copy this folder to the NAS: on the folder itself, or recursively above it. */
-export function coveringRules(folder: Partial<FolderRef> | null | undefined, rules: RuleLike[]): CoveringRule[] {
-  if (!folder?.account_id || !folder.folder_id) return [];
-  const ancestors = new Set((folder.path ?? []).slice(0, -1).map((s) => s.id));
-  const out: CoveringRule[] = [];
-  for (const r of rules) {
-    if (r.source.account_id !== folder.account_id) continue;
-    const base = { id: r.id, name: r.name, destination_path: r.destination_path, enabled: r.enabled };
-    if (r.source.folder_id === folder.folder_id) out.push({ ...base, exact: true });
-    else if ((r.source.recursive ?? true) && r.source.folder_id && ancestors.has(r.source.folder_id))
-      out.push({ ...base, exact: false });
-  }
-  return out;
-}
-
-/** Where on the NAS files in `folder` land under a covering rule (approximate for templates). */
-export function nasPathFor(folder: Partial<FolderRef>, rule: CoveringRule, rules: RuleLike[]): string {
-  if (rule.exact) return rule.destination_path;
-  const src = rules.find((r) => r.id === rule.id)?.source.folder_id;
-  const path = folder.path ?? [];
-  const i = path.findIndex((s) => s.id === src);
-  const rel = i >= 0 ? path.slice(i + 1).map((s) => s.name) : [];
-  return [rule.destination_path.replace(/\/$/, ""), ...rel].join("/");
 }
 
 /** A stable key for de-duplicating folders. */

@@ -1,5 +1,5 @@
 // Live updates for admin pages. One EventSource on /api/events per tab; the server says "change"
-// whenever uploads, downloads, sync jobs or links change, and pages re-run their loads then
+// whenever uploads, downloads or links change, and pages re-run their loads then
 // instead of polling on a timer. EventSource reconnects by itself after a drop.
 
 import { invalidateAll } from "$app/navigation";

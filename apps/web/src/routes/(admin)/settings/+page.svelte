@@ -367,7 +367,7 @@
 
     <!-- Frame.io -->
     {#snippet frameioBody()}
-      <SetRow label="Connection" help={frameio.connected ? undefined : "Links, sync and the picker need it."}>
+      <SetRow label="Connection" help={frameio.connected ? undefined : "Links and the picker need it."}>
         <div class="flex flex-wrap items-center gap-3">
           <span class="flex min-w-0 flex-1 items-center gap-2">
             <span class="h-2 w-2 shrink-0 rounded-full {frameio.connected ? 'bg-success' : 'bg-warning'}"></span>

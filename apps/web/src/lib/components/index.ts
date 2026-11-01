@@ -5,7 +5,6 @@ export { default as PageHeader } from "./PageHeader.svelte";
 export { default as CopyButton } from "./CopyButton.svelte";
 export { default as Modal } from "./Modal.svelte";
 export { default as PathBreadcrumb } from "./PathBreadcrumb.svelte";
-export { default as TemplateTokenInput } from "./TemplateTokenInput.svelte";
 export { default as Icon } from "./Icon.svelte";
 export type { IconName } from "./Icon.svelte";
 export { default as Toaster } from "./Toaster.svelte";

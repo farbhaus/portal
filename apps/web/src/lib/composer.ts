@@ -1,24 +1,22 @@
 // What every link composer page loads besides the link itself: recent folders (from existing
-// upload links), sync rules (to say whether a folder lands on the NAS), the page branding for the
-// preview, and whether email is set up (for "Email to client").
+// upload links), the page branding for the preview, and whether email is set up (for "Email to
+// client").
 import type { BrandProfile, Branding, Preset } from "$lib/components";
-import type { FolderRef, RuleLike } from "$lib/frameio";
+import type { FolderRef } from "$lib/frameio";
 import type { UploadLink } from "$lib/links";
 import { recentFolders } from "$lib/recents";
 
 type Fetch = typeof fetch;
 
 export async function loadComposerContext(fetch: Fetch) {
-  const [upRes, rulesRes, brandRes, emailRes, presetsRes, brandsRes] = await Promise.all([
+  const [upRes, brandRes, emailRes, presetsRes, brandsRes] = await Promise.all([
     fetch("/api/upload-links"),
-    fetch("/api/sync-rules"),
     fetch("/api/settings/branding"),
     fetch("/api/settings/email"),
     fetch("/api/link-presets"),
     fetch("/api/brand-profiles"),
   ]);
   const uploads: UploadLink[] = upRes.ok ? await upRes.json() : [];
-  const rules: RuleLike[] = rulesRes.ok ? await rulesRes.json() : [];
   const b = brandRes.ok ? await brandRes.json() : {};
   const email = emailRes.ok ? await emailRes.json() : {};
   const branding: Branding = {
@@ -28,15 +26,8 @@ export async function loadComposerContext(fetch: Fetch) {
   };
   const presets: Preset[] = presetsRes.ok ? await presetsRes.json() : [];
   const brands: BrandProfile[] = brandsRes.ok ? await brandsRes.json() : [];
-  // The project folder names Portal already holds, for the composer's drop-down: a person picks a
-  // folder that already exists instead of retyping (or misspelling) its name.
-  const projectFolders = [...new Set(uploads.map((u) => u.turbosort?.trim()).filter((v): v is string => !!v))].sort((a, b) =>
-    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
-  );
   return {
     uploads,
-    rules,
-    projectFolders,
     branding,
     presets,
     brands,

@@ -19,12 +19,13 @@ pub struct ResolvedFile {
     pub status: Option<String>,
 }
 
+/// Frame.io upload statuses whose original can be downloaded.
+const DOWNLOADABLE_STATUSES: [&str; 2] = ["uploaded", "transcoded"];
+
 impl ResolvedFile {
     /// Whether Frame.io can serve the original yet (unknown status counts as ready).
     pub fn ready(&self) -> bool {
-        self.status
-            .as_deref()
-            .is_none_or(|s| crate::sync::runner::DOWNLOADABLE_STATUSES.contains(&s))
+        self.status.as_deref().is_none_or(|s| DOWNLOADABLE_STATUSES.contains(&s))
     }
 }
 
