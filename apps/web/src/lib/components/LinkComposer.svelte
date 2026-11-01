@@ -1,14 +1,5 @@
 <script lang="ts" module>
   export type Branding = { name: string | null; accent: string | null; logo_url: string | null };
-  export type BrandProfile = {
-    id: string;
-    name: string;
-    display_name: string | null;
-    accent_color: string | null;
-    has_logo: boolean;
-    logo_url: string | null;
-    links?: number;
-  };
   export type Preset = { id: string; name: string; kind: "upload" | "download"; settings: Record<string, unknown> };
 
   // File-type groups for upload links. "Anything" stores no restriction at all.
@@ -52,7 +43,6 @@
     openSourcePicker = false,
     emailConfigured = true,
     presets = [],
-    brands = [],
     defaultNotify = null,
   }: {
     mode?: "create" | "edit";
@@ -64,7 +54,6 @@
     openSourcePicker?: boolean;
     emailConfigured?: boolean;
     presets?: Preset[];
-    brands?: BrandProfile[];
     defaultNotify?: string | null;
   } = $props();
 
@@ -107,7 +96,6 @@
   let maxDownloads = $state("");
   let preview = $state(true);
   let preset = $state("");
-  let brandProfileId = $state("");
   let notifyEmails = $state("");
   let remind = $state(false);
   let savedPresets = $state<Preset[]>(untrack(() => [...presets]));
@@ -137,7 +125,6 @@
       pwMode = link.password_protected ? "keep" : "none";
       password = "";
       otp = link.verify_email;
-      brandProfileId = link.brand_profile_id ?? "";
       notifyEmails = (link.notify_emails ?? []).join(", ");
       remind = link.remind_before_expiry;
       if (link.kind === "upload") {
@@ -184,12 +171,10 @@
   });
 
   // ── derived ─────────────────────────────────────────────────────────────
-  // The page brand: the chosen profile, with the app-wide brand filling what it leaves empty
-  // (a profile's logo stands alone, as on the client page).
-  const profile = $derived(brands.find((b) => b.id === brandProfileId) ?? null);
-  const accent = $derived(profile?.accent_color || branding.accent || "#f59e0b");
-  const brandName = $derived(profile?.display_name || branding.name || "Portal");
-  const logoUrl = $derived(profile ? profile.logo_url : branding.logo_url);
+  // The page brand: the app-wide one from Settings.
+  const accent = $derived(branding.accent || "#f59e0b");
+  const brandName = $derived(branding.name || "Portal");
+  const logoUrl = $derived(branding.logo_url);
 
   function endOfDay(days: number): Date {
     const d = new Date();
@@ -466,7 +451,6 @@
       password: pwMode === "set" || pwMode === "keep",
       ask: { name: askName, email: askEmail, message: askMessage },
       subtitle: subtitle.trim(),
-      brand_profile_id: brandProfileId || null,
       notify_emails: notifyEmails.trim(),
       remind,
       ...(kind === "upload"
@@ -506,7 +490,6 @@
     askEmail = !!st.ask?.email;
     askMessage = !!st.ask?.message;
     if (typeof st.subtitle === "string" && st.subtitle) subtitle = st.subtitle;
-    brandProfileId = typeof st.brand_profile_id === "string" && brands.some((b) => b.id === st.brand_profile_id) ? st.brand_profile_id : "";
     notifyEmails = typeof st.notify_emails === "string" ? st.notify_emails : "";
     remind = !!st.remind;
     if (kind === "upload") {
@@ -569,7 +552,6 @@
       brand_display_name: title.trim() || null,
       brand_subtitle: subtitle.trim() || null,
       verify_email: otp,
-      brand_profile_id: brandProfileId || null,
       notify_emails: notifyEmails.trim() || null,
       remind_before_expiry: remind && expiry !== "never",
     };
@@ -857,19 +839,6 @@
             <input class={input} bind:value={subtitle} placeholder="Subtitle (optional)" aria-label="Page subtitle" autocomplete="off" />
           </div>
         </div>
-
-        {#if brands.length}
-          <div class={line}>
-            <div class={label}><label for="lc-brand">Brand</label></div>
-            <div class="grid grid-cols-[minmax(0,1fr)] gap-1.5">
-              <select id="lc-brand" class="{input} max-w-72" bind:value={brandProfileId}>
-                <option value="">{branding.name ? `${branding.name} (default)` : "Default brand"}</option>
-                {#each brands as b (b.id)}<option value={b.id}>{b.name}</option>{/each}
-              </select>
-              <div class="text-xs text-faint">The logo, colour and name on the client's page and emails.</div>
-            </div>
-          </div>
-        {/if}
 
         <div class={line}>
           <div class={label}>Expires</div>

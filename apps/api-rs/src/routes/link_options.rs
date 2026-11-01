@@ -1,6 +1,6 @@
 
-//! Options both kinds of link share and validate the same way: a brand profile, who gets the
-//! link's notification emails, and the optional reminder before it expires.
+//! Options both kinds of link share and validate the same way: who gets the link's notification
+//! emails, and the optional reminder before it expires.
 
 use axum::http::StatusCode;
 use axum::response::Response;
@@ -9,26 +9,6 @@ use uuid::Uuid;
 
 use crate::error::detail;
 use crate::state::AppState;
-
-/// `brand_profile_id`: a profile that exists, or null for the app-wide brand.
-pub async fn brand_profile(state: &AppState, v: Option<&Value>) -> Result<Option<Uuid>, Response> {
-    let Some(raw) = v.and_then(|v| v.as_str()).filter(|s| !s.is_empty()) else {
-        return Ok(None);
-    };
-    let Ok(id) = Uuid::parse_str(raw) else {
-        return Err(detail(StatusCode::UNPROCESSABLE_ENTITY, "brand_profile_id must be a UUID"));
-    };
-    let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM brand_profiles WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten();
-    match exists {
-        Some(_) => Ok(Some(id)),
-        None => Err(detail(StatusCode::BAD_REQUEST, "Brand profile not found")),
-    }
-}
 
 /// `notify_emails`: a list of addresses (or one comma/space-separated string); empty → null,
 /// meaning the app's notification address.
@@ -58,10 +38,6 @@ pub fn notify_emails(v: Option<&Value>) -> Result<Option<Value>, Response> {
 /// Apply the shared options present in a PATCH body (`exclude_unset`), and forget a sent
 /// reminder when the expiry moves, so the new date gets its own.
 pub async fn apply_update(state: &AppState, id: Uuid, body: &Map<String, Value>) -> Result<(), Response> {
-    if body.contains_key("brand_profile_id") {
-        let p = brand_profile(state, body.get("brand_profile_id")).await?;
-        let _ = sqlx::query("UPDATE links SET brand_profile_id = $1 WHERE id = $2").bind(p).bind(id).execute(&state.db).await;
-    }
     if body.contains_key("notify_emails") {
         let n = notify_emails(body.get("notify_emails"))?;
         let _ = sqlx::query("UPDATE links SET notify_emails = $1 WHERE id = $2").bind(n).bind(id).execute(&state.db).await;
@@ -79,7 +55,6 @@ pub async fn apply_update(state: &AppState, id: Uuid, body: &Map<String, Value>)
 /// The shared options as the admin API renders them.
 pub fn render(row: &sqlx::postgres::PgRow, out: &mut Value) {
     use sqlx::Row;
-    out["brand_profile_id"] = json!(row.get::<Option<Uuid>, _>("brand_profile_id").map(|u| u.to_string()));
     out["notify_emails"] = row.get::<Option<Value>, _>("notify_emails").unwrap_or(Value::Null);
     out["remind_before_expiry"] = json!(row.get::<bool, _>("remind_before_expiry"));
 }

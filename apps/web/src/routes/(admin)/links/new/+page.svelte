@@ -15,6 +15,5 @@
   openSourcePicker={data.pick}
   emailConfigured={data.emailConfigured}
   presets={data.presets}
-  brands={data.brands}
   defaultNotify={data.defaultNotify}
 />

@@ -374,7 +374,6 @@ components:
         subfolder_template: { type: string, nullable: true }
         brand_display_name: { type: string, nullable: true }
         brand_subtitle: { type: string, nullable: true }
-        brand_profile_id: { type: string, format: uuid, nullable: true }
         notify_emails: { type: string, nullable: true, description: Comma-separated } 
         remind_before_expiry: { type: boolean }
     UploadLinkUpdate:
@@ -396,7 +395,6 @@ components:
         subfolder_template: { type: string, nullable: true }
         brand_display_name: { type: string, nullable: true }
         brand_subtitle: { type: string, nullable: true }
-        brand_profile_id: { type: string, format: uuid, nullable: true }
         notify_emails: { type: string, nullable: true }
         remind_before_expiry: { type: boolean }
     UploadLink:
@@ -426,7 +424,6 @@ components:
         subfolder_template: { type: string, nullable: true }
         brand_display_name: { type: string, nullable: true }
         brand_subtitle: { type: string, nullable: true }
-        brand_profile_id: { type: string, format: uuid, nullable: true }
         notify_emails: { type: array, items: { type: string }, nullable: true }
         remind_before_expiry: { type: boolean }
         revoked_at: { type: string, format: date-time, nullable: true }

@@ -33,6 +33,7 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration { from: "c9d0e1f2a3b4", to: "d0e1f2a3b4c5", sql: include_str!("../migrations/d0e1f2a3b4c5.sql") },
     Migration { from: "d0e1f2a3b4c5", to: "e1f2a3b4c5d6", sql: include_str!("../migrations/e1f2a3b4c5d6.sql") },
     Migration { from: "e1f2a3b4c5d6", to: "f2a3b4c5d6e7", sql: include_str!("../migrations/f2a3b4c5d6e7.sql") },
+    Migration { from: "f2a3b4c5d6e7", to: "a3b4c5d6e7f8", sql: include_str!("../migrations/a3b4c5d6e7f8.sql") },
 ];
 
 /// The revision `schema.sql` is stamped with.

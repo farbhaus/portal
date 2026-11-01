@@ -13,7 +13,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::common::{lockout, ratelimit};
-use crate::services::runtime_config::{email_brand_for, get_email_config, link_brand};
+use crate::services::runtime_config::{email_brand, get_email_config, link_brand};
 use crate::storage::frameio_backend::FrameioStorageBackend;
 use crate::storage::{DestinationConfig, UploadSession as StorageUploadSession};
 use crate::services::upload_paths::render_session_prefix;
@@ -79,7 +79,7 @@ pub async fn resolve_link(
         Ok(r) => r,
         Err(r) => return r,
     };
-    let brand = link_brand(&state.db, &state.settings, row.get("brand_profile_id")).await;
+    let brand = link_brand(&state.db, &state.settings).await;
     let display_name = or_else(row.get("brand_display_name"), brand.name).unwrap_or_else(|| "Upload".to_string());
     let branding_subtitle = or_else(row.get("brand_subtitle"), None);
     let fields: Option<Value> = row.get("uploader_fields_required");
@@ -129,7 +129,7 @@ pub async fn request_code(
     if verify::is_trusted(&state.settings, cookies, &email) {
         return Json(json!({ "trusted": true, "sent": false })).into_response();
     }
-    match verify::request_code(&state.db, &state.settings, &email, row.get("brand_profile_id")).await {
+    match verify::request_code(&state.db, &state.settings, &email).await {
         Ok(()) => Json(json!({ "trusted": false, "sent": true })).into_response(),
         Err(e) => detail_response(StatusCode::from_u16(e.status).unwrap(), &e.detail),
     }
@@ -513,7 +513,7 @@ pub async fn complete_session(
 
     // Background: the completion email and the uploader's receipt.
     let email_config = get_email_config(&state.db, &state.settings).await;
-    let brand = email_brand_for(&state.db, &state.settings, row.get("brand_profile_id")).await;
+    let brand = email_brand(&state.db, &state.settings).await;
     // The uploader's own receipt of what arrived (issue #86) — verified addresses only, see above.
     let receipt_to = verified_email.clone().filter(|_| first_completion && email_config.configured());
     if first_completion {

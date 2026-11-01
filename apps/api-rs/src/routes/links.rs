@@ -196,7 +196,7 @@ pub async fn email_link(State(state): State<AppState>, admin: Admin, Json(body):
         _ => return detail(StatusCode::BAD_REQUEST, "kind must be upload or download"),
     };
     let row = sqlx::query(
-        "SELECT token, name, brand_display_name, revoked_at, expires_at, brand_profile_id FROM links WHERE kind = $1 AND id = $2",
+        "SELECT token, name, brand_display_name, revoked_at, expires_at FROM links WHERE kind = $1 AND id = $2",
     )
     .bind(kind)
     .bind(id)
@@ -212,7 +212,7 @@ pub async fn email_link(State(state): State<AppState>, admin: Admin, Json(body):
     if !config.configured() {
         return detail(StatusCode::CONFLICT, "Email isn't set up yet. Add an SMTP server in Settings.");
     }
-    let brand = crate::services::runtime_config::email_brand_for(&state.db, &state.settings, row.get("brand_profile_id")).await;
+    let brand = crate::services::runtime_config::email_brand(&state.db, &state.settings).await;
     let token: String = row.get("token");
     let url = format!("{}/{path}/{token}", state.settings.base_url.trim_end_matches('/'));
     let title = row

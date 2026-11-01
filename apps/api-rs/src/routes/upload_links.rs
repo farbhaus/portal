@@ -209,7 +209,7 @@ pub fn validate_sync(raw: Option<&Value>, link_folder_id: &str) -> Result<Option
 pub const LINK_COLUMNS: &str = "SELECT l.id, l.token, l.name, l.expires_at, l.password_hash, l.max_file_size,
         l.verify_email, l.allowed_extensions, l.uploader_fields_required, l.revoked_at,
         l.brand_display_name, l.brand_subtitle, l.created_at, l.target_folder_id,
-        l.target_folder_name, l.subfolder_template, l.folder, l.brand_profile_id,
+        l.target_folder_name, l.subfolder_template, l.folder,
         l.notify_emails, l.remind_before_expiry
    FROM links l WHERE l.kind = 'upload'";
 
@@ -334,10 +334,6 @@ pub async fn create_link(State(state): State<AppState>, admin: Admin, Json(body)
         Ok(f) => f,
         Err(r) => return r,
     };
-    let brand_profile = match link_options::brand_profile(&state, body.get("brand_profile_id")).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
     let notify = match link_options::notify_emails(body.get("notify_emails")) {
         Ok(n) => n,
         Err(r) => return r,
@@ -371,8 +367,8 @@ pub async fn create_link(State(state): State<AppState>, admin: Admin, Json(body)
     let inserted = sqlx::query(
         "INSERT INTO links (kind, token, name, folder, expires_at, password_hash, max_file_size,
             allowed_extensions, uploader_fields_required, verify_email, subfolder_template,
-            brand_display_name, brand_subtitle, brand_profile_id, notify_emails, remind_before_expiry)
-         VALUES ('upload',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id",
+            brand_display_name, brand_subtitle, notify_emails, remind_before_expiry)
+         VALUES ('upload',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id",
     )
     .bind(&token)
     .bind(&name)
@@ -386,7 +382,6 @@ pub async fn create_link(State(state): State<AppState>, admin: Admin, Json(body)
     .bind(str_or_none(body.get("subfolder_template")))
     .bind(brand)
     .bind(body.get("brand_subtitle").and_then(|v| v.as_str()).map(|s| s.to_string()))
-    .bind(brand_profile)
     .bind(notify)
     .bind(body.get("remind_before_expiry").and_then(|v| v.as_bool()).unwrap_or(false))
     .fetch_one(&state.db)

@@ -14,6 +14,6 @@ export { default as FrameioPicker } from "./FrameioPicker.svelte";
 export type { SourcePick } from "./FrameioPicker.svelte";
 export { default as FolderField } from "./FolderField.svelte";
 export { default as LinkComposer } from "./LinkComposer.svelte";
-export type { Branding, BrandProfile, Preset } from "./LinkComposer.svelte";
+export type { Branding, Preset } from "./LinkComposer.svelte";
 export { default as SetRow } from "./SetRow.svelte";
 export { default as CommandPalette } from "./CommandPalette.svelte";

@@ -64,7 +64,7 @@ fn generate_token() -> String {
 /// The columns every admin view of a download link reads (the `kind = 'download'` rows of `links`).
 pub const LINK_COLUMNS: &str = "SELECT id, token, name, source, expires_at, password_hash, max_downloads,
         downloads_count, viewer_fields_required, verify_email, allow_preview, brand_display_name,
-        brand_subtitle, revoked_at, created_at, brand_profile_id, notify_emails, remind_before_expiry
+        brand_subtitle, revoked_at, created_at, notify_emails, remind_before_expiry
    FROM links WHERE kind = 'download'";
 
 /// The name the admin sees: its own, else the client-facing title, else what it shares.
@@ -150,10 +150,6 @@ pub async fn create_link(State(state): State<AppState>, admin: Admin, Json(body)
     }
     let password = body.get("password").and_then(|v| v.as_str()).filter(|p| !p.is_empty());
     let password_hash = password.and_then(|p| bcrypt::hash(p, bcrypt::DEFAULT_COST).ok());
-    let brand_profile = match crate::routes::link_options::brand_profile(&state, body.get("brand_profile_id")).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
     let notify = match crate::routes::link_options::notify_emails(body.get("notify_emails")) {
         Ok(n) => n,
         Err(r) => return r,
@@ -164,8 +160,8 @@ pub async fn create_link(State(state): State<AppState>, admin: Admin, Json(body)
     let inserted = sqlx::query(
         "INSERT INTO links (kind, token, name, source, expires_at, password_hash, max_downloads,
             viewer_fields_required, verify_email, allow_preview, brand_display_name, brand_subtitle,
-            downloads_count, brand_profile_id, notify_emails, remind_before_expiry)
-         VALUES ('download',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$13,$14) RETURNING id",
+            downloads_count, notify_emails, remind_before_expiry)
+         VALUES ('download',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$13) RETURNING id",
     )
     .bind(&token)
     .bind(&name)
@@ -178,7 +174,6 @@ pub async fn create_link(State(state): State<AppState>, admin: Admin, Json(body)
     .bind(body.get("allow_preview").and_then(|v| v.as_bool()).unwrap_or(false))
     .bind(brand)
     .bind(body.get("brand_subtitle").and_then(|v| v.as_str()).map(|s| s.to_string()))
-    .bind(brand_profile)
     .bind(notify)
     .bind(body.get("remind_before_expiry").and_then(|v| v.as_bool()).unwrap_or(false))
     .fetch_one(&state.db)

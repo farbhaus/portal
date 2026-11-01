@@ -97,8 +97,8 @@ async fn public_link_title(state: &AppState, page: PublicPage, token: &str) -> O
         PublicPage::Upload => "upload",
         PublicPage::Download => "download",
     };
-    let row: (Option<String>, Option<uuid::Uuid>) = sqlx::query_as(
-        "SELECT brand_display_name, brand_profile_id FROM links WHERE kind = $1 AND token = $2",
+    let row: (Option<String>,) = sqlx::query_as(
+        "SELECT brand_display_name FROM links WHERE kind = $1 AND token = $2",
     )
     .bind(kind)
     .bind(token)
@@ -106,7 +106,7 @@ async fn public_link_title(state: &AppState, page: PublicPage, token: &str) -> O
     .await
     .ok()
     .flatten()?;
-    let brand = crate::services::runtime_config::link_brand(&state.db, &state.settings, row.1).await;
+    let brand = crate::services::runtime_config::link_brand(&state.db, &state.settings).await;
     let fallback = if kind == "upload" { "Upload" } else { "Download" };
     Some(nonempty(row.0).or(nonempty(brand.name)).unwrap_or_else(|| fallback.into()))
 }

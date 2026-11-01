@@ -1,5 +1,5 @@
 import type { PageLoad } from "./$types";
-import type { BrandProfile, Preset } from "$lib/components";
+import type { Preset } from "$lib/components";
 
 export type EmailStatus = {
   configured: boolean;
@@ -43,13 +43,12 @@ export type BrandingStatus = {
 };
 
 export const load: PageLoad = async ({ fetch }) => {
-  const [emailRes, frameioRes, frameioConfigRes, securityRes, brandingRes, brandsRes, presetsRes] = await Promise.all([
+  const [emailRes, frameioRes, frameioConfigRes, securityRes, brandingRes, presetsRes] = await Promise.all([
     fetch("/api/settings/email"),
     fetch("/api/frameio/status"),
     fetch("/api/settings/frameio-config"),
     fetch("/api/settings/security"),
     fetch("/api/settings/branding"),
-    fetch("/api/brand-profiles"),
     fetch("/api/link-presets"),
   ]);
   const email: EmailStatus = emailRes.ok
@@ -75,7 +74,6 @@ export const load: PageLoad = async ({ fetch }) => {
   const branding: BrandingStatus = brandingRes.ok
     ? await brandingRes.json()
     : { has_logo: false, logo_updated_at: null, brand_display_name: null, brand_accent_color: null };
-  const brands: BrandProfile[] = brandsRes.ok ? await brandsRes.json() : [];
   const presets: Preset[] = presetsRes.ok ? await presetsRes.json() : [];
-  return { email, frameio, frameioConfig, security, branding, brands, presets };
+  return { email, frameio, frameioConfig, security, branding, presets };
 };
