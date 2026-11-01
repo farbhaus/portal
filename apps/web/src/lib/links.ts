@@ -7,6 +7,25 @@ import { formatBytes } from "$lib/format";
 
 export type LinkState = "ok" | "expired" | "revoked";
 
+/**
+ * Per-link FioTransfer sync, stored inside an upload link's `folder` JSON. Portal only stores it;
+ * the FioTransfer client reads it from `GET /api/upload-links` and does the transfers.
+ *
+ * `drive` is the client's drop folder: FioTransfer downloads it into the local folder named
+ * `local`. `exports` is ours: the local folder named `local` is uploaded into it. Either side may
+ * be left out — that lane is simply off — but a `sync` with neither is not a sync. An omitted
+ * `folder_id` means "the link's own folder".
+ *
+ * `add_only` is the whole rule: files are added in both directions and nothing is ever deleted, so
+ * Frame.io can be cleared once the local copy exists.
+ */
+export type LinkSyncLane = { local: string; folder_id?: string | null };
+export type LinkSync = {
+  mode?: "add_only";
+  drive?: LinkSyncLane | null;
+  exports?: LinkSyncLane | null;
+};
+
 type LinkBase = {
   id: string;
   name: string;
@@ -27,11 +46,14 @@ type LinkBase = {
 
 export type UploadLink = LinkBase & {
   kind: "upload";
+  // Where uploads land; also carries the optional FioTransfer `sync`.
   folder: FolderRef | null;
   max_file_size: number | null;
   allowed_extensions: string[] | null;
   uploader_fields_required: { name: boolean; email: boolean; message: boolean };
   subfolder_template: string | null;
+  // The project folder name FioTransfer reads and uses for the project's folder (null = none).
+  turbosort: string | null;
 };
 
 export type DownloadLink = LinkBase & {

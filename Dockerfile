@@ -29,6 +29,7 @@ RUN mkdir src && echo 'fn main() {}' > src/main.rs \
 COPY apps/api-rs/src ./src
 # Compiled into the binary (src/migrate.rs): the head schema and the migration steps.
 COPY apps/api-rs/schema.sql ./schema.sql
+COPY apps/api-rs/openapi.yaml ./openapi.yaml
 COPY apps/api-rs/migrations ./migrations
 RUN touch src/main.rs && cargo build --release --locked --bin portal-api
 

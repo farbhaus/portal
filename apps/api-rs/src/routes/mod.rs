@@ -3,6 +3,7 @@ pub mod activity;
 pub mod branding;
 pub mod brands;
 pub mod dashboard;
+pub mod docs;
 pub mod frameio;
 pub mod download_links;
 pub mod events;

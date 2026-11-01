@@ -28,6 +28,8 @@ pub struct Settings {
     pub admin_email: String,
     /// `ADMIN_PASSWORD` — the first-boot admin's password (seed only).
     pub admin_password: String,
+    /// `PORTAL_API_TOKEN` — optional bearer token for machine access to the admin API.
+    pub api_token: Option<String>,
     /// `ALLOW_INSECURE_DEFAULTS` — permit the `.env.example` placeholder secrets (local-only runs).
     pub allow_insecure_defaults: bool,
     /// `FRAMEIO_REDIRECT_URI`, defaulting to `{base_url}/api/frameio/oauth/callback`.
@@ -90,6 +92,10 @@ const INSECURE_DEFAULTS: [(&str, &str); 3] = [
     ("token_encryption_key", "change-me-token-encryption-key"),
 ];
 
+/// The shortest `PORTAL_API_TOKEN` the service starts with. The token is full admin over the API,
+/// so it has to be a generated secret, not a password; the `.env.example` recipe makes 43.
+pub const API_TOKEN_MIN_LEN: usize = 32;
+
 impl Settings {
     /// Refuse to start if any secret is still the `.env.example` placeholder — port of
     /// `require_secure_secrets`. Left at its default, `session_secret` makes session cookies
@@ -110,14 +116,22 @@ impl Settings {
             })
             .map(|(name, _)| *name)
             .collect();
-        if offenders.is_empty() {
-            return Ok(());
+        if !offenders.is_empty() {
+            anyhow::bail!(
+                "Refusing to start with default secret(s): {}. Set strong values in .env (see \
+                 deploy/.env.example), or set ALLOW_INSECURE_DEFAULTS=true for local-only use.",
+                offenders.join(", ")
+            )
         }
-        anyhow::bail!(
-            "Refusing to start with default secret(s): {}. Set strong values in .env (see \
-             deploy/.env.example), or set ALLOW_INSECURE_DEFAULTS=true for local-only use.",
-            offenders.join(", ")
-        )
+        if let Some(token) = &self.api_token
+            && token.chars().count() < API_TOKEN_MIN_LEN {
+                anyhow::bail!(
+                    "Refusing to start: PORTAL_API_TOKEN is shorter than {API_TOKEN_MIN_LEN} characters. \
+                     Generate one with `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='`, or leave it \
+                     unset to turn token auth off."
+                )
+            }
+        Ok(())
     }
 
     /// The tracing filter for `LOG_LEVEL`, mapping Python's level names onto tracing's.
@@ -172,6 +186,10 @@ impl Settings {
             admin_email: std::env::var("ADMIN_EMAIL")
                 .unwrap_or_else(|_| "admin@example.com".to_string()),
             admin_password: std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "change-me".to_string()),
+            api_token: std::env::var("PORTAL_API_TOKEN")
+                .ok()
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty()),
             allow_insecure_defaults: env_bool("ALLOW_INSECURE_DEFAULTS", false),
             frameio_redirect_uri: std::env::var("FRAMEIO_REDIRECT_URI").unwrap_or_default(),
             sync_max_retries: env_i64("SYNC_MAX_RETRIES", 5) as i32,
@@ -237,5 +255,24 @@ mod tests {
         assert!(s.require_secure_secrets().is_ok());
         s.admin_password = "change-me".into();
         assert!(s.require_secure_secrets().is_err());
+    }
+
+    #[test]
+    fn refuses_a_short_api_token() {
+        let mut s = Settings::from_env();
+        s.allow_insecure_defaults = false;
+        s.admin_password = "a-real-password".into();
+        s.session_secret = "x".repeat(32);
+        s.token_encryption_key = "y".repeat(32);
+        s.api_token = None;
+        assert!(s.require_secure_secrets().is_ok());
+        s.api_token = Some("short-token".into());
+        let err = s.require_secure_secrets().unwrap_err().to_string();
+        assert!(err.contains("PORTAL_API_TOKEN is shorter than 32"), "{err}");
+        s.api_token = Some("t".repeat(API_TOKEN_MIN_LEN));
+        assert!(s.require_secure_secrets().is_ok());
+        s.api_token = Some("short-token".into());
+        s.allow_insecure_defaults = true;
+        assert!(s.require_secure_secrets().is_ok());
     }
 }

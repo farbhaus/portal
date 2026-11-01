@@ -94,6 +94,8 @@ returned to Portal showing the connected account.
 ## Documentation
 
 - [DEPLOY.md](DEPLOY.md) — full deployment runbook
+- [docs/API.md](docs/API.md) — admin REST API, bearer token and OpenAPI spec
+- [mcp/README.md](mcp/README.md) — Rust MCP server for the API
 - [CLAUDE.md](CLAUDE.md) — architecture overview, including how Portal talks to Frame.io (storage abstraction + Adobe IMS OAuth)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — local dev setup and how to contribute
 - [SECURITY.md](SECURITY.md) — reporting a vulnerability

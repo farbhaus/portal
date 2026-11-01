@@ -59,6 +59,71 @@ pub struct Admin {
     pub email: String,
 }
 
+/// An admin signed in through the browser. The routes that manage how the admin signs in
+/// (password, two-factor, passkeys) take this instead of [`Admin`], so the API token can never
+/// add a sign-in of its own that outlives the token, or lock the real admin out.
+pub struct SessionAdmin(pub Admin);
+
+/// Wrong API tokens are counted per client IP on the link-password lockout's budget
+/// (`PASSWORD_LOCKOUT_MAX_FAILURES` per `PASSWORD_LOCKOUT_WINDOW_SECONDS`).
+const TOKEN_LOCKOUT_KIND: &str = "api_token";
+
+fn unauthorized() -> Response {
+    detail(StatusCode::UNAUTHORIZED, "Authentication required")
+}
+
+/// `Authorization: Bearer <token>` for machine clients. The scheme is case-insensitive.
+fn bearer_token(headers: &axum::http::HeaderMap) -> Option<&str> {
+    let value = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
+    let (scheme, token) = value.split_once(' ')?;
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+    let token = token.trim();
+    if token.is_empty() { None } else { Some(token) }
+}
+
+async fn session_admin(parts: &Parts, state: &AppState) -> Option<Admin> {
+    let id = Uuid::parse_str(&session_user_id(parts)?).ok()?;
+    let (id, email) = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id, email FROM users WHERE id = $1 AND is_active",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()??;
+    Some(Admin { id, email })
+}
+
+/// The admin the API token acts as. Every write it makes gets an `api_token.used` audit row, so
+/// the admin log tells token-driven changes apart from ones made in the browser.
+async fn token_admin(parts: &Parts, state: &AppState) -> Result<Admin, Response> {
+    // v1 has one admin; audit rows still need a user id.
+    let (id, email) = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id, email FROM users WHERE is_active ORDER BY created_at LIMIT 1",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .ok_or_else(unauthorized)?;
+    let method = &parts.method;
+    if method != axum::http::Method::GET && method != axum::http::Method::HEAD {
+        // Nested under /api, so the router sees the stripped path; record the full one.
+        let path = parts
+            .extensions
+            .get::<axum::extract::OriginalUri>()
+            .map(|u| u.path().to_string())
+            .unwrap_or_else(|| format!("/api{}", parts.uri.path()));
+        let _ = sqlx::query("INSERT INTO audit_log (user_id, action, detail) VALUES ($1,'api_token.used',$2)")
+            .bind(id)
+            .bind(json!({ "method": method.as_str(), "path": path }))
+            .execute(&state.db)
+            .await;
+    }
+    Ok(Admin { id, email })
+}
+
 impl FromRequestParts<AppState> for Admin {
     type Rejection = Response;
 
@@ -66,23 +131,49 @@ impl FromRequestParts<AppState> for Admin {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let Some(uid) = session_user_id(parts) else {
-            return Err(detail(StatusCode::UNAUTHORIZED, "Authentication required"));
+        // With token auth off, a bearer header is not ours to judge: the session decides.
+        let (Some(token), Some(expected)) = (bearer_token(&parts.headers), state.settings.api_token.as_deref()) else {
+            return session_admin(parts, state).await.ok_or_else(unauthorized);
         };
-        let Ok(id) = Uuid::parse_str(&uid) else {
-            return Err(detail(StatusCode::UNAUTHORIZED, "Authentication required"));
-        };
-        let row = sqlx::query_as::<_, (Uuid, String)>(
-            "SELECT id, email FROM users WHERE id = $1 AND is_active",
-        )
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|_| detail(StatusCode::UNAUTHORIZED, "Authentication required"))?;
-        match row {
-            Some((id, email)) => Ok(Admin { id, email }),
-            None => Err(detail(StatusCode::UNAUTHORIZED, "Authentication required")),
+        let peer = parts
+            .extensions
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|c| c.0);
+        let ip = crate::common::net::client_ip(&parts.headers, peer, &state.settings);
+        let mut redis = state.redis.clone();
+        let locked = crate::common::lockout::check_password_lockout(&mut redis, &state.settings, TOKEN_LOCKOUT_KIND, &ip)
+            .await
+            .is_err();
+        if !locked && crate::verify::constant_time_eq(token.as_bytes(), expected.as_bytes()) {
+            return token_admin(parts, state).await;
         }
+        // A wrong token still lets a browser session through (a proxy in front may add a bearer
+        // header of its own); only a request with neither counts against the lockout.
+        if let Some(admin) = session_admin(parts, state).await {
+            return Ok(admin);
+        }
+        if locked {
+            return Err(detail(StatusCode::TOO_MANY_REQUESTS, "Too many incorrect API token attempts — try again later"));
+        }
+        crate::common::lockout::register_password_failure(&mut redis, &state.settings, TOKEN_LOCKOUT_KIND, &ip).await;
+        Err(unauthorized())
+    }
+}
+
+impl FromRequestParts<AppState> for SessionAdmin {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        if let Some(admin) = session_admin(parts, state).await {
+            return Ok(SessionAdmin(admin));
+        }
+        if bearer_token(&parts.headers).is_some() {
+            return Err(detail(StatusCode::FORBIDDEN, "The API token can't change how the admin signs in; log in to Portal to do this"));
+        }
+        Err(unauthorized())
     }
 }
 
@@ -273,4 +364,31 @@ pub async fn login_totp(
     let email: String = sqlx::query_scalar("SELECT email FROM users WHERE id=$1")
         .bind(id).fetch_one(&state.db).await.unwrap_or_default();
     axum::Json(serde_json::json!({ "id": id.to_string(), "email": email })).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::{header::AUTHORIZATION, HeaderMap, HeaderValue};
+
+    fn with_auth(value: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(AUTHORIZATION, HeaderValue::from_str(value).unwrap());
+        h
+    }
+
+    #[test]
+    fn bearer_scheme_is_case_insensitive_and_token_trimmed() {
+        for v in ["Bearer abc", "bearer abc", "BEARER abc", "Bearer   abc  "] {
+            assert_eq!(bearer_token(&with_auth(v)), Some("abc"), "{v:?}");
+        }
+    }
+
+    #[test]
+    fn other_schemes_and_empty_tokens_are_not_bearer() {
+        for v in ["Basic abc", "Bearerabc", "Bearer", "Bearer    ", "Token abc"] {
+            assert_eq!(bearer_token(&with_auth(v)), None, "{v:?}");
+        }
+        assert_eq!(bearer_token(&HeaderMap::new()), None);
+    }
 }

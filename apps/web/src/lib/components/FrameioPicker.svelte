@@ -12,7 +12,7 @@
 
 <script lang="ts">
   // The one Frame.io picker: a modal that walks accounts → workspaces → projects → folders, with
-  // search across the whole account, recent folders, keyboard control and New folder.
+  // search across the whole account, recent folders, keyboard control and New folder / New project.
   //  - mode "folder": choose a folder (upload link destinations, sync rule sources).
   //  - mode "source": choose files or a whole folder to send (download links).
   // Accounts and workspaces are skipped when there's only one of them.
@@ -20,6 +20,7 @@
   import Icon from "./Icon.svelte";
   import {
     createFolder,
+    createProject,
     crumbNames,
     folderKey,
     listAccounts,
@@ -80,9 +81,13 @@
   let recursive = $state(false);
   let newOpen = $state(false);
   let newName = $state("");
+  let newProjectOpen = $state(false);
+  let newProjectName = $state("");
   let creating = $state(false);
   let defaultAccount = $state("");
   let input = $state<HTMLInputElement | null>(null);
+  // The name field of whichever inline form (New folder / New project) is open.
+  let formInput = $state<HTMLInputElement | null>(null);
   let list = $state<HTMLDivElement | null>(null);
   let seq = 0;
   let searchSeq = 0;
@@ -90,6 +95,7 @@
 
   const top = $derived(stack[stack.length - 1]);
   const accountId = $derived(stack.find((c) => c.kind === "account")?.id ?? "");
+  const workspaceId = $derived(stack.find((c) => c.kind === "workspace")?.id ?? "");
   const inFolder = $derived(top.kind === "project" || top.kind === "folder");
   const folderId = $derived(top.kind === "project" ? top.folder_id : top.kind === "folder" ? top.id : undefined);
   const searchAccount = $derived(accountId || start?.account_id || recents[0]?.account_id || defaultAccount);
@@ -108,6 +114,8 @@
     recursive = false;
     newOpen = false;
     newName = "";
+    newProjectOpen = false;
+    newProjectName = "";
     error = null;
     if (start?.account_id && start.folder_id) await openAt(start, startAtProjects);
     else await go([ROOT], true);
@@ -127,6 +135,7 @@
     files = [];
     error = null;
     newOpen = false;
+    newProjectOpen = false;
     if (list) list.scrollTop = 0;
     const t = next[next.length - 1];
     const acct = next.find((c) => c.kind === "account")?.id ?? "";
@@ -371,15 +380,66 @@
 
   async function makeFolder() {
     const name = newName.trim();
-    if (!name || !folderId) return;
+    if (!name || !folderId || creating) return;
     creating = true;
+    error = null;
     try {
       const f = await createFolder(accountId, folderId, name);
       newName = "";
       newOpen = false;
+      // In folder mode the new folder is the answer: hand it back so the click ends with it chosen.
+      if (mode === "folder") return chooseFolder(f.id, f.name);
       await go([...stack, { kind: "folder", id: f.id, name: f.name }]);
     } catch (e) {
       error = e instanceof Error ? e.message : "Could not create the folder";
+    } finally {
+      creating = false;
+    }
+  }
+
+  /** Hand `onchoose` the folder we are in, one level deeper (a folder that was just made). */
+  function chooseFolder(id: string, name: string) {
+    const path = [...currentPath(), { id, name }];
+    onchoose?.({ ...currentRef(), folder_id: id, folder_name: name, path });
+    open = false;
+  }
+
+  async function makeProject() {
+    const name = newProjectName.trim();
+    if (!name || !accountId || !workspaceId || creating) return;
+    creating = true;
+    error = null;
+    try {
+      const p = await createProject(accountId, workspaceId, name);
+      newProjectName = "";
+      newProjectOpen = false;
+      const ws = stack.findIndex((c) => c.kind === "workspace");
+      const base = ws >= 0 ? stack.slice(0, ws + 1) : [...stack];
+      const root = p.root_folder_id;
+      if (root) {
+        // Same footing as New folder: the new project's root folder is the answer.
+        if (mode === "folder") {
+          const path = [{ id: root, name: p.name }];
+          onchoose?.({
+            type: "frameio",
+            account_id: accountId,
+            workspace_id: workspaceId,
+            project_id: p.id,
+            project_name: p.name,
+            folder_id: root,
+            folder_name: p.name,
+            path,
+          });
+          open = false;
+          return;
+        }
+        return go([...base, { kind: "project", id: p.id, name: p.name, folder_id: root }]);
+      }
+      // Frame.io answered without a root folder; show the project in the list and say why we stopped.
+      await go(base);
+      error = `“${p.name}” was created but has no root folder to receive into yet`;
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Could not create the project";
     } finally {
       creating = false;
     }
@@ -530,6 +590,7 @@
         {#if mode === "folder" || selected.size === 0}
           {#if newOpen}
             <input
+              bind:this={formInput}
               bind:value={newName}
               placeholder="Folder name"
               aria-label="New folder name"
@@ -548,9 +609,39 @@
             <button type="button" class="h-8 rounded-md px-3 font-medium text-text hover:bg-surface-3 disabled:opacity-40" disabled={!newName.trim() || creating} onclick={makeFolder}>
               {creating ? "Creating…" : "Create"}
             </button>
+          {:else if newProjectOpen}
+            <input
+              bind:this={formInput}
+              bind:value={newProjectName}
+              placeholder="Project name"
+              aria-label="New project name"
+              class="h-8 w-40 rounded-md border border-border bg-bg px-2.5 outline-none focus:border-accent"
+              onkeydown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void makeProject();
+                }
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  newProjectOpen = false;
+                }
+              }}
+            />
+            <button type="button" class="h-8 rounded-md px-3 font-medium text-text hover:bg-surface-3 disabled:opacity-40" disabled={!newProjectName.trim() || creating || !workspaceId} onclick={makeProject}>
+              {creating ? "Creating…" : "Create"}
+            </button>
           {:else}
-            <button type="button" class="h-8 rounded-md px-3 font-medium text-muted hover:bg-surface-3 hover:text-text disabled:opacity-40" disabled={!inFolder} onclick={async () => { newOpen = true; await tick(); }}>
+            <button type="button" class="h-8 rounded-md px-3 font-medium text-muted hover:bg-surface-3 hover:text-text disabled:opacity-40" disabled={!inFolder} onclick={async () => { newProjectOpen = false; newOpen = true; await tick(); formInput?.focus(); }}>
               New folder
+            </button>
+            <button
+              type="button"
+              class="h-8 rounded-md px-3 font-medium text-muted hover:bg-surface-3 hover:text-text disabled:opacity-40"
+              disabled={!accountId || !workspaceId}
+              title={workspaceId ? "Create a Frame.io project and receive into its root folder" : "Open a workspace first"}
+              onclick={async () => { newOpen = false; newProjectOpen = true; await tick(); formInput?.focus(); }}
+            >
+              New project
             </button>
           {/if}
         {/if}
