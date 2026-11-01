@@ -1,9 +1,6 @@
-# Lint, type-check, test the backend and build + check the frontend.
-# Backend uses uv with the committed uv.lock so CI matches the deployed image.
-# The Rust API (apps/api-rs, what the image ships) gets clippy + tests on the toolchain the
-# Dockerfile builds with, and a check that its schema files still match the Alembic migrations.
-# The MCP server (mcp/, its own crate and lockfile, not in the image) gets clippy + tests too.
-# The Python API (apps/api) stays as the reference implementation and where migrations are written.
+# Build + check the frontend; clippy + tests for the Rust API (apps/api-rs, what the image ships)
+# on the toolchain the Dockerfile builds with, and a check that its schema files agree with each
+# other. The MCP server (mcp/, its own crate and lockfile, not in the image) gets clippy + tests too.
 name: CI
 
 on:
@@ -18,49 +15,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
-    name: Python reference API — lint, types & tests
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16  # match the production database major version
-        env:
-          POSTGRES_USER: portal
-          POSTGRES_PASSWORD: portal
-          POSTGRES_DB: portal
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready --health-interval=10s --health-timeout=5s --health-retries=5
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=5
-    env:
-      DATABASE_URL: postgresql+asyncpg://portal:portal@localhost:5432/portal
-      REDIS_URL: redis://localhost:6379/0
-    steps:
-      - uses: actions/checkout@v7
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: apps/api/uv.lock
-      - name: Install dependencies (locked, incl. dev group)
-        working-directory: apps/api
-        run: uv sync --frozen
-      - name: Lint with ruff
-        working-directory: apps/api
-        run: uv run ruff check .
-      - name: Type-check with mypy
-        working-directory: apps/api
-        run: uv run mypy src
-      - name: Run tests
-        working-directory: apps/api
-        run: uv run pytest -q
-
   frontend:
     name: Frontend — build & check
     runs-on: ubuntu-latest
@@ -129,14 +83,9 @@ jobs:
         run: cargo test --locked
 
   rust-schema:
-    name: Rust API — schema files match Alembic
+    name: Rust API — migrations reproduce schema.sql
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: apps/api/uv.lock
-      - name: Compare schema.sql and migrations/ with freshly migrated databases
-        run: tools/rustify/schema_check.sh
+      - name: Apply baseline.sql + migrations/ to a fresh database and compare with schema.sql
+        run: tools/schema_check.sh

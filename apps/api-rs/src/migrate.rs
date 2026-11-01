@@ -1,15 +1,17 @@
 //! Schema setup + forward migrations — `portal-api migrate`, run by the container entrypoint
 //! before the API and worker start.
 //!
-//! The schema is still authored with Alembic (apps/api/alembic). The Rust image ships:
-//! - `schema.sql`: a dump of the Alembic head, stamped with its revision — applied to an empty
+//! The image ships:
+//! - `schema.sql`: the full schema at the head revision, stamped with it — applied to an empty
 //!   database;
-//! - `migrations/<to>.sql`: the SQL for each later revision step, generated with
-//!   `alembic upgrade <from>:<to> --sql` — applied in order to a database at an older revision.
+//! - `migrations/<to>.sql`: one hand-written SQL file per revision step — applied in order to a
+//!   database at an older revision.
 //!
-//! A database at a revision with no path to the head (older than the oldest migration here, or
-//! newer than this image) is refused rather than run against a schema the code doesn't match.
-//! `tools/rustify/schema_check.sh` checks both files against Alembic. See migrations/README.md.
+//! The revision lives in the `alembic_version` table, named after the tool the schema was first
+//! authored with. A database at a revision with no path to the head (older than the oldest
+//! migration here, or newer than this image) is refused rather than run against a schema the
+//! code doesn't match. `tools/schema_check.sh` checks that `baseline.sql` plus the migrations
+//! reproduces `schema.sql`. See migrations/README.md.
 
 use sqlx::{Connection, PgConnection, Row};
 
@@ -32,7 +34,7 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration { from: "d0e1f2a3b4c5", to: "e1f2a3b4c5d6", sql: include_str!("../migrations/e1f2a3b4c5d6.sql") },
 ];
 
-/// The Alembic revision `schema.sql` is stamped with.
+/// The revision `schema.sql` is stamped with.
 pub fn head_revision() -> &'static str {
     stamped_revision(SCHEMA).expect("schema.sql must end with its alembic_version stamp")
 }
@@ -130,7 +132,8 @@ async fn schema(conn: &mut PgConnection) -> anyhow::Result<Schema> {
     };
     for step in steps {
         tracing::info!("migrate: {} -> {}", step.from, step.to);
-        // Alembic's --sql output wraps itself in BEGIN/COMMIT and updates alembic_version.
+        // Each file wraps itself in BEGIN/COMMIT and moves alembic_version (migrations/README.md);
+        // this update is then a no-op, kept for files that don't.
         sqlx::raw_sql(sqlx::AssertSqlSafe(strip_psql_meta(step.sql))).execute(&mut *conn).await?;
         sqlx::query("UPDATE alembic_version SET version_num = $1 WHERE version_num = $2")
             .bind(step.to)
