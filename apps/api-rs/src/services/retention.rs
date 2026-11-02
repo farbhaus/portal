@@ -1,5 +1,5 @@
 
-//! Daily data-retention sweep — port of `portal.services.retention`. sync_jobs are never pruned.
+//! Daily data-retention sweep — port of `portal.services.retention`.
 
 use sqlx::PgPool;
 
@@ -7,8 +7,7 @@ use crate::config::Settings;
 
 pub async fn purge_expired(db: &PgPool, settings: &Settings) -> std::collections::HashMap<String, u64> {
     let mut deleted = std::collections::HashMap::new();
-    let sweeps: [(&str, &str, &str, i64); 4] = [
-        ("webhook_events", "webhook_events", "received_at", settings.retention_webhook_events_days),
+    let sweeps: [(&str, &str, &str, i64); 3] = [
         ("upload_sessions", "upload_sessions", "created_at", settings.retention_sessions_days),
         ("download_sessions", "download_sessions", "created_at", settings.retention_sessions_days),
         ("audit_log", "audit_log", "created_at", settings.retention_audit_log_days),

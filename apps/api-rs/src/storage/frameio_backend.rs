@@ -8,11 +8,9 @@ use serde_json::json;
 
 use crate::frameio::{FrameioClient, FrameioError};
 use crate::storage::{
-    ChangeSubscription, DestinationConfig, DownloadURL, RemoteFile, UploadChunk,
+    DestinationConfig, DownloadURL, RemoteFile, UploadChunk,
     UploadCredentials, UploadSession,
 };
-
-const SYNC_TRIGGER_EVENTS: [&str; 2] = ["file.ready", "file.upload.completed"];
 
 fn split_path(path: &str) -> Result<(Vec<String>, String), String> {
     let parts: Vec<String> = path
@@ -35,64 +33,6 @@ pub struct FrameioStorageBackend {
 impl FrameioStorageBackend {
     pub fn new(client: Arc<FrameioClient>) -> Self {
         Self { client }
-    }
-
-    pub async fn list_files_in_destination(&self, dest: &DestinationConfig) -> Result<Vec<RemoteFile>, FrameioError> {
-        let account_id = dest.require("account_id").map_err(FrameioError::Other)?;
-        let folder_id = dest.require("folder_id").map_err(FrameioError::Other)?;
-        Ok(self
-            .client
-            .list_files(&account_id, &folder_id)
-            .await?
-            .into_iter()
-            .map(|(id, name, size, media_type)| RemoteFile {
-                id,
-                name,
-                size,
-                media_type,
-                ..Default::default()
-            })
-            .collect())
-    }
-
-    pub async fn list_files_recursive(&self, dest: &DestinationConfig) -> Result<Vec<RemoteFile>, FrameioError> {
-        let account_id = dest.require("account_id").map_err(FrameioError::Other)?;
-        let folder_id = dest.require("folder_id").map_err(FrameioError::Other)?;
-        Ok(self
-            .client
-            .list_files_recursive(&account_id, &folder_id)
-            .await?
-            .into_iter()
-            .map(|v| RemoteFile {
-                id: v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                name: v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                size: v.get("file_size").and_then(|x| x.as_i64()),
-                media_type: v.get("media_type").and_then(|x| x.as_str()).map(|s| s.to_string()),
-                relative_dir: Some(v.get("path").and_then(|x| x.as_str()).unwrap_or("").to_string()),
-                ..Default::default()
-            })
-            .collect())
-    }
-
-    pub async fn get_file(&self, dest: &DestinationConfig, file_id: &str) -> Result<RemoteFile, FrameioError> {
-        let account_id = dest.require("account_id").map_err(FrameioError::Other)?;
-        let root_folder_id = dest.require("folder_id").map_err(FrameioError::Other)?;
-        let f = self.client.get_file_detail(&account_id, file_id).await?;
-        let parent_id = f.get("parent_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let relative_dir = self
-            .client
-            .folder_relative_path(&account_id, parent_id.as_deref(), &root_folder_id)
-            .await?;
-        Ok(RemoteFile {
-            id: f.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            name: f.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            size: f.get("file_size").and_then(|v| v.as_i64()),
-            media_type: f.get("media_type").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            parent_id,
-            project_id: f.get("project_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            relative_dir,
-            status: f.get("status").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        })
     }
 
     /// Resolve (or create) `dirs` under `root_folder_id` and start a local upload of `name` there.
@@ -204,25 +144,6 @@ impl FrameioStorageBackend {
         Ok(DownloadURL { url })
     }
 
-    pub async fn subscribe_to_changes(
-        &self,
-        dest: &DestinationConfig,
-        callback_url: &str,
-    ) -> Result<ChangeSubscription, FrameioError> {
-        let account_id = dest.require("account_id").map_err(FrameioError::Other)?;
-        let workspace_id = dest.require("workspace_id").map_err(FrameioError::Other)?;
-        let events: Vec<String> = SYNC_TRIGGER_EVENTS.iter().map(|s| s.to_string()).collect();
-        let (id, secret) = self
-            .client
-            .create_webhook(&account_id, &workspace_id, "Portal sync", callback_url, &events)
-            .await?;
-        Ok(ChangeSubscription { id, secret: Some(secret) })
-    }
-
-    pub async fn unsubscribe_from_changes(&self, dest: &DestinationConfig, subscription_id: &str) -> Result<(), FrameioError> {
-        let account_id = dest.require("account_id").map_err(FrameioError::Other)?;
-        self.client.delete_webhook(&account_id, subscription_id).await
-    }
 }
 
 /// Marker error used to translate `complete_upload`'s not-ready case.

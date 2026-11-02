@@ -1,31 +1,43 @@
-# Schema migrations for the Rust image
+# Schema migrations
 
-The schema is authored with Alembic (`apps/api/alembic`). The Rust image can't run Alembic, so it
-ships the result as SQL, which `portal-api migrate` applies when the container starts:
+`portal-api migrate` runs when the container starts and brings the database to the schema this
+image expects:
 
-- `../schema.sql` — the full schema at the Alembic head, stamped with its revision. Applied to an
-  empty database.
-- `<to>.sql` here — one file per revision step after the oldest revision the image can upgrade,
-  applied in order to a database at an older revision.
+- `../schema.sql` — the full schema at the head revision, stamped with it. Applied to an empty
+  database.
+- `<to>.sql` here — one file per revision step, applied in order to a database at an older
+  revision.
+- `../baseline.sql` — the schema at the oldest revision the image can upgrade (`b8c9d0e1f2a3`).
+  Not shipped: the schema check starts from it.
 
-A database at a revision with no path to the head is refused at startup.
+A database at a revision with no path to the head is refused at startup. The revision lives in the
+`alembic_version` table, named after the tool the schema was first authored with; the steps here
+are plain SQL.
 
 ## Adding a migration
 
-1. Write the Alembic migration in `apps/api/alembic/versions/` as usual (`from` → `to`).
-2. Generate its SQL and start the file with a header naming the step:
+1. Pick the next revision id: 12 hex characters, unused so far (the chain so far runs
+   `b8c9d0e1f2a3` → … → the stamp at the end of `../schema.sql`).
+2. Write `<to>.sql` here. It runs against every deployment, in one transaction, and moves the
+   stamp itself:
 
-   ```sh
-   cd apps/api
-   { echo "-- portal-migration: <from> -> <to>"; uv run alembic upgrade <from>:<to> --sql; } \
-     > ../api-rs/migrations/<to>.sql
+   ```sql
+   -- portal-migration: <from> -> <to>
+   BEGIN;
+
+   ALTER TABLE links ADD COLUMN example TEXT;
+
+   UPDATE alembic_version SET version_num='<to>' WHERE alembic_version.version_num = '<from>';
+
+   COMMIT;
    ```
 
-   Review it: it's what runs against every deployment.
 3. Register it at the end of `MIGRATIONS` in `src/migrate.rs`:
    `Migration { from: "<from>", to: "<to>", sql: include_str!("../migrations/<to>.sql") },`
-4. Refresh the snapshot: `tools/rustify/schema_check.sh --write`.
+4. Regenerate the snapshot: `tools/schema_check.sh --write`, then review the diff of
+   `../schema.sql` — it should change exactly as your migration says.
 
-`tools/rustify/schema_check.sh` (run in CI) fails when `schema.sql` differs from the Alembic head,
-when applying these files to a database at the oldest revision doesn't reproduce it, or when a
-file here isn't registered in `MIGRATIONS`.
+`tools/schema_check.sh` (run in CI, needs only Docker) loads `baseline.sql` into a throwaway
+Postgres, applies every file here in order, and fails when the result differs from `schema.sql`,
+when a file doesn't move `alembic_version` to its own revision, when the files don't form one
+chain, or when a file isn't registered in `MIGRATIONS`.

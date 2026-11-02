@@ -36,18 +36,17 @@ pub struct FrameioClient {
     db: PgPool,
     settings: Arc<Settings>,
     folder_cache: Mutex<HashMap<(String, String), String>>,
-    /// folder_id -> (name, parent_id, fetched_at) for ancestor walks (folder_relative_path,
-    /// folder_ancestry), so files sharing a subtree don't re-fetch each ancestor. Entries expire
-    /// after FOLDER_META_TTL: the sync engine decides from these walks whether a file is inside a
-    /// rule's folder, so a moved folder must be seen again.
+    /// folder_id -> (name, parent_id, fetched_at) for ancestor walks (folder_ancestry), so folders
+    /// sharing a subtree don't re-fetch each ancestor. Entries expire after FOLDER_META_TTL, so a
+    /// moved folder is seen again.
     folder_meta_cache: Mutex<HashMap<String, FolderMeta>>,
 }
 
 /// A cached folder's (name, parent_id, fetched_at).
 type FolderMeta = (String, Option<String>, std::time::Instant);
 
-/// How long a cached folder (name, parent) is trusted. Short enough that a folder moved into or
-/// out of a sync rule's folder is noticed within minutes; long enough to spare repeat calls.
+/// How long a cached folder (name, parent) is trusted. Short enough that a moved folder's
+/// breadcrumb is right again within minutes; long enough to spare repeat calls.
 const FOLDER_META_TTL: Duration = Duration::from_secs(600);
 
 impl FrameioClient {
@@ -403,39 +402,6 @@ impl FrameioClient {
         })
     }
 
-    /// POSIX path of a file's folder *relative to* `root_folder_id` (root exclusive).
-    ///
-    /// Walks up from `parent_id` collecting folder names until it reaches the rule's root folder.
-    /// `Some("")` when the file sits directly in the root folder, and `None` when the walk never
-    /// reaches it — the file lives elsewhere in the project (a sibling folder, the project root),
-    /// so it is outside the rule's folder. Caps depth and de-dups visited ids to survive a cycle;
-    /// either also counts as "never reached". Folder metadata is cached for FOLDER_META_TTL, so a
-    /// just-moved folder can read stale until then; reconcile re-checks files it skipped as outside.
-    pub async fn folder_relative_path(&self, account_id: &str, parent_id: Option<&str>, root_folder_id: &str) -> Result<Option<String>, FrameioError> {
-        let Some(parent_id) = parent_id else { return Ok(Some(String::new())) };
-        if parent_id == root_folder_id {
-            return Ok(Some(String::new()));
-        }
-        let mut segments: Vec<String> = Vec::new();
-        let mut seen: Vec<String> = Vec::new();
-        let mut current = Some(parent_id.to_string());
-        for _ in 0..MAX_FOLDER_DEPTH {
-            let Some(cur) = current.clone() else { break };
-            if cur == root_folder_id || seen.contains(&cur) {
-                break;
-            }
-            seen.push(cur.clone());
-            let (name, next_parent) = self.folder_meta(account_id, &cur).await?;
-            segments.push(name);
-            current = next_parent;
-        }
-        if current.as_deref() != Some(root_folder_id) {
-            return Ok(None);
-        }
-        segments.reverse();
-        Ok(Some(segments.join("/")))
-    }
-
     /// Folder ancestry, top-most first, ending at `folder_id`.
     pub async fn folder_ancestry(&self, account_id: &str, folder_id: &str) -> Result<Vec<PickerItem>, FrameioError> {
         let mut items: Vec<PickerItem> = Vec::new();
@@ -557,11 +523,6 @@ impl FrameioClient {
         .await
     }
 
-    /// File metadata for the sync worker (no includes).
-    pub async fn get_file_detail(&self, account_id: &str, file_id: &str) -> Result<Value, FrameioError> {
-        self.send_data(reqwest::Method::GET, &format!("accounts/{account_id}/files/{file_id}"), &[], None).await
-    }
-
     /// All files under a folder, descending into subfolders, tagged with their relative path.
     pub async fn list_files_recursive(&self, account_id: &str, folder_id: &str) -> Result<Vec<Value>, FrameioError> {
         let mut collected: Vec<Value> = Vec::new();
@@ -590,20 +551,6 @@ impl FrameioClient {
         }
         collected.truncate(PICKER_MAX_ITEMS);
         Ok(collected)
-    }
-
-    /// Create a workspace webhook; the signing secret is returned only here.
-    pub async fn create_webhook(&self, account_id: &str, workspace_id: &str, name: &str, url: &str, events: &[String]) -> Result<(String, String), FrameioError> {
-        let body = json!({"data": {"name": name, "url": url, "events": events}});
-        let d = self
-            .send_data(reqwest::Method::POST, &format!("accounts/{account_id}/workspaces/{workspace_id}/webhooks"), &[], Some(body))
-            .await?;
-        let secret = s(&d, "secret").ok_or_else(|| FrameioError::Other("Frame.io did not return a webhook signing secret".into()))?;
-        Ok((s(&d, "id").unwrap_or_default(), secret))
-    }
-
-    pub async fn delete_webhook(&self, account_id: &str, webhook_id: &str) -> Result<(), FrameioError> {
-        self.send(reqwest::Method::DELETE, &format!("accounts/{account_id}/webhooks/{webhook_id}"), &[], None).await.map(|_| ())
     }
 
     /// Create a share over assets in a project; returns the response data.

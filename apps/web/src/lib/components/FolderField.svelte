@@ -11,6 +11,7 @@
     title = "Choose a folder",
     placeholder = "Choose a Frame.io folder",
     chooseVerb = "Choose",
+    startAt = null,
     id = undefined,
     onchange = undefined,
   }: {
@@ -19,6 +20,8 @@
     title?: string;
     placeholder?: string;
     chooseVerb?: string;
+    /** Where the picker opens while nothing is chosen (default: the recent folders). */
+    startAt?: FolderRef | null;
     id?: string;
     onchange?: (f: FolderRef) => void;
   } = $props();
@@ -33,7 +36,7 @@
   function openAt(k: number | null) {
     atProjects = k === -1;
     if (!value) {
-      start = null;
+      start = startAt;
     } else if (k === null || k < 0 || !value.path?.length || k >= value.path.length - 1) {
       start = value;
     } else {

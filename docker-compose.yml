@@ -1,4 +1,4 @@
-# Production deploy: the all-in-one Portal image. One container bundles the api, sync worker,
+# Production deploy: the all-in-one Portal image. One container bundles the api, background worker,
 # web server, Postgres, Redis and the internal Caddy router; all state lives in the portal_data
 # volume. It sits behind a host reverse proxy that terminates TLS and forwards your domain to
 # 127.0.0.1:${PORTAL_PORT} (see host-caddy.example and DEPLOY.md).
@@ -30,13 +30,6 @@ services:
     volumes:
       # All persistent state: Postgres cluster, Redis AOF, Caddy data, generated secrets.
       - portal_data:/data
-      # Sync destinations live on the host (local disk or NAS mounts). Bind the mount root with
-      # rslave propagation so anything mounted under it on the host (e.g. an fstab NAS mount)
-      # appears inside the container. Source == target so a rule's destination_path means the same
-      # path inside and out. SYNC_HOST_ROOT must exist on the host — deploy.sh creates it; the
-      # default /mnt exists on Linux but not macOS (set it to a real path there). Remove this line
-      # if you don't use sync rules.
-      - ${SYNC_HOST_ROOT:-/mnt}:${SYNC_HOST_ROOT:-/mnt}:rslave
     healthcheck:
       # Straight at the API inside the container (not through Caddy), so it reports the app itself.
       test: [ "CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8000/api/health" ]

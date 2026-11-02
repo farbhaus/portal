@@ -12,50 +12,24 @@ export type ActiveUpload = {
   last_activity_at?: string | null;
 };
 
-export type ActiveSync = {
-  id: string;
-  status: "running" | "pending";
-  file: string | null;
-  rule: string;
-  rule_id: string;
-  started_at: string | null;
-};
-
-export type SyncHealth = {
-  waiting: number;
-  running: number;
-  queued: number;
-  dead_letter: number;
-  done_24h: number;
-  dead_letter_rule_id?: string | null;
-};
-
 export type Transfers = {
   active_uploads: ActiveUpload[];
-  active_syncs: ActiveSync[];
-  sync_health: SyncHealth;
 };
 
 export type HistoryItem = {
   id: string;
-  kind: "upload" | "download" | "sync";
+  kind: "upload" | "download";
   label: string | null;
   who: string | null;
   bytes: number | null;
   files?: number;
   status: string;
   at: string;
-  error?: string | null;
   link_id?: string;
-  rule_id?: string;
   via?: string | null;
 };
 
-const EMPTY: Transfers = {
-  active_uploads: [],
-  active_syncs: [],
-  sync_health: { waiting: 0, running: 0, queued: 0, dead_letter: 0, done_24h: 0, dead_letter_rule_id: null },
-};
+const EMPTY: Transfers = { active_uploads: [] };
 
 export const load: PageLoad = async ({ fetch }) => {
   const [transfersRes, linksRes, connRes] = await Promise.all([

@@ -1,7 +1,7 @@
 
 //! `GET /api/branding/logo` — public logo serving, mirroring `portal.routes.branding`.
 
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use sqlx::Row;
@@ -9,26 +9,11 @@ use sqlx::Row;
 use crate::error::detail;
 use crate::state::AppState;
 
-/// The app-wide logo, or with `?profile={id}` a brand profile's (see `routes::brands`).
-pub async fn get_logo(
-    State(state): State<AppState>,
-    Query(q): Query<std::collections::HashMap<String, String>>,
-    headers: HeaderMap,
-) -> Response {
-    let row = match q.get("profile").map(|p| uuid::Uuid::parse_str(p)) {
-        Some(Ok(id)) => {
-            sqlx::query("SELECT logo_png, logo_content_type, logo_updated_at FROM brand_profiles WHERE id = $1")
-                .bind(id)
-                .fetch_optional(&state.db)
-                .await
-        }
-        Some(Err(_)) => return detail(StatusCode::NOT_FOUND, "No logo set"),
-        None => {
-            sqlx::query("SELECT logo_png, logo_content_type, logo_updated_at FROM app_settings LIMIT 1")
-                .fetch_optional(&state.db)
-                .await
-        }
-    };
+/// The app-wide logo.
+pub async fn get_logo(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let row = sqlx::query("SELECT logo_png, logo_content_type, logo_updated_at FROM app_settings LIMIT 1")
+        .fetch_optional(&state.db)
+        .await;
     let Ok(Some(row)) = row else {
         return detail(StatusCode::NOT_FOUND, "No logo set");
     };

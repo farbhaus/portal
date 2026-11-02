@@ -9,8 +9,8 @@
 #   make shell     open a shell in the container
 #   make dev       same as deploy, but build the image from source instead of pulling it
 #   make build     build the all-in-one image locally
-#   make check     run static checks (clippy, svelte-check, ruff, mypy)
-#   make test      run the Rust tests + schema check, and the Python reference suite
+#   make check     run static checks (clippy, svelte-check)
+#   make test      run the Rust tests and the schema check
 #
 # `deploy`/`update` pull the published image; `dev` adds a --build overlay
 # (docker/docker-compose.dev.yml) so the same compose builds from source. See DEPLOY.md.
@@ -73,15 +73,12 @@ dev:  ## Same as deploy, but build the image from source instead of pulling it
 build:  ## Build the all-in-one image locally (farbhaus/portal:dev)
 	docker build -t farbhaus/portal:dev .
 
-check:  ## Run static checks (clippy, svelte-check, ruff, mypy)
+check:  ## Run static checks (clippy, svelte-check)
 	cd apps/api-rs && cargo clippy --locked --all-targets -- -D warnings
+	cd mcp && cargo clippy --locked --all-targets -- -D warnings
 	cd apps/web && npm run check
-	cd apps/api && uv run ruff check && uv run mypy src
 
-test:  ## Run the Rust tests + schema check, and the Python reference suite (throwaway Postgres/Redis)
+test:  ## Run the Rust tests and the schema check (throwaway Postgres)
 	cd apps/api-rs && cargo test --locked
-	tools/rustify/schema_check.sh
-	docker run -d --rm -p 55432:5432 -e POSTGRES_USER=portal -e POSTGRES_PASSWORD=portal -e POSTGRES_DB=portal --name portal_test_pg postgres:16 >/dev/null && \
-	docker run -d --rm -p 56379:6379 --name portal_test_redis redis:7 >/dev/null && \
-	(cd apps/api && uv run pytest); rc=$$?; \
-	docker rm -fv portal_test_pg portal_test_redis >/dev/null; exit $$rc
+	cd mcp && cargo test --locked
+	tools/schema_check.sh

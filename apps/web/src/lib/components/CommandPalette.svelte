@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ⌘K / Ctrl+K anywhere in the admin: start something, jump to a link or sync rule, or find a
+  // ⌘K / Ctrl+K anywhere in the admin: start something, jump to a link, or find a
   // Frame.io folder to receive into. Links and rules load when it opens; folder search kicks in
   // from two letters, through the same search the picker uses.
   import { goto } from "$app/navigation";
@@ -16,7 +16,6 @@
   let input = $state<HTMLInputElement | null>(null);
   let list = $state<HTMLDivElement | null>(null);
   let links = $state<{ id: string; kind: string; name: string; folder?: unknown; source?: { path?: { id: string; name: string }[] } }[]>([]);
-  let rules = $state<{ id: string; name: string; destination_path: string }[]>([]);
   let hits = $state<SearchHit[]>([]);
   let account = "";
   let searchSeq = 0;
@@ -30,11 +29,9 @@
   const actions: Item[] = [
     { id: "a-recv", group: "Create", label: "New receive link", hint: "Clients upload into Frame.io", icon: "receive", run: go("/links/new") },
     { id: "a-send", group: "Create", label: "New send link", hint: "Clients download from Frame.io", icon: "send", run: go("/links/new?type=download&pick=1") },
-    { id: "a-sync", group: "Create", label: "New sync rule", hint: "Copy a Frame.io folder to the NAS", icon: "sync", run: go("/sync-rules/new") },
     { id: "g-dash", group: "Go to", label: "Dashboard", icon: "home", run: go("/") },
     { id: "g-hist", group: "Go to", label: "History", icon: "history", run: go("/#history") },
     { id: "g-links", group: "Go to", label: "Links", icon: "link", run: go("/links") },
-    { id: "g-sync", group: "Go to", label: "Sync", icon: "sync", run: go("/sync") },
     { id: "g-set", group: "Go to", label: "Settings", icon: "sliders", run: go("/settings") },
     { id: "g-email", group: "Go to", label: "Settings · Email", icon: "mail", run: go("/settings#email") },
     { id: "g-brand", group: "Go to", label: "Settings · Branding", icon: "sliders", run: go("/settings#branding") },
@@ -51,12 +48,7 @@
     void (async () => {
       await tick();
       input?.focus();
-      const [l, r] = await Promise.all([
-        fetch("/api/links").then((x) => (x.ok ? x.json() : [])).catch(() => []),
-        fetch("/api/sync-rules").then((x) => (x.ok ? x.json() : [])).catch(() => []),
-      ]);
-      links = l;
-      rules = r;
+      links = await fetch("/api/links").then((x) => (x.ok ? x.json() : [])).catch(() => []);
       account = (await listAccounts().catch(() => []))[0]?.id ?? "";
     })();
   });
@@ -91,9 +83,6 @@
           run: go(l.kind === "upload" ? `/upload-links/${l.id}` : `/download-links/${l.id}`),
         });
         if (out.filter((x) => x.group === "Links").length >= 6) break;
-      }
-      for (const r of rules.filter((r) => has(r.name, r.destination_path)).slice(0, 4)) {
-        out.push({ id: `r-${r.id}`, group: "Sync rules", label: r.name, hint: r.destination_path, icon: "sync", run: go(`/sync-rules/${r.id}`) });
       }
       for (const h of hits) {
         const folder = h.kind === "project" ? h.root_folder_id : h.id;
@@ -168,7 +157,7 @@
           oninput={onInput}
           onkeydown={onKey}
           class="h-12 min-w-0 flex-1 bg-transparent text-sm text-text outline-none placeholder:text-faint"
-          placeholder="Find a link, a sync rule or a Frame.io folder, or start something"
+          placeholder="Find a link or a Frame.io folder, or start something"
           aria-label="Search"
           autocomplete="off"
           spellcheck="false"

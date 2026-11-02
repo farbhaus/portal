@@ -122,18 +122,6 @@ set_env() {
 # grep miss under `set -e`.
 get_env() { { grep -E "^$1=" .env 2>/dev/null || true; } | head -1 | cut -d= -f2-; }
 
-# ensure_sync_root — create SYNC_HOST_ROOT if missing so the sync bind mount can't fail on a host
-# without it (Docker Desktop on macOS won't create a missing bind source; /mnt is also absent on a
-# bare box). Harmless when sync rules aren't used — it's just an empty dir.
-ensure_sync_root() {
-  [[ -f .env ]] || return 0
-  local root; root="$(get_env SYNC_HOST_ROOT)"; root="${root:-/mnt}"
-  [[ -d "$root" ]] && return 0
-  info "Creating sync host directory $root"
-  mkdir -p "$root" 2>/dev/null || $SUDO mkdir -p "$root" \
-    || die "could not create SYNC_HOST_ROOT ($root) — create it manually and re-run."
-}
-
 have_apt() { command -v apt-get >/dev/null 2>&1; }
 
 install_apt() { info "Installing $* (apt)"; $SUDO apt-get update; $SUDO apt-get install -y "$@"; }
@@ -247,7 +235,6 @@ if [[ $UPDATE -eq 1 ]]; then
   fi
   info "Pulling newest image"
   $DOCKER compose pull
-  ensure_sync_root
   info "Recreating the container"
   $DOCKER compose up -d
   wait_healthy || die "update failed — the container is not healthy (see logs above)."
@@ -387,7 +374,6 @@ $DOCKER compose pull \
 # always exists, and every fresh install was warned its new admin password might not be active.
 data_exists=0
 $DOCKER volume inspect portal_portal_data >/dev/null 2>&1 && data_exists=1 || true
-ensure_sync_root
 info "Starting Portal"
 $DOCKER compose up -d
 wait_healthy || die "deploy failed — the container is not healthy (see logs above)."

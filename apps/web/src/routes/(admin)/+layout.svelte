@@ -20,7 +20,7 @@
   });
 
   // What the nav badges show; refreshed on every live change.
-  type Nav = { links_active: number; uploads_live: number; sync_active: number; sync_failed: number };
+  type Nav = { links_active: number; uploads_live: number };
   let nav = $state<Nav | null>(null);
   async function loadNav() {
     try {
@@ -44,8 +44,7 @@
   const sections: Section[] = [
     { label: "Dashboard", href: "/", match: ["/activity", "/history"], icon: "home" },
     // Files (/explorer) is hidden for now: links and the picker cover what it was used for.
-    { label: "Links", href: "/links", match: ["/links", "/upload-links", "/download-links", "/destinations"], icon: "link" },
-    { label: "Sync", href: "/sync", match: ["/sync", "/sync-rules"], icon: "sync" },
+    { label: "Links", href: "/links", match: ["/links", "/upload-links", "/download-links"], icon: "link" },
     { label: "Settings", href: "/settings", match: ["/settings", "/connections"], icon: "sliders" },
   ];
 
@@ -81,10 +80,6 @@
           <span class="live-dot absolute top-2 right-3 sm:static" title="{nav.uploads_live} upload{nav.uploads_live === 1 ? '' : 's'} arriving now"></span>
         {:else if s.href === "/links" && nav?.links_active}
           <span class="tnum hidden h-[18px] min-w-[18px] place-items-center rounded-full px-1.5 text-[11px] font-semibold sm:grid {on ? 'bg-accent text-on-accent' : 'bg-surface-3 text-body'}" title="{nav.links_active} active link{nav.links_active === 1 ? '' : 's'}">{nav.links_active}</span>
-        {:else if s.href === "/sync" && nav?.sync_failed}
-          <span class="tnum absolute top-1 right-2 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-danger px-1.5 text-[11px] font-semibold text-bg sm:static" title="{nav.sync_failed} sync job{nav.sync_failed === 1 ? '' : 's'} failed">{nav.sync_failed}</span>
-        {:else if s.href === "/sync" && nav?.sync_active}
-          <span class="live-dot absolute top-2 right-3 sm:static" title="{nav.sync_active} file{nav.sync_active === 1 ? '' : 's'} copying or queued"></span>
         {/if}
       </a>
     {/each}

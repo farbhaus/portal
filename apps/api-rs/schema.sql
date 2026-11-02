@@ -2,10 +2,10 @@
 -- PostgreSQL database dump
 --
 
-\restrict WKgMiRAa5w1u19itANG8XzEBk9I3OQa7T36P3NjzLEMAW9Qhgu9dN2josvO1QXV
+\restrict 2xpzO2r1JI8r3NRRfZhGYfYqRiN9harcVtK4cDLoEO6x60emVyKJxbjkCvJBdTe
 
--- Dumped from database version 16.14 (Debian 16.14-1.pgdg13+1)
--- Dumped by pg_dump version 16.14 (Debian 16.14-1.pgdg13+1)
+-- Dumped from database version 16.15 (Debian 16.15-1.pgdg13+2)
+-- Dumped by pg_dump version 16.15 (Debian 16.15-1.pgdg13+2)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -68,23 +68,6 @@ CREATE TABLE public.audit_log (
     action character varying(128) NOT NULL,
     detail jsonb,
     created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: brand_profiles; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.brand_profiles (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    name character varying(255) NOT NULL,
-    display_name character varying(255),
-    accent_color character varying(32),
-    logo_png bytea,
-    logo_content_type character varying(64),
-    logo_updated_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -186,7 +169,6 @@ CREATE TABLE public.links (
     verify_email boolean DEFAULT false NOT NULL,
     brand_display_name character varying(255),
     brand_subtitle text,
-    brand_profile_id uuid,
     notify_emails jsonb,
     remind_before_expiry boolean DEFAULT false NOT NULL,
     expiry_reminded_at timestamp with time zone,
@@ -204,49 +186,9 @@ CREATE TABLE public.links (
     allow_preview boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    return_for uuid,
     CONSTRAINT links_download_source_check CHECK ((((kind)::text <> 'download'::text) OR (source IS NOT NULL))),
     CONSTRAINT links_kind_check CHECK (((kind)::text = ANY ((ARRAY['upload'::character varying, 'download'::character varying])::text[])))
-);
-
-
---
--- Name: sync_jobs; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.sync_jobs (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    sync_rule_id uuid NOT NULL,
-    frameio_file_id character varying(255) NOT NULL,
-    status character varying(32) NOT NULL,
-    bytes bigint,
-    sha256 character varying(64),
-    error text,
-    retry_count integer NOT NULL,
-    started_at timestamp with time zone,
-    completed_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    source_wait_started_at timestamp with time zone,
-    file_name character varying(512)
-);
-
-
---
--- Name: sync_rules; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.sync_rules (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    name character varying(255) NOT NULL,
-    source_config jsonb NOT NULL,
-    destination_path text NOT NULL,
-    conflict_policy character varying(32) NOT NULL,
-    path_template text,
-    enabled boolean NOT NULL,
-    webhook_secret text,
-    frameio_webhook_id character varying(255),
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -308,23 +250,6 @@ CREATE TABLE public.webauthn_credentials (
 
 
 --
--- Name: webhook_events; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.webhook_events (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    source character varying(32) NOT NULL,
-    event_type character varying(128),
-    raw jsonb NOT NULL,
-    signature_valid boolean,
-    processed boolean NOT NULL,
-    processed_at timestamp with time zone,
-    error text,
-    received_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
 -- Name: alembic_version alembic_version_pkc; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -346,14 +271,6 @@ ALTER TABLE ONLY public.app_settings
 
 ALTER TABLE ONLY public.audit_log
     ADD CONSTRAINT audit_log_pkey PRIMARY KEY (id);
-
-
---
--- Name: brand_profiles brand_profiles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.brand_profiles
-    ADD CONSTRAINT brand_profiles_pkey PRIMARY KEY (id);
 
 
 --
@@ -405,22 +322,6 @@ ALTER TABLE ONLY public.links
 
 
 --
--- Name: sync_jobs sync_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sync_jobs
-    ADD CONSTRAINT sync_jobs_pkey PRIMARY KEY (id);
-
-
---
--- Name: sync_rules sync_rules_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sync_rules
-    ADD CONSTRAINT sync_rules_pkey PRIMARY KEY (id);
-
-
---
 -- Name: upload_sessions upload_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -442,14 +343,6 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.webauthn_credentials
     ADD CONSTRAINT webauthn_credentials_pkey PRIMARY KEY (id);
-
-
---
--- Name: webhook_events webhook_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.webhook_events
-    ADD CONSTRAINT webhook_events_pkey PRIMARY KEY (id);
 
 
 --
@@ -495,24 +388,17 @@ CREATE INDEX ix_frameio_connections_user_id ON public.frameio_connections USING 
 
 
 --
+-- Name: ix_links_return_for; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX ix_links_return_for ON public.links USING btree (return_for);
+
+
+--
 -- Name: ix_links_token; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX ix_links_token ON public.links USING btree (token);
-
-
---
--- Name: ix_sync_jobs_frameio_file_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_sync_jobs_frameio_file_id ON public.sync_jobs USING btree (frameio_file_id);
-
-
---
--- Name: ix_sync_jobs_sync_rule_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_sync_jobs_sync_rule_id ON public.sync_jobs USING btree (sync_rule_id);
 
 
 --
@@ -576,19 +462,11 @@ ALTER TABLE ONLY public.frameio_connections
 
 
 --
--- Name: links links_brand_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: links links_return_for_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.links
-    ADD CONSTRAINT links_brand_profile_id_fkey FOREIGN KEY (brand_profile_id) REFERENCES public.brand_profiles(id) ON DELETE SET NULL;
-
-
---
--- Name: sync_jobs sync_jobs_sync_rule_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sync_jobs
-    ADD CONSTRAINT sync_jobs_sync_rule_id_fkey FOREIGN KEY (sync_rule_id) REFERENCES public.sync_rules(id) ON DELETE CASCADE;
+    ADD CONSTRAINT links_return_for_fkey FOREIGN KEY (return_for) REFERENCES public.links(id) ON DELETE CASCADE;
 
 
 --
@@ -611,13 +489,12 @@ ALTER TABLE ONLY public.webauthn_credentials
 -- PostgreSQL database dump complete
 --
 
-\unrestrict WKgMiRAa5w1u19itANG8XzEBk9I3OQa7T36P3NjzLEMAW9Qhgu9dN2josvO1QXV
+\unrestrict 2xpzO2r1JI8r3NRRfZhGYfYqRiN9harcVtK4cDLoEO6x60emVyKJxbjkCvJBdTe
 
 
 --
--- Alembic revision this schema corresponds to. A database created from this file is stamped with
--- it, so Alembic (and the Python reference API) see a normal, up-to-date database. portal-api
--- migrate upgrades older revisions with migrations/ and refuses unknown ones (src/migrate.rs).
--- Generated by tools/rustify/schema_check.sh --write; CI fails if it drifts from Alembic.
+-- Schema revision this file corresponds to. A database created from it is stamped with it;
+-- portal-api migrate upgrades older revisions with migrations/ and refuses unknown ones
+-- (src/migrate.rs). Generated by tools/schema_check.sh --write; CI fails if it drifts.
 --
-INSERT INTO public.alembic_version (version_num) VALUES ('e1f2a3b4c5d6');
+INSERT INTO public.alembic_version (version_num) VALUES ('b4c5d6e7f8a9');

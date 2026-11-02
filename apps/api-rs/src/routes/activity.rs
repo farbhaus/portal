@@ -67,11 +67,10 @@ pub async fn list_actions(State(state): State<AppState>, _: Admin) -> Response {
 }
 
 pub async fn summary(State(state): State<AppState>, _: Admin) -> Response {
-    let mut counts = [0i64; 3];
+    let mut counts = [0i64; 2];
     let queries = [
         "SELECT count(*) FROM links WHERE kind = 'upload'",
         "SELECT count(*) FROM links WHERE kind = 'download'",
-        "SELECT count(*) FROM sync_rules",
     ];
     for (i, q) in queries.iter().enumerate() {
         counts[i] = sqlx::query_scalar(*q).fetch_one(&state.db).await.unwrap_or(0);
@@ -79,7 +78,6 @@ pub async fn summary(State(state): State<AppState>, _: Admin) -> Response {
     Json(json!({
         "upload_links": counts[0],
         "download_links": counts[1],
-        "sync_rules": counts[2],
     }))
     .into_response()
 }

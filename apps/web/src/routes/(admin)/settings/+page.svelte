@@ -4,7 +4,6 @@
   import { ConfirmButton, Icon, Modal, SetRow, Switch } from "$lib/components";
   import { copyWithToast, errorDetail, toast } from "$lib/toast.svelte";
   import { registerPasskey } from "$lib/webauthn";
-  import BrandProfiles from "./BrandProfiles.svelte";
   import Presets from "./Presets.svelte";
 
   let { data } = $props();
@@ -367,7 +366,7 @@
 
     <!-- Frame.io -->
     {#snippet frameioBody()}
-      <SetRow label="Connection" help={frameio.connected ? undefined : "Links, sync and the picker need it."}>
+      <SetRow label="Connection" help={frameio.connected ? undefined : "Links and the picker need it."}>
         <div class="flex flex-wrap items-center gap-3">
           <span class="flex min-w-0 flex-1 items-center gap-2">
             <span class="h-2 w-2 shrink-0 rounded-full {frameio.connected ? 'bg-success' : 'bg-warning'}"></span>
@@ -466,10 +465,7 @@
         <button type="button" class={primary} disabled={savingBrand} onclick={saveBrand}>{savingBrand ? "Saving…" : "Save brand"}</button>
       </div>
     {/snippet}
-    {@render card("branding", "Branding", "Your default brand, used on every link unless it carries one of the brands below.", brandBody)}
-
-    {#snippet brandsBody()}<BrandProfiles brands={data.brands} />{/snippet}
-    {@render card("brands", "Other brands", "For work you deliver under a client's or production's name. Pick one per link in the composer.", brandsBody)}
+    {@render card("branding", "Branding", "The name, colour and logo on every link's page and emails.", brandBody)}
 
     {#snippet presetsBody()}<Presets presets={data.presets} />{/snippet}
     {@render card("presets", "Link presets", "Saved from the link composer. Apply one when you create a link.", presetsBody)}

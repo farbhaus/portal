@@ -3,7 +3,7 @@
 **Self-hosted file transfer for film & video post-production, backed by Frame io.**
 
 Portal gives you branded **upload** and **download** links that let clients and external
-collaborators share files in and out of specific Frame.io destinations without requiring
+collaborators share files in and out of specific Frame.io folders without requiring
 a Frame.io account or adding a paid seat to yours.
 
 **Files never flow through the Portal server.** 
@@ -21,9 +21,9 @@ short-lived signed URLs.
 - **Download links** — branded page to hand a file, a selection, or a whole folder
   to clients or collaborators, downloaded straight from Frame.io via signed URLs. Optional preview
   thumbnails, password, max-downloads, viewer fields.
-- **Sync rules** — watch a Frame io folder and auto-download new files to a local/NAS path, with
-  path templating, conflict policy, parallel ranged downloads (flat memory on huge files),
-  retries/dead-lettering, and a reconcile cron. Triggered immediately by completed Portal uploads.
+- **Sync to FioTransfer** — mark an upload link and the FioTransfer client gives it a folder on
+  your machine: what the client uploads comes down into `IN`, and what you put in `OUT` goes up to
+  a return folder in Frame.io. Portal only stores the setting; nothing is ever deleted.
 - **In-Portal Frame.io explorer** — browse accounts/workspaces/projects/folders; multi-select
   download/copy/move/delete; create projects/folders; create native Frame.io share links.
 - **Secure admin** — passkey (WebAuthn) passwordless login, optional TOTP 2FA, signed/httponly
