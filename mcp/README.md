@@ -3,7 +3,7 @@
 A Rust stdio MCP server over Portal's admin HTTP API, built with
 [`rmcp`](https://crates.io/crates/rmcp). No Python or Node is needed to run it.
 
-It exposes upload links (including their "Sync to FioTransfer" switch, `folder.sync`) and Frame.io
+It exposes upload links (including their "Sync with FioTransfer" switch, `folder.sync`) and Frame.io
 browsing as MCP tools. It authenticates with `PORTAL_API_TOKEN`
 (the bearer token described in [../docs/API.md](../docs/API.md)). `PORTAL_URL` defaults to
 `http://127.0.0.1:18080`, Portal's loopback port when it runs behind a host proxy.
@@ -49,7 +49,7 @@ The server speaks MCP over stdio.
 | `list_upload_links` / `get_upload_link` | Read upload links |
 | `create_upload_link` | Create a link for a Frame.io folder, optionally synced to FioTransfer with a return folder |
 | `update_upload_link` | Patch any link fields, including `folder.sync` |
-| `set_fiotransfer_sync` | Turn Sync to FioTransfer on or off for a link, with an optional return folder |
+| `set_fiotransfer_sync` | Turn Sync with FioTransfer on or off for a link, with an optional send folder |
 | `delete_upload_link` | Delete a link |
 | `frameio_status`, `list_frameio_accounts`, `list_frameio_workspaces`, `list_frameio_projects`, `list_frameio_folders`, `list_frameio_files` | Browse the connected Frame.io account |
 

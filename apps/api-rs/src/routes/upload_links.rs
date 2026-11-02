@@ -94,7 +94,7 @@ fn turbosort_of(folder: &Value) -> Option<String> {
     folder.get("turbosort").and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
-/// `folder.sync` — the link's "Sync to FioTransfer" switch. Portal only stores it; the FioTransfer
+/// `folder.sync` — the link's "Sync with FioTransfer" switch. Portal only stores it; the FioTransfer
 /// client reads it from `GET /api/upload-links` and gives the link a folder on the user's disk:
 /// what the client uploads comes down into its `IN`, and what the user puts in `OUT` goes up to
 /// the return folder. Files are only ever added, on either side, never deleted.
@@ -196,7 +196,7 @@ pub fn validate_sync(raw: Option<&Value>, link_folder_id: &str) -> Result<Option
     if let (Some((uk, _)), Some(up_folder)) = (&up, field(&up, "folder_id")) {
         let down_folder = field(&down, "folder_id").unwrap_or_else(|| link_folder_id.to_string());
         if up_folder == down_folder {
-            return Err(format!("sync.{uk}.folder_id must be a different folder from the one IN comes from"));
+            return Err(format!("sync.{uk}.folder_id must be a different folder from the one the client's uploads come down from"));
         }
     }
     for (key, lane) in [down, up].into_iter().flatten() {
@@ -380,7 +380,7 @@ pub async fn validated_folder(state: &AppState, raw: &Value) -> Result<Value, Re
     {
         return Err(detail(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "The return folder can't be inside the folder the client's uploads come down from: what you add to it would come straight back down",
+            "The send folder can't be inside the folder the client's uploads come down from: what you add to it would come straight back down",
         ));
     }
     let return_name = return_chain.as_ref().and_then(|c| c.last()).map(|f| f.name.clone());
@@ -901,12 +901,12 @@ mod tests {
         // IN defaults to the link's own folder.
         assert_eq!(
             validate_sync(Some(&json!({ "upload": { "folder_id": LINK } })), LINK),
-            Err("sync.upload.folder_id must be a different folder from the one IN comes from".to_string())
+            Err("sync.upload.folder_id must be a different folder from the one the client's uploads come down from".to_string())
         );
         let raw = json!({ "download": { "folder_id": RETURN }, "upload": { "folder_id": RETURN } });
         assert_eq!(
             validate_sync(Some(&raw), LINK),
-            Err("sync.upload.folder_id must be a different folder from the one IN comes from".to_string())
+            Err("sync.upload.folder_id must be a different folder from the one the client's uploads come down from".to_string())
         );
         // IN moved elsewhere frees the link's own folder for OUT.
         let raw = json!({ "download": { "folder_id": OTHER }, "upload": { "folder_id": LINK } });

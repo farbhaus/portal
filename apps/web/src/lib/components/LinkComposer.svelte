@@ -98,7 +98,6 @@
   let savedPresets = $state<Preset[]>(untrack(() => [...presets]));
   let presetNaming = $state(false);
   let presetName = $state("");
-  let moreOpen = $state(false);
   let sourceOpen = $state(false);
 
   let saving = $state(false);
@@ -224,12 +223,6 @@
     return [crumbNames(folder).at(-1) ?? "Folder", ...parts];
   });
 
-  const moreSummary = $derived(
-    kind === "upload"
-      ? [typesLabel, maxSizeGb ? `up to ${maxSizeGb} GB per file` : "no size limit", template.trim() ? "sorted into folders" : ""].filter(Boolean).join(" · ")
-      : [maxDownloads ? `${maxDownloads} downloads max` : "unlimited downloads", preview ? "thumbnails on" : "thumbnails off"].join(" · "),
-  );
-  const moreLine = $derived(notifyEmails.trim() ? `${moreSummary} · custom notifications` : moreSummary);
 
   // ── interactions ────────────────────────────────────────────────────────
   function setKind(k: Kind) {
@@ -377,7 +370,7 @@
     const inName = s?.download?.local ?? s?.drive?.local;
     if (inName && inName !== crumbNames(up?.folder).at(-1)) out.push(`client uploads in “${inName}”`);
     const outName = s?.upload?.local ?? s?.exports?.local;
-    if (outName && returnFolder?.folder_name && outName !== returnFolder.folder_name) out.push(`return folder as “${outName}”`);
+    if (outName && returnFolder?.folder_name && outName !== returnFolder.folder_name) out.push(`send folder as “${outName}”`);
     return out;
   });
 
@@ -690,7 +683,7 @@
         {#if created.kind === "upload" && (created as UploadLink).return_link}
           {@const ret = (created as UploadLink).return_link!}
           <div class="grid w-full max-w-xl gap-1.5">
-            <span class="text-xs text-faint">Clients download from the return folder at</span>
+            <span class="text-xs text-faint">Clients download from the send folder at</span>
             <div class="flex items-center gap-2 rounded-lg border border-border bg-surface-2/60 py-1.5 pr-1.5 pl-3">
               <button type="button" class="min-w-0 flex-1 truncate text-left font-mono text-[13px] text-text hover:text-accent-hover" title="Copy link" onclick={() => copyWithToast(ret.public_url)}>{ret.public_url.replace(/^https?:\/\//, "")}</button>
               <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-2 px-3 font-medium text-text hover:bg-surface-3" onclick={() => copyWithToast(ret.public_url)}>
@@ -739,7 +732,7 @@
         {#if error}<p class="mb-3 rounded-md bg-danger/10 px-3 py-2 text-danger">{error}</p>{/if}
         {#if editing && down?.return_for}
           <p class="mb-3 flex items-center gap-3 rounded-md bg-surface-2 px-3 py-2 text-muted">
-            <span class="flex-1">Portal keeps this link for a receive link's return folder. Its settings follow that link, so change them there.</span>
+            <span class="flex-1">Portal keeps this link for a receive link's send folder. Its settings follow that link, so change them there.</span>
             <a href="/upload-links/{down.return_for}" class="font-medium text-accent-hover hover:underline">Open the receive link</a>
           </p>
         {/if}
@@ -854,16 +847,15 @@
             <div class="flex items-center gap-3">
               <div class="min-w-0 flex-1">
                 <b class="block font-medium text-text">Email code</b>
-                <small class="block text-xs text-faint">{kind === "upload" ? "Uploaders" : "Recipients"} confirm their email with a 6-digit code first</small>
               </div>
               <Switch bind:checked={otp} label="Email code" />
             </div>
             <div class="flex items-center gap-3">
               <div class="min-w-0 flex-1">
                 <b class="block font-medium text-text">Password</b>
-                <small class="block text-xs text-faint">
-                  {pwMode === "keep" ? "A password is set." : pwMode === "clear" ? "The password will be removed when you save." : "Share it separately from the link."}
-                </small>
+                {#if pwMode === "keep" || pwMode === "clear"}
+                  <small class="block text-xs text-faint">{pwMode === "keep" ? "A password is set." : "The password will be removed when you save."}</small>
+                {/if}
               </div>
               {#if pwMode === "keep"}
                 <button type="button" class="text-xs font-medium text-muted hover:text-text" onclick={() => { pwMode = "set"; password = passphrase(); }}>Change</button>
@@ -895,13 +887,9 @@
           </div>
         </div>
 
-        <details class="border-t border-border" bind:open={moreOpen}>
-          <summary class="flex cursor-pointer list-none items-center gap-1.5 py-3 font-medium text-muted hover:text-text [&::-webkit-details-marker]:hidden">
-            <span class="inline-block w-3 transition-transform {moreOpen ? 'rotate-90' : ''}">›</span>
-            More options <span class="truncate font-normal text-faint">· {moreLine}</span>
-          </summary>
+        <div>
           {#if kind === "upload"}
-            <div class="{line} border-t-0 pt-1">
+            <div class={line}>
               <div class={label}>File types</div>
               <div class="grid grid-cols-[minmax(0,1fr)] gap-2">
                 <div class="flex flex-wrap gap-1.5">
@@ -941,10 +929,9 @@
               <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
                 <div class="flex items-center gap-3">
                   <div class="min-w-0 flex-1">
-                    <b class="block font-medium text-text">Sync to FioTransfer</b>
-                    <small class="block text-xs text-faint">FioTransfer gives this link a folder on your machine with the same folders as Frame.io: what the client uploads comes down, and what you add to the return folder goes up.</small>
+                    <b class="block font-medium text-text">Sync with FioTransfer</b>
                   </div>
-                  <Switch bind:checked={syncOn} label="Sync to FioTransfer" />
+                  <Switch bind:checked={syncOn} label="Sync with FioTransfer" />
                 </div>
                 {#if !syncOn && !up?.folder?.sync && up?.turbosort}
                   <p class="text-xs text-faint">FioTransfer still syncs this link the older way, as one folder named <span class="font-mono">{up.turbosort}</span>. Turn this on to mirror its Frame.io folders instead.</p>
@@ -955,9 +942,9 @@
             </div>
             {#if syncOn}
               <div class={line}>
-                <div class={label}><label for="lc-sync-return">Return folder</label></div>
+                <div class={label}><label for="lc-sync-return">Send folder</label></div>
                 {#if !folder}
-                  <p class="text-xs text-faint">Choose the folder uploads land in first: the return folder usually sits next to it.</p>
+                  <p class="text-xs text-faint">Choose the folder uploads land in first: the send folder usually sits next to it.</p>
                 {:else}
                   <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
                     {#if syncError}
@@ -967,10 +954,10 @@
                     {/if}
                     <div class="flex min-w-0 items-center gap-1.5">
                       <div class="min-w-0 flex-1">
-                        <FolderField id="lc-sync-return" bind:value={returnFolder} startAt={parentRef ?? folder} title="Return folder" chooseVerb="Use" placeholder="No return folder: choose where your files go up to" />
+                        <FolderField id="lc-sync-return" bind:value={returnFolder} startAt={parentRef ?? folder} title="Send folder" chooseVerb="Use" placeholder="No send folder: choose one" />
                       </div>
                       {#if returnFolder}
-                        <button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-faint hover:bg-surface-3 hover:text-text" title="No return folder" aria-label="No return folder" onclick={() => (returnFolder = null)}><Icon name="x" /></button>
+                        <button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-faint hover:bg-surface-3 hover:text-text" title="No send folder" aria-label="No send folder" onclick={() => (returnFolder = null)}><Icon name="x" /></button>
                       {/if}
                     </div>
                     {#if siblings?.length}
@@ -984,14 +971,6 @@
                     {#if returnIssue}
                       <div class="text-xs text-danger">{returnIssue}</div>
                     {/if}
-                    <p class="text-xs text-faint">
-                      {#if returnFolder}
-                        What you add to <span class="font-mono">{returnFolder.folder_name || "it"}</span> on your machine goes up to <span class="font-mono">{crumbNames(returnFolder).join(" / ") || "the saved folder"}</span>.
-                      {:else}
-                        Nothing goes up: only what the client uploads comes down.
-                      {/if}
-                      Files are only ever added, never deleted, on either side.
-                    </p>
                     {#if returnFolder && up?.return_link && returnFolder.folder_id === savedReturnId(up.folder?.sync)}
                       <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
                         Clients download it at
@@ -1006,7 +985,7 @@
               </div>
             {/if}
           {:else}
-            <div class="{line} border-t-0 pt-1">
+            <div class={line}>
               <div class={label}><label for="lc-maxdl">Limit</label></div>
               <div class="relative max-w-52">
                 <input id="lc-maxdl" type="number" min="1" class="{input} pr-24" bind:value={maxDownloads} placeholder="Unlimited" />
@@ -1030,13 +1009,10 @@
               <div class={label}><label for="lc-notify">Notify</label></div>
               <div class="grid grid-cols-[minmax(0,1fr)] gap-1.5">
                 <input id="lc-notify" class={input} bind:value={notifyEmails} placeholder={defaultNotify ? `${defaultNotify} (default)` : "you@example.com"} autocomplete="off" spellcheck="false" />
-                <div class="text-xs text-faint">
-                  {kind === "upload" ? "Who gets the email when an upload finishes" : "Who gets the expiry reminder"}{kind === "upload" && remind && expiry !== "never" ? " and the expiry reminder" : ""}. Separate several addresses with commas.
-                </div>
               </div>
             </div>
           {/if}
-        </details>
+        </div>
       </div>
 
       <div class="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3.5 sm:px-7">

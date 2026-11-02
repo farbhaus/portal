@@ -139,7 +139,7 @@ struct LinkId {
 #[derive(Debug, Deserialize, JsonSchema)]
 struct UpdateLink {
     link_id: String,
-    /// Fields to PATCH. Only supplied keys change. "Sync to FioTransfer" rides in `folder`: send
+    /// Fields to PATCH. Only supplied keys change. "Sync with FioTransfer" rides in `folder`: send
     /// the link's `folder` with a `sync` block (`{}` to sync it, `{"upload":{"folder_id":"…"}}` to
     /// add a return folder), or `sync: null` to stop. `set_fiotransfer_sync` does this for you.
     fields: Value,
@@ -255,7 +255,7 @@ impl PortalServer {
         )
     }
 
-    #[tool(description = "Turn Sync to FioTransfer on or off for an upload link, with an optional return folder for OUT.")]
+    #[tool(description = "Turn Sync with FioTransfer on or off for an upload link, with an optional send folder.")]
     async fn set_fiotransfer_sync(
         &self,
         Parameters(p): Parameters<SetFiotransferSync>,

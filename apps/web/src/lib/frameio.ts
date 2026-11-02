@@ -15,7 +15,7 @@ export type FolderRef = {
   folder_name?: string | null;
   // Breadcrumb from the project root (named after the project) down to the folder.
   path?: PathSegment[] | null;
-  // Upload links only: "Sync to FioTransfer" and its return folder.
+  // Upload links only: "Sync with FioTransfer" and its return folder.
   sync?: LinkSync | null;
 };
 

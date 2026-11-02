@@ -245,7 +245,7 @@
                   <span class="truncate">{l.name}</span>
                   {#if l.password_protected}<span class="text-faint" title="Password"><Icon name="lock" size={13} /></span>{/if}
                   {#if l.verify_email}<span class="text-faint" title="Email code"><Icon name="mail" size={13} /></span>{/if}
-                  {#if l.kind === "upload" && l.folder?.sync}<span class="text-faint" title="Synced to FioTransfer"><Icon name="sync" size={13} /></span>{/if}
+                  {#if l.kind === "upload" && l.folder?.sync}<span class="text-faint" title="Synced with FioTransfer"><Icon name="sync" size={13} /></span>{/if}
                 </div>
                 <div class="truncate text-xs text-faint">
                   {#each path as p, i (i)}{#if i > 0}<span class="px-1">/</span>{/if}<span class={i === path.length - 1 ? "text-muted" : ""}>{p}</span>{/each}
@@ -321,7 +321,7 @@
                 {#if l.kind === "upload"}
                   {@const sync = l.folder?.sync}
                   <span class="text-faint">FioTransfer</span>
-                  <span class="text-body">{sync ? (sync.upload?.folder_id || sync.exports?.folder_id ? "Synced, with a return folder" : "Synced") : "Not synced"}</span>
+                  <span class="text-body">{sync ? (sync.upload?.folder_id || sync.exports?.folder_id ? "Synced, with a send folder" : "Synced") : "Not synced"}</span>
                   {#if l.return_link}
                     {@const ret = l.return_link}
                     <span class="text-faint">Clients download</span>
@@ -330,7 +330,7 @@
                 {:else if l.return_for}
                   {@const owner = links.find((x) => x.id === l.return_for)}
                   <span class="text-faint">Follows</span>
-                  <a href="/upload-links/{l.return_for}" class="min-w-0 truncate text-body hover:text-accent-hover">{owner?.name ?? "its receive link"}<span class="text-faint"> · return folder</span></a>
+                  <a href="/upload-links/{l.return_for}" class="min-w-0 truncate text-body hover:text-accent-hover">{owner?.name ?? "its receive link"}<span class="text-faint"> · send folder</span></a>
                 {/if}
                 <span class="text-faint">Protection</span>
                 <span class="text-body">{[l.verify_email && "Email code", l.password_protected && "Password"].filter(Boolean).join(" · ") || "None"}</span>

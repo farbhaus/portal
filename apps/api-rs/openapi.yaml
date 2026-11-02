@@ -331,7 +331,7 @@ components:
     LinkSync:
       type: object
       description: |
-        "Sync to FioTransfer" for an upload link: its presence is the switch, and `{}` is enough.
+        "Sync with FioTransfer" for an upload link: its presence is the switch, and `{}` is enough.
         Portal only stores it; the FioTransfer client reads it from `GET /api/upload-links` and
         gives the link a folder on the user's disk. Client uploads come down into IN; what the user
         puts in OUT goes up to the return folder. Nothing is ever deleted. Older links may carry

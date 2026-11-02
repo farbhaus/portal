@@ -27,7 +27,7 @@ async fn folder_source(state: &AppState, account_id: &str, folder_id: &str) -> V
         .await
         .map(|items| items.iter().map(|i| json!({ "id": i.id, "name": i.name })).collect())
         .unwrap_or_default();
-    let label = path.last().and_then(|s| s.get("name")).and_then(|v| v.as_str()).unwrap_or("Return folder").to_string();
+    let label = path.last().and_then(|s| s.get("name")).and_then(|v| v.as_str()).unwrap_or("Send folder").to_string();
     json!({ "type": "folder", "account_id": account_id, "folder_id": folder_id, "recursive": true, "path": path, "label": label })
 }
 

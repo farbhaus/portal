@@ -109,7 +109,7 @@ routes / upload engine / download links
   link stores as `links.folder`. Upload and download links share one `links` table (`kind` =
   `upload` | `download`; migration `e1f2a3b4c5d6` merged the old `upload_links`/`download_links`
   and dropped `destinations`).
-- An upload link's `folder` may also carry `sync`: the "Sync to FioTransfer" switch (`{}` is
+- An upload link's `folder` may also carry `sync`: the "Sync with FioTransfer" switch (`{}` is
   enough). FioTransfer gives the link a folder on the user's disk; client uploads come down into
   `IN`, and `OUT` goes up to the return folder `sync.upload.folder_id`. Optional `name`,
   `download.folder_id` and `local` names override its defaults. Older links may store the earlier

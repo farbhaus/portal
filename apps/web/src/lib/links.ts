@@ -8,7 +8,7 @@ import { formatBytes } from "$lib/format";
 export type LinkState = "ok" | "expired" | "revoked";
 
 /**
- * "Sync to FioTransfer", stored inside an upload link's `folder` JSON. Portal only stores it; the
+ * "Sync with FioTransfer", stored inside an upload link's `folder` JSON. Portal only stores it; the
  * FioTransfer client reads it from `GET /api/upload-links` and gives the link a folder on the
  * user's disk: what the client uploads comes down into IN, and what the user puts in OUT goes up
  * to the return folder (`upload.folder_id`; without one there is no OUT). Its presence is the

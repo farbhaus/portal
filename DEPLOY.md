@@ -232,7 +232,7 @@ one at startup (the log names the revision), run the last Python-based release o
 database up to date, then switch.
 
 **Sync rules are gone.** Portal no longer copies Frame.io files to local or NAS storage itself:
-mark an upload link "Sync to FioTransfer" and the FioTransfer client syncs it on your own machine.
+mark an upload link "Sync with FioTransfer" and the FioTransfer client syncs it on your own machine.
 Before you update, delete your sync rules on the old release's Sync page: that also removes the
 webhook each rule registered with Frame.io, which the new release can no longer do. Its first start
 then drops the sync rules, their job history and the stored webhook events (back up first, as

@@ -21,7 +21,7 @@ short-lived signed URLs.
 - **Download links** — branded page to hand a file, a selection, or a whole folder
   to clients or collaborators, downloaded straight from Frame.io via signed URLs. Optional preview
   thumbnails, password, max-downloads, viewer fields.
-- **Sync to FioTransfer** — mark an upload link and the FioTransfer client gives it a folder on
+- **Sync with FioTransfer** — mark an upload link and the FioTransfer client gives it a folder on
   your machine: what the client uploads comes down into `IN`, and what you put in `OUT` goes up to
   a return folder in Frame.io. Portal only stores the setting; nothing is ever deleted.
 - **In-Portal Frame.io explorer** — browse accounts/workspaces/projects/folders; multi-select

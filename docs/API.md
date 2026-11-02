@@ -59,10 +59,11 @@ curl -X POST https://portal.example.com/api/upload-links \
 
 The response includes `public_url` (the client-facing link).
 
-### Sync to FioTransfer (`folder.sync`)
+### Sync with FioTransfer (`folder.sync`)
 
 An upload link can carry a `sync` block inside its `folder`. Its presence is the "Sync to
-FioTransfer" switch, and `{}` is enough. Portal only stores and returns it: the FioTransfer client
+FioTransfer" switch, and `{}` is enough. The return folder (`upload.folder_id`) is what the link
+screen calls the **send folder**. Portal only stores and returns it: the FioTransfer client
 reads `GET /api/upload-links` and gives each synced link a folder on the user's disk. What the
 client uploads comes down into its `IN` folder; what the user puts in `OUT` goes up to the return
 folder.
