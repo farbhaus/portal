@@ -150,8 +150,16 @@ struct SetFiotransferSync {
     link_id: String,
     /// true gives the link a folder in FioTransfer; false stops syncing it.
     enabled: bool,
-    /// The Frame.io folder what the user puts in OUT goes up to. Omit for no OUT.
+    /// The send folder: the Frame.io folder the user's files go up to, which Portal shares with a
+    /// Send link. Omit for none.
     return_folder_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SetProjectFolder {
+    link_id: String,
+    /// Project folder name (`turbosort`), or null to clear it.
+    project_folder: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -161,10 +169,12 @@ struct CreateUploadLink {
     workspace_id: String,
     project_id: String,
     folder_id: String,
-    /// true gives the link a folder in FioTransfer: what the client uploads comes down into IN.
+    /// true gives the link a folder in FioTransfer: what the client uploads comes down to it.
     sync: Option<bool>,
-    /// The Frame.io folder what the user puts in OUT goes up to (implies `sync`). Omit for no OUT.
+    /// The send folder the user's files go up to (implies `sync`). Omit for none.
     return_folder_id: Option<String>,
+    /// The older project folder name FioTransfer reads when `sync.name` is absent.
+    turbosort: Option<String>,
     /// RFC 3339 timestamp.
     expires_at: Option<String>,
     password: Option<String>,
@@ -227,6 +237,7 @@ impl PortalServer {
             body["folder"]["sync"] = with_sync(None, true, p.return_folder_id.as_deref());
         }
         let optional = [
+            ("turbosort", p.turbosort.map(Value::String)),
             ("expires_at", p.expires_at.map(Value::String)),
             ("password", p.password.map(Value::String)),
             ("max_file_size", p.max_file_size.map(|v| json!(v))),
@@ -249,6 +260,23 @@ impl PortalServer {
                 reqwest::Method::PATCH,
                 &format!("/api/upload-links/{link_id}"),
                 Some(p.fields),
+                &[],
+            )
+            .await?,
+        )
+    }
+
+    #[tool(description = "Set or clear (null) an upload link's project folder name (turbosort), the older folder name FioTransfer reads when sync.name is absent.")]
+    async fn set_project_folder(
+        &self,
+        Parameters(p): Parameters<SetProjectFolder>,
+    ) -> Result<String, ErrorData> {
+        let link_id = path_id("link_id", &p.link_id)?;
+        pretty(
+            self.call(
+                reqwest::Method::PATCH,
+                &format!("/api/upload-links/{link_id}"),
+                Some(json!({ "turbosort": p.project_folder })),
                 &[],
             )
             .await?,

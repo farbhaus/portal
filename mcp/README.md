@@ -47,9 +47,10 @@ The server speaks MCP over stdio.
 |---|---|
 | `health` | Service, database and Redis health |
 | `list_upload_links` / `get_upload_link` | Read upload links |
-| `create_upload_link` | Create a link for a Frame.io folder, optionally synced to FioTransfer with a return folder |
+| `create_upload_link` | Create a link for a Frame.io folder, optionally synced with FioTransfer (send folder, `turbosort`) |
 | `update_upload_link` | Patch any link fields, including `folder.sync` |
 | `set_fiotransfer_sync` | Turn Sync with FioTransfer on or off for a link, with an optional send folder |
+| `set_project_folder` | Set or clear a link's older project folder name (`turbosort`) |
 | `delete_upload_link` | Delete a link |
 | `frameio_status`, `list_frameio_accounts`, `list_frameio_workspaces`, `list_frameio_projects`, `list_frameio_folders`, `list_frameio_files` | Browse the connected Frame.io account |
 
