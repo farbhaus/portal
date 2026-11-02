@@ -13,11 +13,10 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::common::{lockout, ratelimit};
-use crate::services::runtime_config::{email_brand_for, get_email_config, link_brand};
+use crate::services::runtime_config::{email_brand, get_email_config, link_brand};
 use crate::storage::frameio_backend::FrameioStorageBackend;
 use crate::storage::{DestinationConfig, UploadSession as StorageUploadSession};
-use crate::sync::paths::render_session_prefix;
-use crate::sync::queue::{self, RUN_SYNC_JOB};
+use crate::services::upload_paths::render_session_prefix;
 use crate::state::AppState;
 use crate::verify;
 
@@ -80,7 +79,7 @@ pub async fn resolve_link(
         Ok(r) => r,
         Err(r) => return r,
     };
-    let brand = link_brand(&state.db, &state.settings, row.get("brand_profile_id")).await;
+    let brand = link_brand(&state.db, &state.settings).await;
     let display_name = or_else(row.get("brand_display_name"), brand.name).unwrap_or_else(|| "Upload".to_string());
     let branding_subtitle = or_else(row.get("brand_subtitle"), None);
     let fields: Option<Value> = row.get("uploader_fields_required");
@@ -130,7 +129,7 @@ pub async fn request_code(
     if verify::is_trusted(&state.settings, cookies, &email) {
         return Json(json!({ "trusted": true, "sent": false })).into_response();
     }
-    match verify::request_code(&state.db, &state.settings, &email, row.get("brand_profile_id")).await {
+    match verify::request_code(&state.db, &state.settings, &email).await {
         Ok(()) => Json(json!({ "trusted": false, "sent": true })).into_response(),
         Err(e) => detail_response(StatusCode::from_u16(e.status).unwrap(), &e.detail),
     }
@@ -422,16 +421,9 @@ pub async fn complete_file(
         Err(r) => return r,
     };
     let link_id: Uuid = row.get("id");
-    let session = match load_session(&state, link_id, &session_id).await {
-        Ok(s) => s,
-        Err(r) => return r,
-    };
-    // The name it was uploaded under, to label its sync job until the worker resolves the path.
-    let name: Option<String> = session
-        .get::<Option<Value>, _>("frameio_asset_ids")
-        .and_then(|v| v.as_array().cloned())
-        .and_then(|a| a.into_iter().find(|e| e.get("file_id").and_then(|x| x.as_str()) == Some(file_id.as_str())))
-        .and_then(|e| e.get("name").and_then(|n| n.as_str()).map(String::from));
+    if let Err(r) = load_session(&state, link_id, &session_id).await {
+        return r;
+    }
     let dest_cfg: Value = row.get("link_folder");
     let dest = destination_config(&dest_cfg, None);
     let storage_session = StorageUploadSession {
@@ -450,21 +442,6 @@ pub async fn complete_file(
             }
             return Json(json!({ "complete": false, "failed": true })).into_response();
         }
-    }
-    // Start syncing this file now (dedupes by (rule, file_id) in the job table).
-    let has_folder = ["account_id", "folder_id"]
-        .iter()
-        .all(|k| dest_cfg.get(*k).and_then(|v| v.as_str()).is_some_and(|v| !v.is_empty()));
-    if has_folder {
-        let db = state.db.clone();
-        let mut redis = state.redis.clone();
-        let fid = file_id.clone();
-        tokio::spawn(async move {
-            let to_run = crate::sync::events::trigger_sync_for_upload(&db, &dest_cfg, &[(fid, name)]).await;
-            for job_id in to_run {
-                let _ = queue::enqueue(&mut redis, RUN_SYNC_JOB, &job_id.to_string(), 0.0).await;
-            }
-        });
     }
     Json(json!({ "complete": true, "failed": false })).into_response()
 }
@@ -533,20 +510,10 @@ pub async fn complete_session(
         .iter()
         .filter_map(|v| v.as_str().map(|s| s.to_string()))
         .collect();
-    let link_folder: Value = row.get("link_folder");
-    let account = link_folder.get("account_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let folder = link_folder.get("folder_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let file_ids: Vec<(String, Option<String>)> = entries
-        .iter()
-        .filter_map(|e| {
-            let id = e.get("file_id").and_then(|v| v.as_str())?;
-            Some((id.to_string(), e.get("name").and_then(|n| n.as_str()).map(String::from)))
-        })
-        .collect();
 
-    // Background: the completion email, the uploader's receipt and the sync trigger.
+    // Background: the completion email and the uploader's receipt.
     let email_config = get_email_config(&state.db, &state.settings).await;
-    let brand = email_brand_for(&state.db, &state.settings, row.get("brand_profile_id")).await;
+    let brand = email_brand(&state.db, &state.settings).await;
     // The uploader's own receipt of what arrived (issue #86) — verified addresses only, see above.
     let receipt_to = verified_email.clone().filter(|_| first_completion && email_config.configured());
     if first_completion {
@@ -559,16 +526,6 @@ pub async fn complete_session(
             ).await;
             if let Some(to) = receipt_to {
                 crate::notify::send_upload_receipt(&email_config, &to, &link_name, &files, total, &brand).await;
-            }
-        });
-    }
-    if !account.is_empty() && !folder.is_empty() && !file_ids.is_empty() {
-        let db = state.db.clone();
-        let mut redis = state.redis.clone();
-        tokio::spawn(async move {
-            let to_run = crate::sync::events::trigger_sync_for_upload(&db, &link_folder, &file_ids).await;
-            for job_id in to_run {
-                let _ = queue::enqueue(&mut redis, RUN_SYNC_JOB, &job_id.to_string(), 0.0).await;
             }
         });
     }

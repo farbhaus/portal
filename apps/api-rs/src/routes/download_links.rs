@@ -54,7 +54,7 @@ fn validate_source(source: &Value) -> Result<(), String> {
     Ok(())
 }
 
-fn generate_token() -> String {
+pub(crate) fn generate_token() -> String {
     use base64::Engine;
     let mut bytes = [0u8; 24];
     getrandom::fill(&mut bytes).expect("os random");
@@ -64,7 +64,7 @@ fn generate_token() -> String {
 /// The columns every admin view of a download link reads (the `kind = 'download'` rows of `links`).
 pub const LINK_COLUMNS: &str = "SELECT id, token, name, source, expires_at, password_hash, max_downloads,
         downloads_count, viewer_fields_required, verify_email, allow_preview, brand_display_name,
-        brand_subtitle, revoked_at, created_at, brand_profile_id, notify_emails, remind_before_expiry
+        brand_subtitle, revoked_at, created_at, notify_emails, remind_before_expiry, return_for
    FROM links WHERE kind = 'download'";
 
 /// The name the admin sees: its own, else the client-facing title, else what it shares.
@@ -107,6 +107,8 @@ pub fn render_row(state: &AppState, row: &sqlx::postgres::PgRow) -> Value {
         "brand_subtitle": row.get::<Option<String>, _>("brand_subtitle"),
         "revoked_at": revoked_at.map(|d| crate::pyfmt::iso(&d)),
         "created_at": crate::pyfmt::iso(&created_at),
+        // Set on the Send link Portal keeps for an upload link's return folder: that upload link.
+        "return_for": row.try_get::<Option<uuid::Uuid>, _>("return_for").ok().flatten().map(|u| u.to_string()),
     });
     crate::routes::link_options::render(row, &mut out);
     out
@@ -150,10 +152,6 @@ pub async fn create_link(State(state): State<AppState>, admin: Admin, Json(body)
     }
     let password = body.get("password").and_then(|v| v.as_str()).filter(|p| !p.is_empty());
     let password_hash = password.and_then(|p| bcrypt::hash(p, bcrypt::DEFAULT_COST).ok());
-    let brand_profile = match crate::routes::link_options::brand_profile(&state, body.get("brand_profile_id")).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
     let notify = match crate::routes::link_options::notify_emails(body.get("notify_emails")) {
         Ok(n) => n,
         Err(r) => return r,
@@ -164,8 +162,8 @@ pub async fn create_link(State(state): State<AppState>, admin: Admin, Json(body)
     let inserted = sqlx::query(
         "INSERT INTO links (kind, token, name, source, expires_at, password_hash, max_downloads,
             viewer_fields_required, verify_email, allow_preview, brand_display_name, brand_subtitle,
-            downloads_count, brand_profile_id, notify_emails, remind_before_expiry)
-         VALUES ('download',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$13,$14) RETURNING id",
+            downloads_count, notify_emails, remind_before_expiry)
+         VALUES ('download',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$12,$13) RETURNING id",
     )
     .bind(&token)
     .bind(&name)
@@ -178,7 +176,6 @@ pub async fn create_link(State(state): State<AppState>, admin: Admin, Json(body)
     .bind(body.get("allow_preview").and_then(|v| v.as_bool()).unwrap_or(false))
     .bind(brand)
     .bind(body.get("brand_subtitle").and_then(|v| v.as_str()).map(|s| s.to_string()))
-    .bind(brand_profile)
     .bind(notify)
     .bind(body.get("remind_before_expiry").and_then(|v| v.as_bool()).unwrap_or(false))
     .fetch_one(&state.db)

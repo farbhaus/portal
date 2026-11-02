@@ -2,8 +2,10 @@
 
 Self-hosted file transfer for film/video post-production, backed by **Frame.io**. Portal gives
 clients branded **upload** (`/u/{token}`) and **download** (`/d/{token}`) links into specific
-Frame.io destinations (no Frame.io account needed on their end), plus **sync rules** that auto-pull
-new files to local/NAS storage. Open-source (AGPL-3.0), successor to Silosync's SILOLink/SILOWatch.
+Frame.io folders (no Frame.io account needed on their end). An upload link can be marked **Sync
+to FioTransfer**; the external FioTransfer client then syncs it on the user's own machine — Portal
+copies nothing to local/NAS storage itself (its sync rules were removed in migration
+`f2a3b4c5d6e7`). Open-source (AGPL-3.0), successor to Silosync's SILOLink/SILOWatch.
 
 **Core principle: file bytes never flow through the Portal server.** Uploads go browser-direct to
 Frame.io storage via presigned URLs; downloads are browser redirects to short-lived signed URLs.
@@ -15,23 +17,22 @@ Monorepo, shipped as **one all-in-one container** (`farbhaus/portal`):
 
 - `apps/api-rs/` — **the Portal service** (Rust 1.98, axum + sqlx/Postgres + redis). One binary,
   `portal-api`: the HTTP API plus the static web app on one origin; `portal-api worker` is the
-  sync worker (a Redis delayed queue), `portal-api migrate` / `seed` run from the entrypoint.
+  housekeeping loop (abandoned uploads, expiry reminders, retention; `worker.rs`),
+  `portal-api migrate` / `seed` run from the entrypoint.
   Source in `apps/api-rs/src/`:
   - `routes/` HTTP endpoints · `auth.rs` + `auth/` admin login (passkeys/WebAuthn, TOTP; the
     `Admin` extractor also takes the optional `PORTAL_API_TOKEN` bearer, while `SessionAdmin` —
     browser login only — guards password, two-factor and passkey changes) ·
     `session.rs` Starlette-compatible signed session cookies · `frameio/` Frame.io client +
     OAuth/connection · `storage/` backend-agnostic storage interface · `downloads/` download-link
-    sources · `sync/` watch-folder sync engine + worker + queue · `verify/` email verification ·
-    `notify/` email · `services/` · `common/` client IP, lockout, rate limit · `crypto.rs` ·
-    `config.rs` (same env vars as the Python settings) · `spa.rs` SPA shell, admin page gate,
-    branded `/u` `/d` shells · `migrate.rs` + `schema.sql` + `migrations/` the schema · `seed.rs`.
-- `apps/api/` — the **Python (FastAPI) reference implementation**, not shipped. It still owns the
-  Alembic migrations (`apps/api/alembic/`) the schema is authored with, and its pytest suite is the
-  behavioural spec the Rust service was ported from. `tools/rustify/` diffs the two services
-  byte for byte (`capture.py`/`diff.py`, `authdiff.py`, `interop.py`) and holds `schema_check.sh`.
-  Features added since the Rust release are **Rust-only** and absent from the Python reference
-  (and its tests): the `PORTAL_API_TOKEN` bearer auth, upload links' `turbosort` and `folder.sync`.
+    sources · `verify/` email verification · `notify/` email · `services/` (incl. `upload_paths.rs`,
+    the subfolder-template renderer) · `common/` client IP, lockout, rate limit · `crypto.rs` ·
+    `config.rs` (env vars) · `spa.rs` SPA shell, admin page gate, branded `/u` `/d` shells ·
+    `migrate.rs` + `schema.sql` + `migrations/` the schema (`baseline.sql`: the oldest schema it
+    upgrades, for the check) · `seed.rs`.
+  The service was ported from a Python (FastAPI) implementation, since removed; comments still
+  say "port of `portal.…`", and some formats stay Python-compatible on purpose (session cookies,
+  `TokenCipher`, timestamps in `pyfmt.rs`) so existing data and sessions keep working.
 - `mcp/` — `portal-mcp`, a Rust stdio MCP server (rmcp) over the admin API, authenticating with
   `PORTAL_API_TOKEN`. Its own crate and `Cargo.lock`, not in the image; CI runs clippy + tests on
   it. Path ids must pass its UUID check (`path_id`) so a `../` can't reach another endpoint.
@@ -50,14 +51,15 @@ AOF, Caddy's certs/config (`/data/caddy`), and generated secrets (`/data/secrets
 
 - `make dev` — build the all-in-one image from source and run it (dev overlay).
 - `make build` — build `farbhaus/portal:dev` locally.
-- `make check` — static checks: `cargo clippy --locked --all-targets -- -D warnings` (apps/api-rs);
-  `npm run check` (apps/web); `ruff` + `mypy` (apps/api).
-- `make test` — `cargo test --locked`, `tools/rustify/schema_check.sh`, and the Python pytest suite
-  against throwaway Postgres/Redis containers.
+- `make check` — static checks: `cargo clippy --locked --all-targets -- -D warnings` (apps/api-rs
+  and mcp); `npm run check` (apps/web).
+- `make test` — `cargo test --locked` (apps/api-rs and mcp) and `tools/schema_check.sh` (throwaway
+  Postgres container).
 
-**Schema changes:** write the Alembic migration in `apps/api`, then ship it to the Rust image as
-SQL — see `apps/api-rs/migrations/README.md` (generate with `alembic upgrade A:B --sql`, register
-in `src/migrate.rs`, `tools/rustify/schema_check.sh --write`). CI fails on drift.
+**Schema changes:** hand-written SQL — see `apps/api-rs/migrations/README.md`: write
+`migrations/<to>.sql` (one transaction that also moves `alembic_version`, a historical table name),
+register it in `src/migrate.rs`, run `tools/schema_check.sh --write`. CI fails if `baseline.sql` +
+migrations stop reproducing `schema.sql`.
 - `make deploy` / `make update` / `make logs` / `make status` / `make backup` / `make shell`.
 
 ## Deployment (two modes, one knob)
@@ -87,18 +89,15 @@ one-click path; `install.sh` is the `curl … | bash` bootstrap. Crypto secrets 
 ## Frame.io integration
 
 **Layered storage abstraction** keeps the rest of the app off Frame.io specifics, so future S3-style
-backends slot in without touching the upload/sync engines:
+backends slot in without touching the upload/download engines:
 
 ```
-routes / upload engine / sync engine
+routes / upload engine / download links
    └─ storage value objects       (apps/api-rs/src/storage/mod.rs)        backend-agnostic seam
         └─ FrameioStorageBackend  (src/storage/frameio_backend.rs)
              └─ FrameioClient     (src/frameio/client.rs)   the one Frame.io client module
-                  └─ Frame.io V4 REST via reqwest (the endpoints the Python SDK calls)
+                  └─ Frame.io V4 REST via reqwest (the endpoints the official SDK calls)
 ```
-
-(The Python reference has the same layering: `portal.storage.base` →
-`portal.storage.frameio_backend` → `portal.frameio.client` → the official `AsyncFrameio` SDK.)
 
 - Everything Frame.io goes through `FrameioClient`: auth-aware (transparent token refresh;
   `FrameioError::NotConnected`), retry/rate-limit-aware (honors `429`/`Retry-After`, retries 5xx),
@@ -107,15 +106,22 @@ routes / upload engine / sync engine
 - Storage value objects (`DestinationConfig`, `RemoteFile`, `UploadSession`, `UploadCredentials`,
   `DownloadURL`, …) are the seam. `DestinationConfig` mirrors the type-tagged Frame.io folder JSONB
   (`{"type":"frameio","account_id","workspace_id","project_id","folder_id","path"}`) that an upload
-  link stores as `links.folder` and a sync rule as `source_config`. Upload and download links share
-  one `links` table (`kind` = `upload` | `download`; migration `e1f2a3b4c5d6` merged the old
-  `upload_links`/`download_links` and dropped `destinations`). The Python reference's models still
-  describe the old tables — its tests build from the models, so they don't notice.
-- An upload link's `folder` may also carry `sync` (FioTransfer lanes: `drive` Frame.io → local,
-  `exports` local → Frame.io, `mode: add_only`; validated by `validate_sync` in
-  `routes/upload_links.rs`) and `turbosort` (the project's local folder name). Portal only stores
-  and returns them for the external FioTransfer client — no Portal code moves files for them. Not
-  the same as the top-level `sync` in `GET /api/links`, which is Portal sync-rule coverage.
+  link stores as `links.folder`. Upload and download links share one `links` table (`kind` =
+  `upload` | `download`; migration `e1f2a3b4c5d6` merged the old `upload_links`/`download_links`
+  and dropped `destinations`).
+- An upload link's `folder` may also carry `sync`: the "Sync with FioTransfer" switch (`{}` is
+  enough). FioTransfer gives the link a folder on the user's disk; client uploads come down into
+  `IN`, and `OUT` goes up to the return folder `sync.upload.folder_id`. Optional `name`,
+  `download.folder_id` and `local` names override its defaults. Older links may store the earlier
+  lanes (`drive` = download, `exports` = upload, `mode`) and a link-level `turbosort` (the older
+  project folder name); they're kept as stored so FioTransfer's folders don't move. Validated by
+  `validate_sync` in `routes/upload_links.rs`; the contract is in `docs/API.md`. Portal only
+  stores and returns it for the external FioTransfer client — no Portal code moves files for it.
+  On save, missing `local` names are filled from the Frame.io folders' names (`fill_local_names`),
+  so FioTransfer's folders on disk mirror Frame.io (e.g. `…/RUSHES` and `…/RENDER`).
+  With a return folder, `services/return_links.rs` keeps a Send link on it (`links.return_for` →
+  the upload link; settings, revoke/restore follow the upload link; revoked, not deleted, when
+  the return folder goes) so the user has a URL to give the client.
 - Pickers (admin-only, under `/api/frameio`): list accounts/workspaces/projects/folders/files;
   cursor pagination via `links.next` → `after`, capped at `PICKER_MAX_ITEMS`.
 
@@ -124,8 +130,7 @@ routes / upload engine / sync engine
 Frame.io V4 authenticates via **Adobe IMS**, OAuth 2.0 **authorization-code (Web App) flow**. The
 Frame.io **client ID/secret are entered in Portal's Settings page and stored encrypted in the DB**
 (not in `.env`); the *Adobe Developer Console setup* section in `README.md` covers obtaining them.
-Endpoints/behavior live in `apps/api-rs/src/frameio/oauth.rs` (Python reference:
-`apps/api/src/portal/frameio/oauth.py`).
+Endpoints/behavior live in `apps/api-rs/src/frameio/oauth.rs`.
 
 - Authorize `https://ims-na1.adobelogin.com/ims/authorize/v2` · Token/refresh
   `https://ims-na1.adobelogin.com/ims/token/v3` (HTTP Basic `base64(client_id:client_secret)`) ·
@@ -134,8 +139,8 @@ Endpoints/behavior live in `apps/api-rs/src/frameio/oauth.rs` (Python reference:
   required and must be requested explicitly** — Adobe auto-adds it on interactive consent but NOT on
   refresh, so without it every *refreshed* token is rejected `401` ~1h after connect. `offline_access`
   is required for a refresh token. Beyond `AdobeID`, authorization is **role-based, not scope-based**.
-- Tokens stored encrypted (AES-GCM, `TokenCipher` in `src/crypto.rs` — same wire format as the
-  Python `portal.lib.crypto.TokenCipher` — keyed by `TOKEN_ENCRYPTION_KEY`)
+- Tokens stored encrypted (AES-GCM, `TokenCipher` in `src/crypto.rs` — the original Python
+  release's wire format, so existing secrets still decrypt — keyed by `TOKEN_ENCRYPTION_KEY`)
   on `frameio_connections` with `token_expires_at`; refreshed before use with a ~5-min skew. Always
   trust the returned `expires_in`; don't hardcode lifetimes.
 - Redirect URI: `FRAMEIO_REDIRECT_URI`, default `{BASE_URL}/api/frameio/oauth/callback` — the exact

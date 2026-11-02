@@ -127,7 +127,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     patch:
       summary: Update an upload link
-      description: Only keys present in the body are applied. Send `turbosort` as null to clear the project folder name.
+      description: Only keys present in the body are applied. A `folder` without a `sync` key keeps the stored sync; `sync` null removes it.
       requestBody:
         required: true
         content:
@@ -168,95 +168,6 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/UploadLink" }
-  /api/sync-rules:
-    get:
-      summary: List sync rules
-      responses:
-        "200":
-          description: Sync rules
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/SyncRule" }
-    post:
-      summary: Create a sync rule
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/SyncRuleCreate" }
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SyncRule" }
-        "409":
-          description: Frame.io is not connected
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-  /api/sync-rules/{rule_id}:
-    parameters:
-      - $ref: "#/components/parameters/RuleId"
-    get:
-      summary: Read a sync rule
-      responses:
-        "200":
-          description: Sync rule
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SyncRule" }
-        "404": { $ref: "#/components/responses/NotFound" }
-    patch:
-      summary: Update a sync rule
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/SyncRuleUpdate" }
-      responses:
-        "200":
-          description: Updated
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SyncRule" }
-    delete:
-      summary: Delete a sync rule
-      responses:
-        "204": { description: Deleted }
-  /api/sync-rules/{rule_id}/run:
-    parameters:
-      - $ref: "#/components/parameters/RuleId"
-    post:
-      summary: Reconcile a sync rule now
-      responses:
-        "200":
-          description: Number of jobs queued
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok: { type: boolean }
-                  created: { type: integer }
-  /api/sync-rules/{rule_id}/jobs:
-    parameters:
-      - $ref: "#/components/parameters/RuleId"
-      - name: limit
-        in: query
-        schema: { type: integer, default: 100, maximum: 500 }
-    get:
-      summary: List sync jobs for a rule
-      responses:
-        "200":
-          description: Jobs
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/SyncJob" }
   /api/frameio/status:
     get:
       summary: Frame.io connection status
@@ -367,11 +278,6 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
-    RuleId:
-      name: rule_id
-      in: path
-      required: true
-      schema: { type: string, format: uuid }
   responses:
     Unauthorized:
       description: Authentication required or invalid credentials
@@ -425,19 +331,25 @@ components:
     LinkSync:
       type: object
       description: |
-        FioTransfer sync for an upload link. Portal only stores it; the FioTransfer client reads it
-        from `GET /api/upload-links` and moves the files. At least one lane is required.
+        "Sync with FioTransfer" for an upload link: its presence is the switch, and `{}` is enough.
+        Portal only stores it; the FioTransfer client reads it from `GET /api/upload-links` and
+        gives the link a folder on the user's disk. Client uploads come down into IN; what the user
+        puts in OUT goes up to the return folder. Nothing is ever deleted. Older links may carry
+        `drive` (read as `download`), `exports` (read as `upload`) and `mode`; a direction comes
+        under one key only.
       properties:
-        mode: { type: string, enum: [add_only], default: add_only, description: Files are added in both directions and nothing is ever deleted }
+        name: { type: string, description: "The project folder's name on disk; defaults to the link's name. One folder name of at most 255 bytes: no / \\ % or control characters, not . or .." }
+        download: { $ref: "#/components/schemas/LinkSyncLane" }
+        upload: { $ref: "#/components/schemas/LinkSyncLane" }
         drive: { $ref: "#/components/schemas/LinkSyncLane" }
         exports: { $ref: "#/components/schemas/LinkSyncLane" }
+        mode: { type: string, enum: [add_only] }
     LinkSyncLane:
       type: object
-      required: [local]
-      description: "`drive` downloads its Frame.io folder into `local`; `exports` uploads `local` into its Frame.io folder. The two lanes' `local` names must differ."
+      description: "`download`: where IN comes from (default: the link's own folder). `upload`: the return folder OUT goes up to; without `folder_id` there is no OUT. It can't be IN's folder or inside it."
       properties:
-        local: { type: string, description: "One folder name: no / \\ % or control characters, not . or .." }
-        folder_id: { type: string, format: uuid, description: Frame.io folder; omitted means the link's own folder }
+        folder_id: { type: string, format: uuid, description: A Frame.io folder }
+        local: { type: string, description: "The folder's name on disk. When missing, Portal fills it on save with the Frame.io folder's name (the link's folder for download, the return folder for upload). One folder name of at most 255 bytes: no / \\ % or control characters, not . or ..; the two must differ." }
     UploadLinkCreate:
       type: object
       required: [folder]
@@ -447,7 +359,7 @@ components:
         turbosort:
           type: string
           nullable: true
-          description: The project's local folder name (one folder name; null or "" clears it). FioTransfer reads it from `GET /api/upload-links`; Portal writes nothing into Frame.io for it.
+          description: Older project folder name FioTransfer reads when `sync.name` is absent (one folder name; null or "" clears it). Prefer `folder.sync.name`.
         expires_at: { type: string, format: date-time, nullable: true }
         password: { type: string, nullable: true }
         verify_email: { type: boolean, default: false }
@@ -462,7 +374,6 @@ components:
         subfolder_template: { type: string, nullable: true }
         brand_display_name: { type: string, nullable: true }
         brand_subtitle: { type: string, nullable: true }
-        brand_profile_id: { type: string, format: uuid, nullable: true }
         notify_emails: { type: string, nullable: true, description: Comma-separated } 
         remind_before_expiry: { type: boolean }
     UploadLinkUpdate:
@@ -484,7 +395,6 @@ components:
         subfolder_template: { type: string, nullable: true }
         brand_display_name: { type: string, nullable: true }
         brand_subtitle: { type: string, nullable: true }
-        brand_profile_id: { type: string, format: uuid, nullable: true }
         notify_emails: { type: string, nullable: true }
         remind_before_expiry: { type: boolean }
     UploadLink:
@@ -498,6 +408,13 @@ components:
         state: { type: string, enum: [ok, expired, revoked] }
         folder: { $ref: "#/components/schemas/Folder" }
         turbosort: { type: string, nullable: true }
+        return_link:
+          type: object
+          nullable: true
+          description: The Send link Portal keeps for the return folder (`folder.sync`), for the client to download from; its settings follow this link.
+          properties:
+            id: { type: string, format: uuid }
+            public_url: { type: string, format: uri }
         expires_at: { type: string, format: date-time, nullable: true }
         password_protected: { type: boolean }
         max_file_size: { type: integer, nullable: true }
@@ -514,56 +431,7 @@ components:
         subfolder_template: { type: string, nullable: true }
         brand_display_name: { type: string, nullable: true }
         brand_subtitle: { type: string, nullable: true }
-        brand_profile_id: { type: string, format: uuid, nullable: true }
         notify_emails: { type: array, items: { type: string }, nullable: true }
         remind_before_expiry: { type: boolean }
         revoked_at: { type: string, format: date-time, nullable: true }
-        created_at: { type: string, format: date-time }
-    SyncRuleCreate:
-      type: object
-      required: [name, source, destination_path]
-      properties:
-        name: { type: string }
-        source: { $ref: "#/components/schemas/Folder" }
-        destination_path: { type: string, example: /mnt/SSDPool/portal_sync }
-        conflict_policy:
-          type: string
-          enum: [rename_suffix, skip, overwrite]
-          default: rename_suffix
-        path_template: { type: string, nullable: true }
-        enabled: { type: boolean, default: true }
-    SyncRuleUpdate:
-      type: object
-      properties:
-        name: { type: string }
-        destination_path: { type: string }
-        conflict_policy: { type: string, enum: [rename_suffix, skip, overwrite] }
-        path_template: { type: string, nullable: true }
-        enabled: { type: boolean }
-    SyncRule:
-      type: object
-      properties:
-        id: { type: string, format: uuid }
-        name: { type: string }
-        source: { $ref: "#/components/schemas/Folder" }
-        destination_path: { type: string }
-        conflict_policy: { type: string }
-        path_template: { type: string, nullable: true }
-        enabled: { type: boolean }
-        subscription_active: { type: boolean }
-        created_at: { type: string, format: date-time }
-        activity: { type: object, additionalProperties: true }
-    SyncJob:
-      type: object
-      properties:
-        id: { type: string, format: uuid }
-        frameio_file_id: { type: string }
-        file_name: { type: string, nullable: true }
-        status: { type: string }
-        bytes: { type: integer, nullable: true }
-        sha256: { type: string, nullable: true }
-        error: { type: string, nullable: true }
-        retry_count: { type: integer }
-        started_at: { type: string, format: date-time, nullable: true }
-        completed_at: { type: string, format: date-time, nullable: true }
         created_at: { type: string, format: date-time }

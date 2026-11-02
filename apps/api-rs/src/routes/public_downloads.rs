@@ -76,7 +76,7 @@ pub async fn resolve_link(
         &row.get::<Option<String>, _>("brand_display_name"),
         &row.get::<Option<String>, _>("brand_subtitle"),
     );
-    let brand = crate::services::runtime_config::link_brand(&state.db, &state.settings, row.get("brand_profile_id")).await;
+    let brand = crate::services::runtime_config::link_brand(&state.db, &state.settings).await;
     // A link without its own title takes its brand's name (the downloads `branding` helper's
     // generic fallback otherwise).
     let display_name = row
@@ -125,7 +125,7 @@ pub async fn request_code(
     if verify::is_trusted(&state.settings, cookies, &email) {
         return Json(json!({ "trusted": true, "sent": false })).into_response();
     }
-    match verify::request_code(&state.db, &state.settings, &email, row.get("brand_profile_id")).await {
+    match verify::request_code(&state.db, &state.settings, &email).await {
         Ok(()) => Json(json!({ "trusted": false, "sent": true })).into_response(),
         Err(e) => crate::error::detail(StatusCode::from_u16(e.status).unwrap(), &e.detail),
     }

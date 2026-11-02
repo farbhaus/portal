@@ -5,7 +5,7 @@
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::services::runtime_config::{email_brand_for, get_email_config};
+use crate::services::runtime_config::{email_brand, get_email_config};
 use crate::state::AppState;
 
 /// Send the reminders that are due; returns how many links were reminded.
@@ -15,7 +15,7 @@ pub async fn send_due(state: &AppState) -> usize {
         return 0;
     }
     let rows = sqlx::query(
-        "SELECT id, kind, token, name, brand_display_name, expires_at, notify_emails, brand_profile_id
+        "SELECT id, kind, token, name, brand_display_name, expires_at, notify_emails
            FROM links
           WHERE remind_before_expiry AND revoked_at IS NULL AND expiry_reminded_at IS NULL
             AND expires_at > now() AND expires_at <= now() + interval '24 hours'",
@@ -44,7 +44,7 @@ pub async fn send_due(state: &AppState) -> usize {
             .filter_map(|v| v.as_str().map(|s| s.to_string()))
             .collect();
         let to = if to.is_empty() { vec![config.resolved_notify_email()] } else { to };
-        let brand = email_brand_for(&state.db, &state.settings, r.get("brand_profile_id")).await;
+        let brand = email_brand(&state.db, &state.settings).await;
         let (subject, text, html) = crate::notify::render_expiry_reminder(&name, &expires, &admin_url, &public_url, &brand);
         let mut any = false;
         for addr in &to {

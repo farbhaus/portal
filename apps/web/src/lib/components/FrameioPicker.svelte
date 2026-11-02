@@ -13,7 +13,7 @@
 <script lang="ts">
   // The one Frame.io picker: a modal that walks accounts → workspaces → projects → folders, with
   // search across the whole account, recent folders, keyboard control and New folder / New project.
-  //  - mode "folder": choose a folder (upload link destinations, sync rule sources).
+  //  - mode "folder": choose a folder (where an upload link delivers).
   //  - mode "source": choose files or a whole folder to send (download links).
   // Accounts and workspaces are skipped when there's only one of them.
   import { tick, untrack } from "svelte";

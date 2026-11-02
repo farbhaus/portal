@@ -1,7 +1,7 @@
 ## Deployment topology
 
 Portal is one **all-in-one container**: the Portal service (one Rust binary serving the API and the
-web app, plus the sync worker), Postgres and Redis, managed internally by supervisord. It runs in
+web app, plus a background worker), Postgres and Redis, managed internally by supervisord. It runs in
 either of two modes:
 
 **Standalone** — the container's internal Caddy is the public TLS edge and provisions a Let's
@@ -13,7 +13,7 @@ Encrypt certificate itself. One container owns ports 80/443; nothing else to ins
       ┌───────────▼────────────────────────────────────┐
       │  farbhaus/portal  (one container)               │
       │   internal Caddy :443 → portal :8000 (API + web)│
-      │   + sync worker, Postgres, Redis                │
+      │   + worker, Postgres, Redis                     │
       │   all state in the /data volume                 │
       └─────────────────────────────────────────────────┘
 ```
@@ -33,7 +33,7 @@ services without claiming 80/443):
       ┌───────────▼────────────────────────────────────┐
       │  farbhaus/portal  (one container)               │
       │   internal Caddy :80 → portal :8000 (API + web) │
-      │   + sync worker, Postgres, Redis                │
+      │   + worker, Postgres, Redis                     │
       └─────────────────────────────────────────────────┘
 ```
 
@@ -147,16 +147,6 @@ Notes:
 - `SESSION_SECRET` / `TOKEN_ENCRYPTION_KEY` are generated and persisted in the data volume on
   first boot; leave them blank unless you want to manage them yourself. They stay stable across
   restarts (they live in the same volume as the data they protect).
-- If you use **sync rules**, set `SYNC_HOST_ROOT` to the host directory where synced files should
-  land (default `/mnt`, which `deploy.sh` creates if missing); otherwise you can remove that bind
-  mount from `docker-compose.yml`. `/mnt` exists on Linux but not macOS — on a dev machine set
-  `SYNC_HOST_ROOT` to a path you can create (e.g. `./portal-sync`).
-- If a sync destination is a **network share**, note that Portal writes a `.portal-destination`
-  marker in the destination root after a rule's first successful sync. If the share later stops
-  being mounted, the marker disappears with it and Portal pauses that rule (jobs sit in *waiting*
-  and resume by themselves once the share is back) instead of filling the server's own disk with
-  files that would be hidden under the mountpoint. If you ever delete the marker by hand, `touch`
-  it again to resume syncing.
 
 ## 3. Add the host reverse-proxy entry
 
@@ -240,6 +230,15 @@ server): the Rust image picks up the same `/data` volume — database, secrets a
 over. It migrates a database from schema revision `b8c9d0e1f2a3` onwards; if it refuses an older
 one at startup (the log names the revision), run the last Python-based release once to bring the
 database up to date, then switch.
+
+**Sync rules are gone.** Portal no longer copies Frame.io files to local or NAS storage itself:
+mark an upload link "Sync with FioTransfer" and the FioTransfer client syncs it on your own machine.
+Before you update, delete your sync rules on the old release's Sync page: that also removes the
+webhook each rule registered with Frame.io, which the new release can no longer do. Its first start
+then drops the sync rules, their job history and the stored webhook events (back up first, as
+above). If your `docker-compose.yml` still binds `SYNC_HOST_ROOT`, you can remove that line; the
+`SYNC_*`, `WEBHOOK_SIGNATURE_TOLERANCE_SECONDS` and `RETENTION_WEBHOOK_EVENTS_DAYS` settings are
+ignored.
 
 ## Useful commands
 

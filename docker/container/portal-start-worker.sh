@@ -1,5 +1,6 @@
 #!/bin/sh
-# Sync worker: wait for Postgres + Redis, then run the queue drain + crons.
+# Background worker: wait for Postgres + Redis, then run the housekeeping loop (abandoned uploads,
+# expiry reminders, retention).
 set -e
 until pg_isready -h 127.0.0.1 -p 5432 -U portal -d portal >/dev/null 2>&1; do
 	echo "[worker] waiting for postgres..."

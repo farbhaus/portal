@@ -116,9 +116,7 @@ pub async fn email_brand(db: &PgPool, settings: &Settings) -> EmailBrand {
     }
 }
 
-/// The brand a link's pages and emails show: its brand profile where set, with the app-wide brand
-/// filling the name and accent the profile leaves empty. A profile's logo stands alone: a client
-/// brand without a logo shows none rather than the studio's.
+/// The brand a link's public page shows: the app-wide name, accent and logo.
 #[derive(Clone, Debug, Default)]
 pub struct LinkBrand {
     pub name: Option<String>,
@@ -126,7 +124,7 @@ pub struct LinkBrand {
     pub logo_url: Option<String>,
 }
 
-pub async fn link_brand(db: &PgPool, settings: &Settings, profile: Option<uuid::Uuid>) -> LinkBrand {
+pub async fn link_brand(db: &PgPool, settings: &Settings) -> LinkBrand {
     let base = settings.base_url.trim_end_matches('/').to_string();
     let nonempty = |v: Option<String>| v.filter(|s| !s.trim().is_empty());
     let app = sqlx::query(
@@ -137,55 +135,17 @@ pub async fn link_brand(db: &PgPool, settings: &Settings, profile: Option<uuid::
     .await
     .ok()
     .flatten();
-    let (app_name, app_accent, app_logo) = match &app {
-        Some(r) => (
-            nonempty(r.get("brand_display_name")),
-            nonempty(r.get("brand_accent_color")),
-            if r.get::<bool, _>("has_logo") {
+    match &app {
+        Some(r) => LinkBrand {
+            name: nonempty(r.get("brand_display_name")),
+            accent: nonempty(r.get("brand_accent_color")),
+            logo_url: if r.get::<bool, _>("has_logo") {
                 r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("logo_updated_at")
                     .map(|d| format!("{base}/api/branding/logo?v={}", d.timestamp()))
             } else {
                 None
             },
-        ),
-        None => (None, None, None),
-    };
-    let Some(id) = profile else {
-        return LinkBrand { name: app_name, accent: app_accent, logo_url: app_logo };
-    };
-    let row = sqlx::query(
-        "SELECT display_name, accent_color, logo_png IS NOT NULL AS has_logo, logo_updated_at
-           FROM brand_profiles WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await
-    .ok()
-    .flatten();
-    match row {
-        Some(r) => LinkBrand {
-            name: nonempty(r.get("display_name")).or(app_name),
-            accent: nonempty(r.get("accent_color")).or(app_accent),
-            logo_url: if r.get::<bool, _>("has_logo") {
-                r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("logo_updated_at")
-                    .map(|d| format!("{base}/api/branding/logo?profile={id}&v={}", d.timestamp()))
-            } else {
-                None
-            },
         },
-        None => LinkBrand { name: app_name, accent: app_accent, logo_url: app_logo },
-    }
-}
-
-/// `email_brand`, but for mail about a specific link (its brand profile, if any).
-pub async fn email_brand_for(db: &PgPool, settings: &Settings, profile: Option<uuid::Uuid>) -> EmailBrand {
-    if profile.is_none() {
-        return email_brand(db, settings).await;
-    }
-    let b = link_brand(db, settings, profile).await;
-    EmailBrand {
-        name: b.name.unwrap_or_else(|| "Portal".to_string()),
-        accent_color: b.accent.unwrap_or_else(|| "#f59e0b".to_string()),
-        logo_url: b.logo_url,
+        None => LinkBrand::default(),
     }
 }

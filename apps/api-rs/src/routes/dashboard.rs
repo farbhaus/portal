@@ -1,9 +1,8 @@
 
 //! `GET /api/dashboard/transfers` — the operations view, mirroring `portal.routes.dashboard`.
 //!
-//! The recent-transfer feed merges completed uploads, file downloads and sync jobs
-//! newest-first. Python's `list.sort` is stable; Rust's `sort_by` is too, and the feeds are
-//! appended in the same order (uploads, downloads, syncs), so ties resolve identically.
+//! The recent-transfer feed merges completed uploads and file downloads newest-first. The sort
+//! is stable and uploads are appended first, so ties resolve the same way every time.
 
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Response};
@@ -29,8 +28,8 @@ pub struct HistoryQuery {
     offset: Option<i64>,
 }
 
-/// `GET /api/dashboard/history` — paginated, newest-first merge of finished uploads, file
-/// downloads and NAS copies. `kind` = all | upload | download | sync; `q` searches names and people.
+/// `GET /api/dashboard/history` — paginated, newest-first merge of finished uploads and file
+/// downloads. `kind` = all | upload | download; `q` searches names and people.
 pub async fn history(State(state): State<AppState>, _: Admin, Query(q): Query<HistoryQuery>) -> Response {
     let limit = q.limit.unwrap_or(50).clamp(1, 1000);
     let offset = q.offset.unwrap_or(0).max(0);
@@ -123,40 +122,6 @@ pub async fn history(State(state): State<AppState>, _: Admin, Query(q): Query<Hi
             })));
         }
     }
-    if want("sync") {
-        let rows = sqlx::query(
-            "SELECT j.id, j.status, j.bytes, j.started_at, j.completed_at, j.created_at, j.file_name,
-                    j.frameio_file_id, j.error, r.id AS rule_id, r.name
-               FROM sync_jobs j JOIN sync_rules r ON j.sync_rule_id = r.id
-              WHERE j.status IN ('done', 'dead_letter', 'skipped')
-                AND ($2::text IS NULL OR concat_ws(' ', j.file_name, r.name) ILIKE $2)
-              ORDER BY COALESCE(j.completed_at, j.started_at, j.created_at) DESC LIMIT $1",
-        )
-        .bind(take)
-        .bind(&pattern)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
-        for row in &rows {
-            let at = row
-                .get::<Option<DateTime<Utc>>, _>("completed_at")
-                .or_else(|| row.get::<Option<DateTime<Utc>>, _>("started_at"))
-                .unwrap_or_else(|| at_of(row, "created_at"));
-            pool.push((at, json!({
-                "id": row.get::<uuid::Uuid, _>("id").to_string(),
-                "kind": "sync",
-                "label": row.get::<Option<String>, _>("file_name").unwrap_or_else(|| row.get::<String, _>("frameio_file_id")),
-                "who": row.get::<String, _>("name"),
-                "bytes": row.get::<Option<i64>, _>("bytes"),
-                "files": 1,
-                "status": row.get::<String, _>("status"),
-                "error": row.get::<Option<String>, _>("error"),
-                "at": crate::pyfmt::iso(&at),
-                "rule_id": row.get::<uuid::Uuid, _>("rule_id").to_string(),
-            })));
-        }
-    }
-
     pool.sort_by_key(|entry| std::cmp::Reverse(entry.0));
     let window: Vec<Value> = pool
         .into_iter()
@@ -236,19 +201,10 @@ pub async fn transfers(State(state): State<AppState>, _: Admin, Query(q): Query<
     .fetch_all(&state.db)
     .await;
 
-    let syncs = sqlx::query(
-        "SELECT j.id, j.status, j.bytes, j.started_at, j.completed_at, j.created_at, j.file_name, r.name
-           FROM sync_jobs j JOIN sync_rules r ON j.sync_rule_id = r.id
-          ORDER BY j.created_at DESC LIMIT $1",
-    )
-    .bind(limit)
-    .fetch_all(&state.db)
-    .await;
-
-    let (active, uploads, downloads, syncs) = match (active, uploads, downloads, syncs) {
-        (Ok(a), Ok(u), Ok(d), Ok(s)) => (a, u, d, s),
-        (a, u, d, s) => {
-            tracing::error!("dashboard.transfers query failed: {:?} {:?} {:?} {:?}", a.err(), u.err(), d.err(), s.err());
+    let (active, uploads, downloads) = match (active, uploads, downloads) {
+        (Ok(a), Ok(u), Ok(d)) => (a, u, d),
+        (a, u, d) => {
+            tracing::error!("dashboard.transfers query failed: {:?} {:?} {:?}", a.err(), u.err(), d.err());
             return crate::error::detail(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Internal server error");
         }
     };
@@ -317,97 +273,8 @@ pub async fn transfers(State(state): State<AppState>, _: Admin, Query(q): Query<
         ));
     }
 
-    for row in &syncs {
-        let at = row
-            .get::<Option<DateTime<Utc>>, _>("completed_at")
-            .or_else(|| row.get::<Option<DateTime<Utc>>, _>("started_at"))
-            .unwrap_or_else(|| at_of(row, "created_at"));
-        feed.push((
-            at,
-            json!({
-                "id": row.get::<uuid::Uuid, _>("id").to_string(),
-                "kind": "sync",
-                "label": row.get::<Option<String>, _>("file_name").unwrap_or_else(|| row.get::<String, _>("name")),
-                "who": row.get::<Option<String>, _>("file_name").map(|_| row.get::<String, _>("name")),
-                "bytes": row.get::<Option<i64>, _>("bytes"),
-                "status": row.get::<String, _>("status"),
-                "at": crate::pyfmt::iso(&at),
-            }),
-        ));
-    }
-
     feed.sort_by_key(|entry| std::cmp::Reverse(entry.0));
     let recent: Vec<Value> = feed.into_iter().take(limit as usize).map(|(_, v)| v).collect();
 
-    // --- sync health -----------------------------------------------------------
-    let status_rows = sqlx::query("SELECT status, count(*) AS n FROM sync_jobs GROUP BY status")
-        .fetch_all(&state.db)
-        .await;
-    let status_rows = match status_rows {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!("dashboard.sync_health failed: {e}");
-            return crate::error::detail(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Internal server error");
-        }
-    };
-    let mut counts = std::collections::HashMap::new();
-    for row in status_rows {
-        counts.insert(row.get::<String, _>("status"), row.get::<i64, _>("n"));
-    }
-    let done_24h: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM sync_jobs WHERE status = 'done' AND completed_at >= now() - interval '24 hours'",
-    )
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(0);
-    let dead_letter_rule_id: Option<uuid::Uuid> = sqlx::query_scalar(
-        "SELECT sync_rule_id FROM sync_jobs WHERE status = 'dead_letter' ORDER BY created_at DESC LIMIT 1",
-    )
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
-
-    // Files copying to the NAS right now, then the ones queued behind them.
-    let active_syncs: Vec<Value> = sqlx::query(
-        "SELECT j.id, j.status, j.file_name, j.started_at, j.created_at, r.id AS rule_id, r.name
-           FROM sync_jobs j JOIN sync_rules r ON j.sync_rule_id = r.id
-          WHERE j.status IN ('running', 'pending')
-          ORDER BY (j.status = 'running') DESC, j.created_at
-          LIMIT 12",
-    )
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default()
-    .iter()
-    .map(|r| {
-        json!({
-            "id": r.get::<uuid::Uuid, _>("id").to_string(),
-            "status": r.get::<String, _>("status"),
-            // None until the worker resolves the file (a job a webhook queued has only its id).
-            "file": r.get::<Option<String>, _>("file_name"),
-            "rule": r.get::<String, _>("name"),
-            "rule_id": r.get::<uuid::Uuid, _>("rule_id").to_string(),
-            "started_at": r.get::<Option<DateTime<Utc>>, _>("started_at").map(|d| crate::pyfmt::iso(&d)),
-        })
-    })
-    .collect();
-
-    let body = json!({
-        "active_uploads": active_uploads,
-        "active_syncs": active_syncs,
-        "recent": recent,
-        "sync_health": {
-            "waiting": counts.get("waiting").copied().unwrap_or(0),
-            "running": counts.get("running").copied().unwrap_or(0),
-            // Queued to run (new, or between retries) but not started yet. Counted apart from
-            // "running" yet still in flight: leaving it out made a just-finished upload read as
-            // fully synced while its last files sat in the queue (issue #85).
-            "queued": counts.get("pending").copied().unwrap_or(0),
-            "dead_letter": counts.get("dead_letter").copied().unwrap_or(0),
-            "done_24h": done_24h,
-            "dead_letter_rule_id": dead_letter_rule_id.map(|u| u.to_string()),
-        },
-    });
-    Json(body).into_response()
+    Json(json!({ "active_uploads": active_uploads, "recent": recent })).into_response()
 }

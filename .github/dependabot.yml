@@ -39,19 +39,6 @@ updates:
         patterns: [ "*" ]
         update-types: [ "minor", "patch" ]
 
-  # Python reference API deps — uv ecosystem reads pyproject.toml + uv.lock directly.
-  - package-ecosystem: uv
-    directory: /apps/api
-    schedule:
-      interval: weekly
-    ignore:
-      - dependency-name: "*"
-        update-types: [ "version-update:semver-major" ]
-    groups:
-      python:
-        patterns: [ "*" ]
-        update-types: [ "minor", "patch" ]
-
   # Frontend Node deps.
   - package-ecosystem: npm
     directory: /apps/web

@@ -1,14 +1,5 @@
 <script lang="ts" module>
   export type Branding = { name: string | null; accent: string | null; logo_url: string | null };
-  export type BrandProfile = {
-    id: string;
-    name: string;
-    display_name: string | null;
-    accent_color: string | null;
-    has_logo: boolean;
-    logo_url: string | null;
-    links?: number;
-  };
   export type Preset = { id: string; name: string; kind: "upload" | "download"; settings: Record<string, unknown> };
 
   // File-type groups for upload links. "Anything" stores no restriction at all.
@@ -32,8 +23,8 @@
   import Icon from "./Icon.svelte";
   import Switch from "./Switch.svelte";
   import ConfirmButton from "./ConfirmButton.svelte";
-  import { coveringRules, createFolder, crumbNames, listFolders, nasPathFor, resolvePath, type DownloadSource, type FolderRef, type Named, type RuleLike } from "$lib/frameio";
-  import { expiresText, kindNoun, sourceSummary, type DownloadLink, type LinkSync, type LinkSyncLane, type UploadLink } from "$lib/links";
+  import { crumbNames, defaultLinkName, listFolders, resolvePath, type DownloadSource, type FolderRef, type Named } from "$lib/frameio";
+  import { expiresText, kindNoun, sourceSummary, type DownloadLink, type LinkSync, type UploadLink } from "$lib/links";
   import { copyWithToast, errorDetail, toast } from "$lib/toast.svelte";
   import { formatBytes, accentText } from "$lib/format";
   import { UPLOAD_TOKENS } from "$lib/tokens";
@@ -47,29 +38,22 @@
     kind: initialKind = "upload",
     link = null,
     recents = [],
-    rules = [],
-    projectFolders = [],
     branding,
     initialFolder = null,
     openSourcePicker = false,
     emailConfigured = true,
     presets = [],
-    brands = [],
     defaultNotify = null,
   }: {
     mode?: "create" | "edit";
     kind?: Kind;
     link?: UploadLink | DownloadLink | null;
     recents?: FolderRef[];
-    rules?: RuleLike[];
-    /** Project folder names already in use, for the project-folder drop-down. */
-    projectFolders?: string[];
     branding: Branding;
     initialFolder?: FolderRef | null;
     openSourcePicker?: boolean;
     emailConfigured?: boolean;
     presets?: Preset[];
-    brands?: BrandProfile[];
     defaultNotify?: string | null;
   } = $props();
 
@@ -97,41 +81,23 @@
   let customExt = $state<string[]>([]);
   let maxSizeGb = $state("");
   let template = $state("");
-  let turbosort = $state("");
   let syncOn = $state(false);
-  let driveLocal = $state("1_DRIVE");
-  let exportsLocal = $state("0_EXPORTS");
-  let driveFolder = $state<FolderRef | null>(null);
-  // The inbound lane. A new link brings the client's drive down by default, and an existing link
-  // follows what it stores: `drive` present means the switch is on.
-  let importsOn = $state(true);
-  // The outbound lane. A new link has one by default, and it points at the link's own folder until
-  // a child of the project is chosen. An existing link follows what it stores: `exports` present
-  // means the switch is on.
-  let exportsOn = $state(true);
-  let exportsFolder = $state<FolderRef | null>(null);
-  // The two sync sides choose from the first level of the project only: the link's folder names
-  // the account, and the project's root folder is the parent they list (and create into).
-  let syncRoot = $state<{ account_id: string; folder_id: string; name: string } | null>(null);
-  let children = $state<Named[] | null>(null);
-  let loadingFolders = $state(false);
+  // The return folder: what the user adds to its twin on their machine goes up to it. None means
+  // nothing goes up. Any folder
+  // of the account; the picker opens in the folder the link's folder sits in (a client's job
+  // folder holding RUSHES and RENDER), and the folders next to the link's folder are one click.
+  let returnFolder = $state<FolderRef | null>(null);
+  let parentRef = $state<FolderRef | null>(null);
+  let siblings = $state<Named[] | null>(null);
   let syncError = $state<string | null>(null);
-  let newName = $state<{ drive: string; exports: string }>({ drive: "", exports: "" });
-  let creating = $state<"drive" | "exports" | null>(null);
-  let createIssue = $state<{ side: "drive" | "exports"; message: string } | null>(null);
-  // Once a row has been chosen by hand (or asked for a new folder, or was saved on the link), the
-  // default-named folder must not take the row back when the level is read again.
-  let touched = $state<{ drive: boolean; exports: boolean }>({ drive: false, exports: false });
   let maxDownloads = $state("");
   let preview = $state(true);
   let preset = $state("");
-  let brandProfileId = $state("");
   let notifyEmails = $state("");
   let remind = $state(false);
   let savedPresets = $state<Preset[]>(untrack(() => [...presets]));
   let presetNaming = $state(false);
   let presetName = $state("");
-  let moreOpen = $state(false);
   let sourceOpen = $state(false);
 
   let saving = $state(false);
@@ -155,7 +121,6 @@
       pwMode = link.password_protected ? "keep" : "none";
       password = "";
       otp = link.verify_email;
-      brandProfileId = link.brand_profile_id ?? "";
       notifyEmails = (link.notify_emails ?? []).join(", ");
       remind = link.remind_before_expiry;
       if (link.kind === "upload") {
@@ -176,24 +141,11 @@
         }
         maxSizeGb = link.max_file_size ? String(+(link.max_file_size / 1e9).toFixed(2)) : "";
         template = link.subfolder_template ?? "";
-        turbosort = link.turbosort ?? "";
         const s = link.folder?.sync ?? null;
         syncOn = !!s;
-        driveLocal = s?.drive?.local ?? "1_DRIVE";
-        exportsLocal = s?.exports?.local ?? "0_EXPORTS";
-        // Only the ids are stored; the breadcrumb is rebuilt once a folder is picked again.
-        const account = link.folder?.account_id ?? "";
-        driveFolder = s?.drive?.folder_id ? { account_id: account, folder_id: s.drive.folder_id } : null;
-        exportsFolder = s?.exports?.folder_id ? { account_id: account, folder_id: s.exports.folder_id } : null;
-        // An existing link is shown as it was saved: no `exports` keeps the switch off, so editing
-        // it never adds an upload lane the link deliberately did not have.
-        exportsOn = !!s?.exports;
-        // Same for the inbound lane: no `drive` keeps the switch off, so editing it never starts
-        // downloading a drive the link deliberately did not have.
-        importsOn = !!s?.drive;
-        // A saved lane is already a choice, even one with no folder id ("this link's folder"): a
-        // `1_DRIVE` or `0_EXPORTS` child that appeared since must not take it over on the next save.
-        touched = { drive: !!s?.drive, exports: !!s?.exports };
+        // Only the id is stored; its breadcrumb is fetched once the composer is up.
+        const ret = savedReturnId(s);
+        returnFolder = ret ? { account_id: link.folder?.account_id ?? "", folder_id: ret } : null;
       } else {
         const s = link.source;
         source = { source: s as DownloadSource, label: (s.label as string) ?? sourceSummary(s), path: (s.path as FolderRef["path"]) ?? [], count: null, bytes: (s.bytes as number) ?? null };
@@ -205,7 +157,7 @@
     } else {
       folder = initialFolder;
       expiry = "7";
-      name = initialFolder ? (crumbNames(initialFolder).at(-1) ?? "") : "";
+      name = defaultLinkName(initialFolder);
     }
   }
   seed();
@@ -215,14 +167,10 @@
   });
 
   // ── derived ─────────────────────────────────────────────────────────────
-  const coverage = $derived(kind === "upload" ? coveringRules(folder, rules) : []);
-  const enabledCoverage = $derived(coverage.filter((c) => c.enabled));
-  // The page brand: the chosen profile, with the app-wide brand filling what it leaves empty
-  // (a profile's logo stands alone, as on the client page).
-  const profile = $derived(brands.find((b) => b.id === brandProfileId) ?? null);
-  const accent = $derived(profile?.accent_color || branding.accent || "#f59e0b");
-  const brandName = $derived(profile?.display_name || branding.name || "Portal");
-  const logoUrl = $derived(profile ? profile.logo_url : branding.logo_url);
+  // The page brand: the app-wide one from Settings.
+  const accent = $derived(branding.accent || "#f59e0b");
+  const brandName = $derived(branding.name || "Portal");
+  const logoUrl = $derived(branding.logo_url);
 
   function endOfDay(days: number): Date {
     const d = new Date();
@@ -275,23 +223,17 @@
     return [crumbNames(folder).at(-1) ?? "Folder", ...parts];
   });
 
-  const moreSummary = $derived(
-    kind === "upload"
-      ? [typesLabel, maxSizeGb ? `up to ${maxSizeGb} GB per file` : "no size limit", template.trim() ? "sorted into folders" : ""].filter(Boolean).join(" · ")
-      : [maxDownloads ? `${maxDownloads} downloads max` : "unlimited downloads", preview ? "thumbnails on" : "thumbnails off"].join(" · "),
-  );
-  const moreLine = $derived(notifyEmails.trim() ? `${moreSummary} · custom notifications` : moreSummary);
 
   // ── interactions ────────────────────────────────────────────────────────
   function setKind(k: Kind) {
     if (editing || k === kind) return;
     kind = k;
-    if (!nameTouched) name = k === "upload" ? (crumbNames(folder).at(-1) ?? "") : (source?.label ?? "");
+    if (!nameTouched) name = k === "upload" ? defaultLinkName(folder) : (source?.label ?? "");
     if (k === "download" && !source) sourceOpen = true;
   }
 
   function onFolder(f: FolderRef) {
-    if (!nameTouched) name = crumbNames(f).at(-1) ?? "";
+    if (!nameTouched) name = defaultLinkName(f);
     rememberFolder(f);
   }
 
@@ -329,179 +271,108 @@
     return `${pick()}-${pick()}-${10 + Math.floor(Math.random() * 90)}`;
   }
 
-  // ── the project's first level (sync) ────────────────────────────────────
-  // A sync side is one folder of the project, so both rows list the folders directly inside the
-  // project root. A name that is not there yet can be typed and Portal creates it.
-  const FOLDER_NAME_RULE = "A folder name can't be empty, contain / \\ % or be . or ..";
-
+  // ── the return folder (sync) ────────────────────────────────────────────
   const folderKey = $derived(kind === "upload" && syncOn && folder ? `${folder.account_id}:${folder.folder_id}` : "");
   let folderSeq = 0;
 
   $effect(() => {
     const key = folderKey;
-    untrack(() => void loadProjectFolders(key));
+    untrack(() => void loadNearby(key));
   });
 
   const byName = (a: Named, b: Named) => a.name.localeCompare(b.name);
 
-  const sideRef = (side: "drive" | "exports") => (side === "drive" ? driveFolder : exportsFolder);
-
-  /** What a side offers: the project's children, plus a saved folder that is no longer in the list. */
-  function sideOptions(side: "drive" | "exports"): Named[] {
-    const list = children ?? [];
-    const chosen = sideRef(side);
-    if (chosen && !list.some((c) => c.id === chosen.folder_id)) {
-      return [...list, { id: chosen.folder_id, name: chosen.folder_name || "the saved folder" }];
-    }
-    return list;
+  /** The return folder a stored sync block names, under its name or the older `exports`. */
+  function savedReturnId(s: LinkSync | null | undefined): string | null {
+    return s?.upload?.folder_id ?? s?.exports?.folder_id ?? null;
   }
 
-  /** Choose a folder id for one side ("" = the link's own folder, on both sides). */
-  function selectSide(side: "drive" | "exports", id: string) {
-    const f = folder;
-    if (!f) return;
-    if (!id) {
-      if (side === "drive") driveFolder = null;
-      else exportsFolder = null;
-      return;
-    }
-    const name = sideOptions(side).find((c) => c.id === id)?.name ?? "";
-    const ref: FolderRef = { account_id: f.account_id, folder_id: id, folder_name: name || null };
-    if (side === "drive") {
-      driveFolder = ref;
-      if (name) driveLocal = name;
-    } else {
-      exportsFolder = ref;
-      if (name) exportsLocal = name;
-    }
-  }
-
-  /** A row the user changed: from now on its choice is theirs, not the 1_DRIVE/0_EXPORTS default. */
-  function pickSide(side: "drive" | "exports", id: string) {
-    touched[side] = true;
-    selectSide(side, id);
-  }
+  /** Breadcrumb ids of a folder, root first, ending at the folder itself. */
+  const pathIds = (f: Partial<FolderRef> | null | undefined) => (f?.path ?? []).map((s) => s.id);
 
   /**
-   * Both lanes on, and neither side names a folder: both would target this link's own folder.
-   * The API takes it, but FioTransfer will not mix imports and exports in one Frame.io folder, so
-   * the exports lane is skipped: say so here, before the link is saved, not later in the app.
+   * Find the folder the link's folder sits in, and the folders next to it. The picked folder
+   * usually carries its breadcrumb; without one, ask Frame.io where it lives. A link that
+   * receives into a project's root has nothing above it: the picker opens in the root itself.
    */
-  const lanesCollide = $derived(syncOn && importsOn && exportsOn && !driveFolder && !exportsFolder && !loadingFolders);
-
-  /** The sync validator's rule for a local folder name, applied before we ask Frame.io for one. */
-  function cleanFolderName(raw: string): string | null {
-    const v = raw.trim();
-    if (!v || v === "." || v === ".." || /[/\\%]/.test(v) || /[\u0000-\u001f]/.test(v)) return null;
-    return v;
-  }
-
-  async function loadProjectFolders(key: string) {
+  async function loadNearby(key: string) {
     const f = folder;
     if (!key || !f) {
-      syncRoot = null;
-      children = null;
+      parentRef = null;
+      siblings = null;
       syncError = null;
-      loadingFolders = false;
       return;
     }
     const my = ++folderSeq;
-    loadingFolders = true;
     syncError = null;
     try {
-      // The first level hangs off the project root. The picked folder usually carries its
-      // breadcrumb; without one, ask Frame.io where the folder lives.
-      let root = f.path?.length ? f.path[0].id : "";
-      if (!root) root = (await resolvePath(f.account_id, f.folder_id)).root_folder_id ?? "";
+      const path = f.path?.length ? f.path : (await resolvePath(f.account_id, f.folder_id)).path;
       if (my !== folderSeq) return;
-      if (!root) root = f.folder_id;
-      const moved = !!syncRoot && syncRoot.folder_id !== root;
-      if (moved || syncRoot?.folder_id !== root) {
-        syncRoot = { account_id: f.account_id, folder_id: root, name: crumbNames(f)[0] ?? f.project_name ?? "this project" };
+      if (path.length < 2) {
+        parentRef = null;
+        siblings = [];
+        return;
       }
-      if (moved) {
-        // Another project: the two chosen folders belong to the one we just left.
-        driveFolder = null;
-        exportsFolder = null;
-        newName = { drive: "", exports: "" };
-        createIssue = null;
-        touched = { drive: false, exports: false };
-      }
-      const kids = await listFolders(f.account_id, root);
+      const above = path.slice(0, -1);
+      const parent = above[above.length - 1];
+      parentRef = { ...f, folder_id: parent.id, folder_name: parent.name, path: above, sync: null };
+      const kids = await listFolders(f.account_id, parent.id);
       if (my !== folderSeq) return;
-      children = [...kids].sort(byName);
-      preselectByName();
+      siblings = kids.filter((c) => c.id !== f.folder_id).sort(byName);
     } catch (e) {
       if (my !== folderSeq) return;
-      children = [];
-      syncError = e instanceof Error ? e.message : "Could not read the project's folders from Frame.io";
-    } finally {
-      if (my === folderSeq) loadingFolders = false;
+      siblings = [];
+      syncError = e instanceof Error ? e.message : "Could not read the folders around this one from Frame.io";
     }
+  }
+
+  // A saved return folder is only an id: fetch its breadcrumb once, to show where it is.
+  $effect(() => {
+    const r = returnFolder;
+    if (!r || r.path?.length) return;
+    untrack(() => {
+      void resolvePath(r.account_id, r.folder_id)
+        .then((p) => {
+          if (returnFolder?.folder_id === r.folder_id) returnFolder = { type: "frameio", ...p };
+        })
+        .catch(() => {});
+    });
+  });
+
+  function pickSibling(c: Named) {
+    if (!parentRef) return;
+    returnFolder = { ...parentRef, folder_id: c.id, folder_name: c.name, path: [...(parentRef.path ?? []), { id: c.id, name: c.name }] };
   }
 
   /**
-   * The defaults stay `1_DRIVE` and `0_EXPORTS`: on a link with no id for a side, a child already
-   * named so is preselected. A row the user has touched is left alone. A side whose switch is off,
-   * or that has no such child, stays on the link's own folder.
-   *
-   * This runs when the level is read, and again when a side is switched on: a lane added to an
-   * existing link points at its folder the moment it appears, not only on an untouched new link.
+   * Where the return folder can't be. Not the folder the client's uploads come down from, and
+   * not inside it: FioTransfer brings that folder down whole, so what goes up would come back.
    */
-  function preselectByName() {
-    if (!children?.length) return;
-    if (importsOn && !driveFolder && !touched.drive) {
-      const c = children.find((x) => x.name === (driveLocal.trim() || "1_DRIVE"));
-      if (c) selectSide("drive", c.id);
-    }
-    if (exportsOn && !exportsFolder && !touched.exports) {
-      const c = children.find((x) => x.name === (exportsLocal.trim() || "0_EXPORTS"));
-      if (c) selectSide("exports", c.id);
-    }
-  }
+  const returnIssue = $derived.by((): string | null => {
+    const r = returnFolder;
+    if (kind !== "upload" || !syncOn || !r || !folder) return null;
+    if (r.folder_id === folder.folder_id) return "That's the folder the link receives into. Pick one next to it.";
+    if (pathIds(r).slice(0, -1).includes(folder.folder_id))
+      return "That folder is inside the one the link receives into, so what you add to it would come straight back down with the client's uploads. Pick one next to it.";
+    return null;
+  });
 
-  /** Make the typed folder under the project root, then use it. A sibling of that name wins. */
-  async function createSideFolder(side: "drive" | "exports") {
-    const name = cleanFolderName(newName[side]);
-    const root = syncRoot;
-    if (!name) {
-      createIssue = { side, message: FOLDER_NAME_RULE };
-      return;
-    }
-    if (!root || creating) return;
-    createIssue = null;
-    touched[side] = true;
-    const twin = children?.find((c) => c.name === name);
-    if (twin) {
-      // Same name, same parent: that is the folder meant, so select it instead of a duplicate.
-      selectSide(side, twin.id);
-      newName[side] = "";
-      return;
-    }
-    creating = side;
-    try {
-      const made = await createFolder(root.account_id, root.folder_id, name);
-      children = [...(children ?? []), made].sort(byName);
-      selectSide(side, made.id);
-      newName[side] = "";
-      // Read the level back, so the list is Frame.io's answer and not our guess.
-      void refreshFolders();
-    } catch (e) {
-      createIssue = { side, message: e instanceof Error ? e.message : "Could not create the folder" };
-    } finally {
-      creating = null;
-    }
-  }
-
-  async function refreshFolders() {
-    const root = syncRoot;
-    if (!root) return;
-    try {
-      children = [...(await listFolders(root.account_id, root.folder_id))].sort(byName);
-    } catch {
-      // Keep what we have: the folder exists, this list is only the mirror.
-    }
-  }
+  /**
+   * On-disk names an existing link was saved with, from before the switch. The composer doesn't
+   * set them, but keeps them, so FioTransfer keeps using the folders it already made.
+   */
+  const keptNames = $derived.by((): string[] => {
+    const s = up?.folder?.sync;
+    const out: string[] = [];
+    const project = s?.name ?? up?.turbosort;
+    if (project) out.push(`folder “${project}”`);
+    // Names Portal filled from Frame.io match their folders; only older, hand-picked ones show.
+    const inName = s?.download?.local ?? s?.drive?.local;
+    if (inName && inName !== crumbNames(up?.folder).at(-1)) out.push(`client uploads in “${inName}”`);
+    const outName = s?.upload?.local ?? s?.exports?.local;
+    if (outName && returnFolder?.folder_name && outName !== returnFolder.folder_name) out.push(`send folder as “${outName}”`);
+    return out;
+  });
 
   // ── presets ─────────────────────────────────────────────────────────────
   // What a preset remembers: every option except where files go and the link's own name/title.
@@ -519,7 +390,6 @@
       password: pwMode === "set" || pwMode === "keep",
       ask: { name: askName, email: askEmail, message: askMessage },
       subtitle: subtitle.trim(),
-      brand_profile_id: brandProfileId || null,
       notify_emails: notifyEmails.trim(),
       remind,
       ...(kind === "upload"
@@ -559,7 +429,6 @@
     askEmail = !!st.ask?.email;
     askMessage = !!st.ask?.message;
     if (typeof st.subtitle === "string" && st.subtitle) subtitle = st.subtitle;
-    brandProfileId = typeof st.brand_profile_id === "string" && brands.some((b) => b.id === st.brand_profile_id) ? st.brand_profile_id : "";
     notifyEmails = typeof st.notify_emails === "string" ? st.notify_emails : "";
     remind = !!st.remind;
     if (kind === "upload") {
@@ -591,28 +460,46 @@
   const kindPresets = $derived(savedPresets.filter((p) => p.kind === kind));
 
   // ── save ────────────────────────────────────────────────────────────────
-  /** `folder.sync` as the API stores it, or null when the switch is off. */
+  /**
+   * `folder.sync` as the API stores it, or null when the switch is off. Whatever the link already
+   * stores rides along untouched (on-disk names, an older lane), so changing the return folder
+   * never moves a folder FioTransfer has already made. No return folder means nothing goes up.
+   *
+   * The two folders on the user's machine are named like their Frame.io folders: the server
+   * fills a lane's `local` from Frame.io when it is missing. So when the link's folder or its
+   * return folder changes, that lane's old name is dropped here and the server names it afresh.
+   */
   function syncPayload(): LinkSync | null {
     if (!syncOn) return null;
-    return {
-      mode: "add_only",
-      // An unticked box is no lane at all on that side: the key is absent, which the API stores as
-      // none. No folder picked means the link's own folder, on either side.
-      ...(importsOn
-        ? { drive: { local: driveLocal.trim() || "1_DRIVE", ...(driveFolder ? { folder_id: driveFolder.folder_id } : {}) } }
-        : {}),
-      ...(exportsOn
-        ? { exports: { local: exportsLocal.trim() || "0_EXPORTS", ...(exportsFolder ? { folder_id: exportsFolder.folder_id } : {}) } }
-        : {}),
-    };
+    const saved = up?.folder?.sync ?? null;
+    const s: LinkSync = { ...(saved ?? {}) };
+    // An older link keeps its lanes under `drive` and `exports`.
+    const downKey = s.drive && !s.download ? "drive" : "download";
+    const upKey = s.exports && !s.upload ? "exports" : "upload";
+    const lane = s[downKey];
+    if (lane?.local && !lane.folder_id && folder?.folder_id !== up?.folder?.folder_id) {
+      const { local: _old, ...rest } = lane;
+      s[downKey] = rest;
+    }
+    if (!returnFolder) {
+      delete s.upload;
+      delete s.exports;
+    } else if (returnFolder.folder_id !== savedReturnId(saved)) {
+      const { local: _old, ...rest } = s[upKey] ?? {};
+      s[upKey] = { ...rest, folder_id: returnFolder.folder_id };
+    }
+    return s;
   }
 
-  /** Whether two `sync` blocks say the same thing, whatever order the stored JSON keeps its keys in. */
-  function sameSync(a: LinkSync | null, b: LinkSync | null): boolean {
-    if (!a || !b) return !a === !b;
-    const lane = (l?: LinkSyncLane | null) => (l ? [l.local, l.folder_id ?? ""] : null);
-    const same = (x: LinkSyncLane | null | undefined, y: LinkSyncLane | null | undefined) => JSON.stringify(lane(x)) === JSON.stringify(lane(y));
-    return (a.mode ?? "add_only") === (b.mode ?? "add_only") && same(a.drive, b.drive) && same(a.exports, b.exports);
+  /**
+   * Whether the sync block needs sending: the switch or the return folder changed, or the link's
+   * folder did (the name of the client's-uploads folder follows it).
+   */
+  function syncChanged(): boolean {
+    const saved = up?.folder?.sync ?? null;
+    if (syncOn !== !!saved) return true;
+    if (!syncOn) return false;
+    return (returnFolder?.folder_id ?? null) !== savedReturnId(saved) || folder?.folder_id !== up?.folder?.folder_id;
   }
 
   function body(): Record<string, unknown> {
@@ -621,7 +508,6 @@
       brand_display_name: title.trim() || null,
       brand_subtitle: subtitle.trim() || null,
       verify_email: otp,
-      brand_profile_id: brandProfileId || null,
       notify_emails: notifyEmails.trim() || null,
       remind_before_expiry: remind && expiry !== "never",
     };
@@ -630,18 +516,19 @@
     if (pwMode === "clear") b.password = "";
     if (kind === "upload") {
       // The FioTransfer sync rides inside `folder`, so the folder is sent whenever either changes.
+      // A folder sent without a `sync` key keeps the stored one; clearing the switch sends
+      // `sync: null`, which removes the block.
       const sync = syncPayload();
-      const syncChanged = !sameSync(sync, up?.folder?.sync ?? null);
+      const changed = syncChanged();
       const folderChanged = !editing || !!folder && (folder.folder_id !== up?.folder?.folder_id || folder.account_id !== up?.folder?.account_id);
-      if (folder && (folderChanged || syncChanged)) {
-        // Clearing the switch sends `sync: null`, which removes the block.
-        b.folder = { ...folder, ...(sync ? { sync } : up?.folder?.sync ? { sync: null } : {}) };
+      if (folder && (folderChanged || changed)) {
+        const { sync: _stored, ...where } = folder;
+        b.folder = { ...where, ...(changed ? { sync } : {}) };
       }
       b.uploader_fields_required = { name: askName, email: askEmail || otp, message: askMessage };
       b.allowed_extensions = allowedExtensions;
       b.max_file_size = maxSizeGb ? Math.round(parseFloat(maxSizeGb) * 1e9) : null;
       b.subfolder_template = template.trim() || null;
-      if (!editing || turbosort.trim() !== (up?.turbosort ?? "")) b.turbosort = turbosort.trim() || null;
     } else {
       if (!editing || JSON.stringify(source?.source) !== JSON.stringify(down?.source)) b.source = source?.source;
       b.viewer_fields_required = { name: askName, email: askEmail || otp };
@@ -667,8 +554,8 @@
       error = "Enter a password, or turn the password off.";
       return;
     }
-    if (kind === "upload" && syncOn && importsOn && exportsOn && (exportsLocal.trim() || "0_EXPORTS") === (driveLocal.trim() || "1_DRIVE")) {
-      error = "The client drive and exports need different local folders.";
+    if (returnIssue) {
+      error = returnIssue;
       return;
     }
     saving = true;
@@ -727,7 +614,7 @@
     title = "";
     password = "";
     pwMode = "none";
-    name = kind === "upload" ? (crumbNames(folder).at(-1) ?? "") : "";
+    name = kind === "upload" ? defaultLinkName(folder) : "";
     if (kind === "download") source = null;
   }
 
@@ -793,6 +680,18 @@
             <Icon name="copy" size={15} />Copy
           </button>
         </div>
+        {#if created.kind === "upload" && (created as UploadLink).return_link}
+          {@const ret = (created as UploadLink).return_link!}
+          <div class="grid w-full max-w-xl gap-1.5">
+            <span class="text-xs text-faint">Clients download from the send folder at</span>
+            <div class="flex items-center gap-2 rounded-lg border border-border bg-surface-2/60 py-1.5 pr-1.5 pl-3">
+              <button type="button" class="min-w-0 flex-1 truncate text-left font-mono text-[13px] text-text hover:text-accent-hover" title="Copy link" onclick={() => copyWithToast(ret.public_url)}>{ret.public_url.replace(/^https?:\/\//, "")}</button>
+              <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-2 px-3 font-medium text-text hover:bg-surface-3" onclick={() => copyWithToast(ret.public_url)}>
+                <Icon name="copy" size={15} />Copy
+              </button>
+            </div>
+          </div>
+        {/if}
         <p class="max-w-xl text-muted">
           {#if created.kind === "upload"}
             Receives into {crumbNames((created as UploadLink).folder).join(" / ")}.
@@ -831,6 +730,12 @@
 
       <div class="px-5 pt-4 pb-2 sm:px-7">
         {#if error}<p class="mb-3 rounded-md bg-danger/10 px-3 py-2 text-danger">{error}</p>{/if}
+        {#if editing && down?.return_for}
+          <p class="mb-3 flex items-center gap-3 rounded-md bg-surface-2 px-3 py-2 text-muted">
+            <span class="flex-1">Portal keeps this link for a receive link's send folder. Its settings follow that link, so change them there.</span>
+            <a href="/upload-links/{down.return_for}" class="font-medium text-accent-hover hover:underline">Open the receive link</a>
+          </p>
+        {/if}
         {#if editing && link?.state === "revoked"}
           <p class="mb-3 flex items-center gap-3 rounded-md bg-surface-2 px-3 py-2 text-muted">
             <span class="flex-1">This link is revoked. Clients see a closed page.</span>
@@ -860,19 +765,6 @@
             <div class={label}>Into</div>
             <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
               <FolderField bind:value={folder} {recents} title="Receive into" chooseVerb="Use" onchange={onFolder} />
-              {#if folder}
-                <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted">
-                  {#if enabledCoverage.length}
-                    <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-success"></span>
-                    Lands on the NAS at <span class="font-mono text-[11.5px] break-all text-text">{nasPathFor(folder, enabledCoverage[0], rules)}</span>
-                    <span class="text-faint">via “{enabledCoverage[0].name}”</span>
-                  {:else}
-                    <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-faint"></span>
-                    Stays in Frame.io only.
-                    <a href="/sync-rules/new?account_id={encodeURIComponent(folder.account_id)}&folder_id={encodeURIComponent(folder.folder_id)}" class="text-accent-hover hover:underline">Sync this folder</a>
-                  {/if}
-                </div>
-              {/if}
               {#if recents.length}
                 <div class="flex flex-wrap items-center gap-1.5 text-xs text-faint">
                   <span class="mr-0.5">Recent</span>
@@ -914,7 +806,6 @@
           <div class={label}><label for="lc-name">Name</label></div>
           <div class="grid grid-cols-[minmax(0,1fr)] gap-1.5">
             <input id="lc-name" class={input} bind:value={name} oninput={() => (nameTouched = true)} placeholder={kind === "upload" ? "e.g. Day 3 camera cards" : "e.g. Grade v4 selects"} autocomplete="off" />
-            <div class="text-xs text-faint">Only you see this. It's how the link shows up in your list.</div>
           </div>
         </div>
 
@@ -925,19 +816,6 @@
             <input class={input} bind:value={subtitle} placeholder="Subtitle (optional)" aria-label="Page subtitle" autocomplete="off" />
           </div>
         </div>
-
-        {#if brands.length}
-          <div class={line}>
-            <div class={label}><label for="lc-brand">Brand</label></div>
-            <div class="grid grid-cols-[minmax(0,1fr)] gap-1.5">
-              <select id="lc-brand" class="{input} max-w-72" bind:value={brandProfileId}>
-                <option value="">{branding.name ? `${branding.name} (default)` : "Default brand"}</option>
-                {#each brands as b (b.id)}<option value={b.id}>{b.name}</option>{/each}
-              </select>
-              <div class="text-xs text-faint">The logo, colour and name on the client's page and emails.</div>
-            </div>
-          </div>
-        {/if}
 
         <div class={line}>
           <div class={label}>Expires</div>
@@ -969,16 +847,15 @@
             <div class="flex items-center gap-3">
               <div class="min-w-0 flex-1">
                 <b class="block font-medium text-text">Email code</b>
-                <small class="block text-xs text-faint">{kind === "upload" ? "Uploaders" : "Recipients"} confirm their email with a 6-digit code first</small>
               </div>
               <Switch bind:checked={otp} label="Email code" />
             </div>
             <div class="flex items-center gap-3">
               <div class="min-w-0 flex-1">
                 <b class="block font-medium text-text">Password</b>
-                <small class="block text-xs text-faint">
-                  {pwMode === "keep" ? "A password is set." : pwMode === "clear" ? "The password will be removed when you save." : "Share it separately from the link."}
-                </small>
+                {#if pwMode === "keep" || pwMode === "clear"}
+                  <small class="block text-xs text-faint">{pwMode === "keep" ? "A password is set." : "The password will be removed when you save."}</small>
+                {/if}
               </div>
               {#if pwMode === "keep"}
                 <button type="button" class="text-xs font-medium text-muted hover:text-text" onclick={() => { pwMode = "set"; password = passphrase(); }}>Change</button>
@@ -1010,13 +887,9 @@
           </div>
         </div>
 
-        <details class="border-t border-border" bind:open={moreOpen}>
-          <summary class="flex cursor-pointer list-none items-center gap-1.5 py-3 font-medium text-muted hover:text-text [&::-webkit-details-marker]:hidden">
-            <span class="inline-block w-3 transition-transform {moreOpen ? 'rotate-90' : ''}">›</span>
-            More options <span class="truncate font-normal text-faint">· {moreLine}</span>
-          </summary>
+        <div>
           {#if kind === "upload"}
-            <div class="{line} border-t-0 pt-1">
+            <div class={line}>
               <div class={label}>File types</div>
               <div class="grid grid-cols-[minmax(0,1fr)] gap-2">
                 <div class="flex flex-wrap gap-1.5">
@@ -1052,169 +925,67 @@
               </div>
             </div>
             <div class={line}>
-              <div class={label}>Project Folder</div>
-              <div class="flex items-center gap-3">
-                <div class="min-w-0 flex-1">
-                  <b class="block font-medium text-text">Sync this project's folders with FioTransfer</b>
-                  <small class="block text-xs text-faint">The client's drive comes down, your exports go up</small>
+              <div class={label}>FioTransfer</div>
+              <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
+                <div class="flex items-center gap-3">
+                  <div class="min-w-0 flex-1">
+                    <b class="block font-medium text-text">Sync with FioTransfer</b>
+                  </div>
+                  <Switch bind:checked={syncOn} label="Sync with FioTransfer" />
                 </div>
-                <Switch bind:checked={syncOn} label="Sync this project's folders with FioTransfer" />
-              </div>
-            </div>
-            <div class={line}>
-              <div class={label}><label for="lc-project-folder">Local folder</label></div>
-              <div class="grid gap-1.5">
-                <!-- Not tied to the switch: the name is stored (and can be cleared) on its own. -->
-                <input id="lc-project-folder" class={input} list="lc-project-folders" bind:value={turbosort} placeholder="Your project folder (leave empty for none)" autocomplete="off" />
-                <datalist id="lc-project-folders">
-                  {#each projectFolders as f (f)}
-                    <option value={f}></option>
-                  {/each}
-                </datalist>
-                <p class="text-xs text-faint">The folder this project lives in on your machine: pick one already in use, or type a new name. FioTransfer reads it from Portal and keeps <span class="font-mono">1_DRIVE</span> and <span class="font-mono">0_EXPORTS</span> in step.</p>
+                {#if !syncOn && !up?.folder?.sync && up?.turbosort}
+                  <p class="text-xs text-faint">FioTransfer still syncs this link the older way, as one folder named <span class="font-mono">{up.turbosort}</span>. Turn this on to mirror its Frame.io folders instead.</p>
+                {:else if syncOn && keptNames.length}
+                  <p class="text-xs text-faint">Keeps the names it was saved with: {keptNames.join(", ")}.</p>
+                {/if}
               </div>
             </div>
             {#if syncOn}
-              {#if !folder}
-                <div class={line}>
-                  <div class={label}>Folders</div>
-                  <p class="text-xs text-faint">Choose the folder uploads land in first: both sync rows list that project's own folders.</p>
-                </div>
-              {:else}
-                {#if syncError}
-                  <p class="my-1 rounded-md bg-danger/10 px-3 py-2 text-danger">
-                    {syncError}{#if /not connected/i.test(syncError)}. <a href="/settings" class="font-medium underline">Connect Frame.io in Settings</a>{/if}
-                  </p>
+              <div class={line}>
+                <div class={label}><label for="lc-sync-return">Send folder</label></div>
+                {#if !folder}
+                  <p class="text-xs text-faint">Choose the folder uploads land in first: the send folder usually sits next to it.</p>
+                {:else}
+                  <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
+                    {#if syncError}
+                      <p class="rounded-md bg-danger/10 px-3 py-2 text-danger">
+                        {syncError}{#if /not connected/i.test(syncError)}. <a href="/settings" class="font-medium underline">Connect Frame.io in Settings</a>{/if}
+                      </p>
+                    {/if}
+                    <div class="flex min-w-0 items-center gap-1.5">
+                      <div class="min-w-0 flex-1">
+                        <FolderField id="lc-sync-return" bind:value={returnFolder} startAt={parentRef ?? folder} title="Send folder" chooseVerb="Use" placeholder="No send folder: choose one" />
+                      </div>
+                      {#if returnFolder}
+                        <button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-faint hover:bg-surface-3 hover:text-text" title="No send folder" aria-label="No send folder" onclick={() => (returnFolder = null)}><Icon name="x" /></button>
+                      {/if}
+                    </div>
+                    {#if siblings?.length}
+                      <div class="flex flex-wrap items-center gap-1.5 text-xs text-faint">
+                        <span class="mr-0.5">Next to {crumbNames(folder).at(-1)}</span>
+                        {#each siblings as c (c.id)}
+                          <button type="button" class="{chip(returnFolder?.folder_id === c.id)} h-6 px-2.5 text-xs" onclick={() => pickSibling(c)}>{c.name}</button>
+                        {/each}
+                      </div>
+                    {/if}
+                    {#if returnIssue}
+                      <div class="text-xs text-danger">{returnIssue}</div>
+                    {/if}
+                    {#if returnFolder && up?.return_link && returnFolder.folder_id === savedReturnId(up.folder?.sync)}
+                      <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                        Clients download it at
+                        <button type="button" class="min-w-0 truncate font-mono text-[11.5px] text-text hover:text-accent-hover" title="Copy link" onclick={() => copyWithToast(up!.return_link!.public_url)}>{up.return_link.public_url.replace(/^https?:\/\//, "")}</button>
+                        <button type="button" class="font-medium text-accent-hover hover:underline" onclick={() => copyWithToast(up!.return_link!.public_url)}>Copy</button>
+                      </div>
+                    {:else if returnFolder}
+                      <p class="text-xs text-faint">Saving makes a Send link for this folder, with this link's settings, for you to share with the client.</p>
+                    {/if}
+                  </div>
                 {/if}
-                <div class={line}>
-                  <div class={label}><label for="lc-sync-drive">Imports</label></div>
-                  <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
-                    <div class="flex min-w-0 items-center gap-3">
-                      <div class="min-w-0 flex-1">
-                        <b class="block font-medium text-text">Download imports</b>
-                        <small class="block text-xs text-faint">The client's drive comes down to your machine</small>
-                      </div>
-                      <Switch id="lc-sync-imports-on" bind:checked={importsOn} label="Download imports" onchange={(on) => on && preselectByName()} />
-                    </div>
-                    {#if importsOn}
-                      <div class="grid gap-2 sm:grid-cols-2">
-                        <select id="lc-sync-drive" class="{input} max-w-none" value={driveFolder?.folder_id ?? ""} disabled={loadingFolders} onchange={(e) => pickSide("drive", e.currentTarget.value)}>
-                          {#if loadingFolders && !children}
-                            <option value="">Loading the project's folders…</option>
-                          {:else}
-                            <option value="">This link's folder</option>
-                            {#each sideOptions("drive") as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
-                          {/if}
-                        </select>
-                        <input class={input} bind:value={driveLocal} placeholder="1_DRIVE" aria-label="Local folder for the client drive" autocomplete="off" spellcheck="false" />
-                      </div>
-                      <div class="flex min-w-0 flex-wrap items-center gap-1.5">
-                        <input
-                          class="{input} max-w-56"
-                          bind:value={newName.drive}
-                          placeholder="or type a new folder name"
-                          aria-label="New folder name for the client drive"
-                          autocomplete="off"
-                          spellcheck="false"
-                          onkeydown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              void createSideFolder("drive");
-                            }
-                          }}
-                        />
-                        <button type="button" class="h-8 rounded-md border border-border px-3 font-medium text-text hover:bg-surface-3 disabled:cursor-default disabled:opacity-40" disabled={!cleanFolderName(newName.drive) || !!creating} onclick={() => createSideFolder("drive")}>
-                          {creating === "drive" ? "Creating…" : "Create"}
-                        </button>
-                      </div>
-                      {#if newName.drive.trim() && !cleanFolderName(newName.drive)}
-                        <div class="text-xs text-danger">{FOLDER_NAME_RULE}</div>
-                      {/if}
-                      {#if createIssue?.side === "drive"}
-                        <div class="text-xs text-danger">{createIssue.message}</div>
-                      {/if}
-                      <div class="text-xs text-faint">
-                        {#if driveFolder}
-                          Downloaded from <span class="font-mono">{syncRoot?.name ?? "the project"} / {driveFolder.folder_name || "that folder"}</span> into <span class="font-mono">{driveLocal.trim() || "1_DRIVE"}</span>
-                        {:else}
-                          Downloaded from this link's folder into <span class="font-mono">{driveLocal.trim() || "1_DRIVE"}</span>
-                        {/if}
-                      </div>
-                    {:else}
-                      <p class="text-xs text-faint">Nothing is downloaded. Turn on <span class="font-medium text-muted">Imports</span> to bring the client's drive down into <span class="font-mono">{driveLocal.trim() || "1_DRIVE"}</span>.</p>
-                    {/if}
-                  </div>
-                </div>
-                <div class={line}>
-                  <div class={label}>Exports</div>
-                  <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
-                    <div class="flex min-w-0 items-center gap-3">
-                      <div class="min-w-0 flex-1">
-                        <b class="block font-medium text-text">Upload exports</b>
-                        <small class="block text-xs text-faint">Your exports go up to Frame.io</small>
-                      </div>
-                      <Switch id="lc-sync-exports-on" bind:checked={exportsOn} label="Upload exports" onchange={(on) => on && preselectByName()} />
-                    </div>
-                    {#if exportsOn}
-                      <div class="grid gap-2 sm:grid-cols-2">
-                        <select id="lc-sync-exports" class="{input} max-w-none" value={exportsFolder?.folder_id ?? ""} disabled={loadingFolders} onchange={(e) => pickSide("exports", e.currentTarget.value)}>
-                          {#if loadingFolders && !children}
-                            <option value="">Loading the project's folders…</option>
-                          {:else}
-                            <option value="">This link's folder</option>
-                            {#each sideOptions("exports") as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
-                          {/if}
-                        </select>
-                        <input class={input} bind:value={exportsLocal} placeholder="0_EXPORTS" aria-label="Local folder for exports" autocomplete="off" spellcheck="false" />
-                      </div>
-                      <div class="flex min-w-0 flex-wrap items-center gap-1.5">
-                        <input
-                          class="{input} max-w-56"
-                          bind:value={newName.exports}
-                          placeholder="or type a new folder name"
-                          aria-label="New folder name for exports"
-                          autocomplete="off"
-                          spellcheck="false"
-                          onkeydown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              void createSideFolder("exports");
-                            }
-                          }}
-                        />
-                        <button type="button" class="h-8 rounded-md border border-border px-3 font-medium text-text hover:bg-surface-3 disabled:cursor-default disabled:opacity-40" disabled={!cleanFolderName(newName.exports) || !!creating} onclick={() => createSideFolder("exports")}>
-                          {creating === "exports" ? "Creating…" : "Create"}
-                        </button>
-                      </div>
-                      {#if newName.exports.trim() && !cleanFolderName(newName.exports)}
-                        <div class="text-xs text-danger">{FOLDER_NAME_RULE}</div>
-                      {/if}
-                      {#if createIssue?.side === "exports"}
-                        <div class="text-xs text-danger">{createIssue.message}</div>
-                      {/if}
-                      {#if lanesCollide}
-                        <div class="text-xs text-danger">Pick the exports folder: the link's own folder is already where imports come from.</div>
-                      {/if}
-                      <div class="text-xs text-faint">
-                        {#if exportsFolder}
-                          Uploaded from <span class="font-mono">{exportsLocal.trim() || "0_EXPORTS"}</span> into <span class="font-mono">{syncRoot?.name ?? "the project"} / {exportsFolder.folder_name || "that folder"}</span>
-                        {:else}
-                          Uploaded from <span class="font-mono">{exportsLocal.trim() || "0_EXPORTS"}</span> into this link's folder
-                        {/if}
-                      </div>
-                    {:else}
-                      <p class="text-xs text-faint">Nothing is uploaded. Turn on <span class="font-medium text-muted">Upload exports</span> to send <span class="font-mono">{exportsLocal.trim() || "0_EXPORTS"}</span> up to Frame.io</p>
-                    {/if}
-                  </div>
-                </div>
-              {/if}
-              <div class="{line} border-t-0 pt-1">
-                <div></div>
-                <p class="text-xs text-faint">Files are added in both directions. Nothing is ever deleted: you can clear Frame.io once you have your own copy. Both rows list the folders directly inside {syncRoot ? `“${syncRoot.name}”` : "the project"}: pick one, or type a new name and Portal makes it.</p>
               </div>
             {/if}
           {:else}
-            <div class="{line} border-t-0 pt-1">
+            <div class={line}>
               <div class={label}><label for="lc-maxdl">Limit</label></div>
               <div class="relative max-w-52">
                 <input id="lc-maxdl" type="number" min="1" class="{input} pr-24" bind:value={maxDownloads} placeholder="Unlimited" />
@@ -1238,13 +1009,10 @@
               <div class={label}><label for="lc-notify">Notify</label></div>
               <div class="grid grid-cols-[minmax(0,1fr)] gap-1.5">
                 <input id="lc-notify" class={input} bind:value={notifyEmails} placeholder={defaultNotify ? `${defaultNotify} (default)` : "you@example.com"} autocomplete="off" spellcheck="false" />
-                <div class="text-xs text-faint">
-                  {kind === "upload" ? "Who gets the email when an upload finishes" : "Who gets the expiry reminder"}{kind === "upload" && remind && expiry !== "never" ? " and the expiry reminder" : ""}. Separate several addresses with commas.
-                </div>
               </div>
             </div>
           {/if}
-        </details>
+        </div>
       </div>
 
       <div class="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3.5 sm:px-7">

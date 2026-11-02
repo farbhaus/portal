@@ -1,7 +1,6 @@
 pub mod account;
 pub mod activity;
 pub mod branding;
-pub mod brands;
 pub mod dashboard;
 pub mod docs;
 pub mod frameio;
@@ -11,10 +10,7 @@ pub mod link_options;
 pub mod links;
 pub mod security;
 pub mod settings;
-pub mod sync_jobs;
-pub mod sync_rules;
 pub mod upload_links;
-pub mod webhooks;
 pub mod health;
 pub mod presets;
 pub mod public;

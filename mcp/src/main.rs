@@ -78,6 +78,38 @@ impl PortalServer {
     }
 }
 
+/// A link's `folder.sync` after switching FioTransfer on or off: null when off, else what it
+/// already stores (on-disk names, an older `exports` lane) with the return folder set or removed.
+/// A different return folder drops its lane's on-disk name; Portal names it after the new folder.
+fn with_sync(stored: Option<&Value>, enabled: bool, return_folder_id: Option<&str>) -> Value {
+    if !enabled {
+        return Value::Null;
+    }
+    let mut sync = stored.filter(|v| v.is_object()).cloned().unwrap_or_else(|| json!({}));
+    if let Some(obj) = sync.as_object_mut() {
+        let key = if obj.contains_key("exports") && !obj.contains_key("upload") { "exports" } else { "upload" };
+        match return_folder_id {
+            Some(id) => {
+                let lane = obj.entry(key).or_insert_with(|| json!({}));
+                if !lane.is_object() {
+                    *lane = json!({});
+                }
+                if lane.get("folder_id").and_then(|v| v.as_str()) != Some(id.trim()) {
+                    if let Some(l) = lane.as_object_mut() {
+                        l.remove("local");
+                    }
+                }
+                lane["folder_id"] = json!(id.trim());
+            }
+            None => {
+                obj.remove("upload");
+                obj.remove("exports");
+            }
+        }
+    }
+    sync
+}
+
 /// A Portal id that goes into a URL path. Portal's ids are UUIDs, and anything else is refused
 /// before it reaches the URL: a `../` in an id would otherwise resolve to another endpoint (an
 /// "upload link" delete landing on `/api/frameio/projects/{id}`).
@@ -107,17 +139,26 @@ struct LinkId {
 #[derive(Debug, Deserialize, JsonSchema)]
 struct UpdateLink {
     link_id: String,
-    /// Fields to PATCH. Only supplied keys change; `turbosort: null` clears the project folder name.
-    /// The FioTransfer sync rides in `folder`: send the link's `folder` with a `sync` block
-    /// (`{"mode":"add_only","drive":{"local":"1_DRIVE"},"exports":{"local":"0_EXPORTS"}}`), or
-    /// `sync: null` to remove it.
+    /// Fields to PATCH. Only supplied keys change. "Sync with FioTransfer" rides in `folder`: send
+    /// the link's `folder` with a `sync` block (`{}` to sync it, `{"upload":{"folder_id":"…"}}` to
+    /// add a return folder), or `sync: null` to stop. `set_fiotransfer_sync` does this for you.
     fields: Value,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SetFiotransferSync {
+    link_id: String,
+    /// true gives the link a folder in FioTransfer; false stops syncing it.
+    enabled: bool,
+    /// The send folder: the Frame.io folder the user's files go up to, which Portal shares with a
+    /// Send link. Omit for none.
+    return_folder_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SetProjectFolder {
     link_id: String,
-    /// Project folder name, or null to clear it.
+    /// Project folder name (`turbosort`), or null to clear it.
     project_folder: Option<String>,
 }
 
@@ -128,7 +169,11 @@ struct CreateUploadLink {
     workspace_id: String,
     project_id: String,
     folder_id: String,
-    /// The project's local folder name; FioTransfer reads it from `GET /api/upload-links`.
+    /// true gives the link a folder in FioTransfer: what the client uploads comes down to it.
+    sync: Option<bool>,
+    /// The send folder the user's files go up to (implies `sync`). Omit for none.
+    return_folder_id: Option<String>,
+    /// The older project folder name FioTransfer reads when `sync.name` is absent.
     turbosort: Option<String>,
     /// RFC 3339 timestamp.
     expires_at: Option<String>,
@@ -136,24 +181,6 @@ struct CreateUploadLink {
     max_file_size: Option<i64>,
     allowed_extensions: Option<Vec<String>>,
     subfolder_template: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct RuleId {
-    rule_id: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct CreateSyncRule {
-    name: String,
-    account_id: String,
-    workspace_id: String,
-    project_id: String,
-    folder_id: String,
-    destination_path: String,
-    conflict_policy: Option<String>,
-    path_template: Option<String>,
-    enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -180,7 +207,7 @@ impl PortalServer {
         pretty(self.call(reqwest::Method::GET, "/api/health", None, &[]).await?)
     }
 
-    #[tool(description = "List upload links, including public URL, state, project folder (turbosort) and FioTransfer sync.")]
+    #[tool(description = "List upload links, including public URL, state and FioTransfer sync (folder.sync).")]
     async fn list_upload_links(&self) -> Result<String, ErrorData> {
         pretty(self.call(reqwest::Method::GET, "/api/upload-links", None, &[]).await?)
     }
@@ -191,7 +218,7 @@ impl PortalServer {
         pretty(self.call(reqwest::Method::GET, &format!("/api/upload-links/{link_id}"), None, &[]).await?)
     }
 
-    #[tool(description = "Create an upload link for a Frame.io folder. Set turbosort to the project's local folder name.")]
+    #[tool(description = "Create an upload link for a Frame.io folder. Set sync to give it a folder in FioTransfer.")]
     async fn create_upload_link(
         &self,
         Parameters(p): Parameters<CreateUploadLink>,
@@ -206,6 +233,9 @@ impl PortalServer {
                 "folder_id": p.folder_id,
             }
         });
+        if p.sync.unwrap_or(false) || p.return_folder_id.is_some() {
+            body["folder"]["sync"] = with_sync(None, true, p.return_folder_id.as_deref());
+        }
         let optional = [
             ("turbosort", p.turbosort.map(Value::String)),
             ("expires_at", p.expires_at.map(Value::String)),
@@ -236,7 +266,7 @@ impl PortalServer {
         )
     }
 
-    #[tool(description = "Set or clear (null) the project's local folder name (turbosort) for an upload link.")]
+    #[tool(description = "Set or clear (null) an upload link's project folder name (turbosort), the older folder name FioTransfer reads when sync.name is absent.")]
     async fn set_project_folder(
         &self,
         Parameters(p): Parameters<SetProjectFolder>,
@@ -253,52 +283,25 @@ impl PortalServer {
         )
     }
 
+    #[tool(description = "Turn Sync with FioTransfer on or off for an upload link, with an optional send folder.")]
+    async fn set_fiotransfer_sync(
+        &self,
+        Parameters(p): Parameters<SetFiotransferSync>,
+    ) -> Result<String, ErrorData> {
+        let link_id = path_id("link_id", &p.link_id)?;
+        let path = format!("/api/upload-links/{link_id}");
+        let link = self.call(reqwest::Method::GET, &path, None, &[]).await?;
+        let mut folder = link.get("folder").filter(|f| f.is_object()).cloned().ok_or_else(|| {
+            ErrorData::invalid_params("That upload link has no Frame.io folder to sync", None)
+        })?;
+        folder["sync"] = with_sync(folder.get("sync"), p.enabled, p.return_folder_id.as_deref());
+        pretty(self.call(reqwest::Method::PATCH, &path, Some(json!({ "folder": folder })), &[]).await?)
+    }
+
     #[tool(description = "Delete an upload link.")]
     async fn delete_upload_link(&self, Parameters(LinkId { link_id }): Parameters<LinkId>) -> Result<String, ErrorData> {
         let link_id = path_id("link_id", &link_id)?;
         pretty(self.call(reqwest::Method::DELETE, &format!("/api/upload-links/{link_id}"), None, &[]).await?)
-    }
-
-    #[tool(description = "List Frame.io-to-NAS sync rules.")]
-    async fn list_sync_rules(&self) -> Result<String, ErrorData> {
-        pretty(self.call(reqwest::Method::GET, "/api/sync-rules", None, &[]).await?)
-    }
-
-    #[tool(description = "Read one sync rule.")]
-    async fn get_sync_rule(&self, Parameters(RuleId { rule_id }): Parameters<RuleId>) -> Result<String, ErrorData> {
-        let rule_id = path_id("rule_id", &rule_id)?;
-        pretty(self.call(reqwest::Method::GET, &format!("/api/sync-rules/{rule_id}"), None, &[]).await?)
-    }
-
-    #[tool(description = "Create a sync rule. destination_path must be writable by the Portal container.")]
-    async fn create_sync_rule(
-        &self,
-        Parameters(p): Parameters<CreateSyncRule>,
-    ) -> Result<String, ErrorData> {
-        let mut body = json!({
-            "name": p.name,
-            "source": {
-                "type": "frameio",
-                "account_id": p.account_id,
-                "workspace_id": p.workspace_id,
-                "project_id": p.project_id,
-                "folder_id": p.folder_id,
-                "recursive": true,
-            },
-            "destination_path": p.destination_path,
-            "conflict_policy": p.conflict_policy.unwrap_or_else(|| "rename_suffix".to_string()),
-            "enabled": p.enabled.unwrap_or(true),
-        });
-        if let Some(template) = p.path_template {
-            body["path_template"] = json!(template);
-        }
-        pretty(self.call(reqwest::Method::POST, "/api/sync-rules", Some(body), &[]).await?)
-    }
-
-    #[tool(description = "Reconcile a sync rule now: queue any missing files.")]
-    async fn run_sync_rule(&self, Parameters(RuleId { rule_id }): Parameters<RuleId>) -> Result<String, ErrorData> {
-        let rule_id = path_id("rule_id", &rule_id)?;
-        pretty(self.call(reqwest::Method::POST, &format!("/api/sync-rules/{rule_id}/run"), None, &[]).await?)
     }
 
     #[tool(description = "Return whether Frame.io is connected and when its token expires.")]
@@ -386,7 +389,26 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::path_id;
+    use super::{path_id, with_sync};
+    use serde_json::{json, Value};
+
+    #[test]
+    fn sync_switch_keeps_what_the_link_stores() {
+        let ret = "6f4121b3-628d-4b7a-91ea-8b1ac4a3f0a3";
+        assert_eq!(with_sync(None, true, None), json!({}));
+        assert_eq!(with_sync(None, true, Some(ret)), json!({ "upload": { "folder_id": ret } }));
+        assert_eq!(with_sync(Some(&json!({ "name": "Acme" })), false, None), Value::Null);
+        // An older link keeps its keys and names; the same return folder keeps its name too.
+        let old = json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "local": "0_EXPORTS", "folder_id": ret } });
+        assert_eq!(with_sync(Some(&old), true, Some(ret)), old);
+        // A different return folder drops the old name; Portal names it after the new folder.
+        let other = "8008cf70-f28e-474d-a209-d67afb9fddb6";
+        assert_eq!(
+            with_sync(Some(&old), true, Some(other)),
+            json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "folder_id": other } })
+        );
+        assert_eq!(with_sync(Some(&old), true, None), json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" } }));
+    }
 
     #[test]
     fn path_ids_are_uuids_only() {

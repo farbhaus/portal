@@ -6,16 +6,14 @@
   import { onLiveChange, refreshOnChange } from "$lib/live.svelte";
   import { fmtDuration, fmtSpeed, timeAgo, whenFull, type LinkItem } from "$lib/links";
   import { errorDetail, toast } from "$lib/toast.svelte";
-  import type { ActiveSync, ActiveUpload, HistoryItem, SyncHealth } from "./+page";
+  import type { ActiveUpload, HistoryItem } from "./+page";
 
   let { data } = $props();
   const uploads = $derived(data.transfers.active_uploads as ActiveUpload[]);
-  const syncs = $derived(data.transfers.active_syncs as ActiveSync[]);
-  const health = $derived(data.transfers.sync_health as SyncHealth);
   const links = $derived(data.links as LinkItem[]);
 
   // The page reloads on every live change; a slow timer only if the event stream can't connect.
-  $effect(() => refreshOnChange(uploads.length || syncs.length ? 8000 : 30_000));
+  $effect(() => refreshOnChange(uploads.length ? 8000 : 30_000));
 
   // ── live rows ───────────────────────────────────────────────────────────
   function uploadProgress(u: ActiveUpload) {
@@ -57,7 +55,7 @@
 
   // ── history ─────────────────────────────────────────────────────────────
   let q = $state("");
-  let kind = $state<"all" | "upload" | "download" | "sync">("all");
+  let kind = $state<"all" | "upload" | "download">("all");
   let items = $state<HistoryItem[]>([]);
   let hasMore = $state(false);
   let loading = $state(true);
@@ -115,7 +113,7 @@
       if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
       return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const kindName = { upload: "Received", download: "Sent", sync: "To NAS" } as const;
+    const kindName = { upload: "Received", download: "Sent" } as const;
     const lines = [
       ["When", "Type", "Name", "Who", "Files", "Bytes", "Status"].join(","),
       ...r.items.map((i) => [i.at, kindName[i.kind], i.label, i.kind === "download" && i.via ? `${i.who ?? ""} via ${i.via}` : i.who, i.files ?? "", i.bytes ?? "", statusWord(i)].map(cell).join(",")),
@@ -131,17 +129,14 @@
 
   function statusWord(i: HistoryItem): string {
     if (i.kind === "upload") return i.status === "completed" ? "Received" : "Didn't finish";
-    if (i.kind === "download") return i.status === "completed" ? "Downloaded" : "Started";
-    return { done: "Copied", dead_letter: "Failed", skipped: "Skipped" }[i.status] ?? i.status;
+    return i.status === "completed" ? "Downloaded" : "Started";
   }
-  const statusTone = (i: HistoryItem) =>
-    i.status === "dead_letter" ? "text-danger" : i.status === "incomplete" || i.status === "skipped" || i.status === "in_progress" ? "text-warning" : "text-muted";
-  const kindIcon = { upload: "receive", download: "send", sync: "nas" } as const;
+  const statusTone = (i: HistoryItem) => (i.status === "incomplete" || i.status === "in_progress" ? "text-warning" : "text-muted");
+  const kindIcon = { upload: "receive", download: "send" } as const;
   const href = (i: HistoryItem) =>
-    i.kind === "upload" && i.link_id ? `/upload-links/${i.link_id}` : i.kind === "download" && i.link_id ? `/download-links/${i.link_id}` : i.rule_id ? `/sync-rules/${i.rule_id}` : null;
+    !i.link_id ? null : i.kind === "upload" ? `/upload-links/${i.link_id}` : `/download-links/${i.link_id}`;
 
-  const syncActive = $derived(health.running + health.queued);
-  const quiet = $derived(!uploads.length && !syncs.length);
+  const quiet = $derived(!uploads.length);
 </script>
 
 <div class="space-y-6 text-[13px]">
@@ -177,30 +172,8 @@
             <span class="tnum col-span-2 text-xs text-muted md:col-span-1 md:text-right">{fmtSpeed(p.bps)}{p.eta ? ` · ` : ""}{#if p.eta}<span class="text-text">{p.eta} left</span>{/if}</span>
           </a>
         {/each}
-        {#each syncs as j (j.id)}
-          <a href="/sync-rules/{j.rule_id}" class="grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0 hover:bg-white/[0.02]">
-            <span class="grid h-[30px] w-[30px] place-items-center rounded-md border border-border bg-surface-2 text-body"><Icon name="nas" /></span>
-            <span class="min-w-0">
-              <span class="block truncate {j.file ? 'text-text' : 'text-muted'}" title={j.file ?? ""}>{j.file ?? "A new file from Frame.io"}</span>
-              <span class="block truncate text-xs text-faint">To the NAS · {j.rule}</span>
-            </span>
-            <span class="inline-flex items-center gap-2 text-xs {j.status === 'running' ? 'text-text' : 'text-muted'}">
-              {#if j.status === "running"}<span class="live-dot"></span>Copying{:else}<span class="h-[7px] w-[7px] rounded-full bg-info"></span>Queued{/if}
-            </span>
-          </a>
-        {/each}
       </div>
     {/if}
-  </section>
-
-  <!-- health -->
-  <section class="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border bg-surface px-4 py-3">
-    <span class="flex items-center gap-2"><span class="tnum text-base font-semibold text-text">{health.done_24h}</span><span class="text-muted">copied to the NAS in 24h</span></span>
-    <a href="/sync" class="flex items-center gap-2 hover:text-text"><span class="tnum text-base font-semibold {syncActive ? 'text-info' : 'text-text'}">{syncActive}</span><span class="text-muted">copying or queued</span></a>
-    <a href="/sync" class="flex items-center gap-2 hover:text-text"><span class="tnum text-base font-semibold {health.waiting ? 'text-warning' : 'text-text'}">{health.waiting}</span><span class="text-muted">waiting on Frame.io</span></a>
-    <a href={health.dead_letter_rule_id ? `/sync-rules/${health.dead_letter_rule_id}` : "/sync"} class="flex items-center gap-2 hover:text-text">
-      <span class="tnum text-base font-semibold {health.dead_letter ? 'text-danger' : 'text-text'}">{health.dead_letter}</span><span class="text-muted">failed{health.dead_letter ? ", needs a look" : ""}</span>
-    </a>
   </section>
 
   <!-- expiring soon -->
@@ -232,7 +205,7 @@
         <input bind:value={q} oninput={onSearch} type="text" placeholder="Search names, people, files" aria-label="Search history" class="h-8 w-full rounded-md border border-border bg-bg pr-2 pl-8 outline-none focus:border-accent" />
       </label>
       <div class="inline-flex gap-0.5 rounded-md border border-border bg-surface p-0.5" role="group" aria-label="Type">
-        {#each [["all", "All"], ["upload", "Received"], ["download", "Sent"], ["sync", "To NAS"]] as [k, l] (k)}
+        {#each [["all", "All"], ["upload", "Received"], ["download", "Sent"]] as [k, l] (k)}
           <button type="button" class="h-[26px] rounded px-2.5 font-medium {kind === k ? 'bg-surface-3 text-text' : 'text-muted hover:text-text'}" onclick={() => { kind = k as typeof kind; void reloadHistory(); }}>{l}</button>
         {/each}
       </div>
@@ -256,7 +229,6 @@
             <span class="min-w-0">
               <span class="block truncate text-text" title={i.label ?? ""}>{i.label ?? "—"}</span>
               <span class="block truncate text-xs text-faint sm:hidden">{i.who ?? ""}</span>
-              {#if i.error && i.status === "dead_letter"}<span class="block truncate text-xs text-danger" title={i.error}>{i.error}</span>{/if}
             </span>
             <span class="hidden min-w-0 truncate text-muted sm:block" title={i.who ?? ""}>{i.who ?? "—"}{#if i.kind === "download" && i.via}<span class="text-faint"> · {i.via}</span>{/if}</span>
             <span class="tnum hidden text-right text-muted sm:block">{i.bytes != null ? formatBytes(i.bytes) : ""}</span>

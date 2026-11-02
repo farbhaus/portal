@@ -1,5 +1,5 @@
 # All-in-one Portal image (farbhaus/portal). One Rust binary (apps/api-rs) serves the API and the
-# SvelteKit web app (built to static files) and runs the sync worker; Postgres, Redis and an
+# SvelteKit web app (built to static files) and runs a background worker; Postgres, Redis and an
 # internal Caddy router run beside it in one container supervised by supervisord. End-user
 # deployment is a single service + one /data volume behind a host reverse proxy. No Python or Node
 # at runtime. For local development, `make dev` builds and runs this image from source.
@@ -78,8 +78,7 @@ ENV PATH="/usr/lib/postgresql/16/bin:$PATH" \
     XDG_DATA_HOME="/data/caddy" \
     XDG_CONFIG_HOME="/data/caddy"
 
-# Unprivileged user for the API (postgres/redis bring their own; the sync worker runs as root to
-# write to host mounts — see supervisord.conf).
+# Unprivileged user for the API and worker (postgres/redis bring their own).
 RUN groupadd --gid 10001 app \
     && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin app
 
