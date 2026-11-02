@@ -37,7 +37,7 @@ RUN touch src/main.rs && cargo build --release --locked --bin portal-api
 # Built from source rather than copied from the caddy image: that image's binary is compiled with
 # whatever Go was current at release and so trails Go's security releases (image scans flag its
 # stdlib). Same release and the standard module set, compiled with a patched Go.
-FROM golang:1.26-trixie AS caddy-build
+FROM golang:1.27-trixie AS caddy-build
 ARG CADDY_VERSION=v2.11.7
 # Security releases of Caddy's dependencies that postdate CADDY_VERSION (drop each pin once a Caddy
 # release requires that version itself; the version check below catches a pin that would
