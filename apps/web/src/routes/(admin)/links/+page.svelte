@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { goto, invalidateAll } from "$app/navigation";
-  import { ConfirmButton, FolderField, Icon } from "$lib/components";
-  import { crumbNames, type FolderRef } from "$lib/frameio";
+  import { invalidateAll } from "$app/navigation";
+  import { ConfirmButton, Icon } from "$lib/components";
   import { formatBytes } from "$lib/format";
   import { refreshOnChange } from "$lib/live.svelte";
   import {
@@ -18,7 +17,6 @@
     type LinkItem,
     type UploadSessionRow,
   } from "$lib/links";
-  import { lastFolder, recentFolders, rememberFolder } from "$lib/recents";
   import { copyWithToast, errorDetail, toast } from "$lib/toast.svelte";
 
   let { data } = $props();
@@ -57,37 +55,6 @@
     }
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([name, items]) => ({ name, items }));
   });
-
-  // ── quick create ────────────────────────────────────────────────────────
-  const recents = $derived(recentFolders(links));
-  let quickFolder = $state<FolderRef | null>(null);
-  $effect(() => {
-    if (!quickFolder) quickFolder = lastFolder() ?? recents[0] ?? null;
-  });
-  let quickBusy = $state(false);
-
-  async function quickCreate() {
-    if (!quickFolder) return;
-    quickBusy = true;
-    try {
-      const end = new Date();
-      end.setDate(end.getDate() + 7);
-      end.setHours(23, 59, 0, 0);
-      const res = await fetch("/api/upload-links", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ folder: quickFolder, name: crumbNames(quickFolder).at(-1), expires_at: end.toISOString() }),
-      });
-      if (!res.ok) return toast(await errorDetail(res, "Could not create the link"), { kind: "error" });
-      const link = await res.json();
-      rememberFolder(quickFolder);
-      await copyWithToast(link.public_url, `Created “${link.name}” and copied its link`);
-      await invalidateAll();
-      open = new Set([link.id]);
-    } finally {
-      quickBusy = false;
-    }
-  }
 
   // ── row actions ─────────────────────────────────────────────────────────
   const base = (l: LinkItem) => (l.kind === "upload" ? "/api/upload-links" : "/api/download-links");
@@ -186,7 +153,7 @@
   const dotTone: Record<string, string> = { ok: "bg-success", muted: "bg-faint", warn: "bg-warning", bad: "bg-danger" };
 
   const grid =
-    "grid items-center gap-x-3.5 grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1fr)_170px_150px] lg:grid-cols-[minmax(0,1.5fr)_minmax(170px,1.15fr)_92px_176px_150px] xl:grid-cols-[minmax(0,1.6fr)_minmax(190px,1.2fr)_92px_190px_150px]";
+    "grid items-center gap-x-3.5 grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1fr)_170px_180px] lg:grid-cols-[minmax(0,1.5fr)_minmax(170px,1.15fr)_92px_176px_180px] xl:grid-cols-[minmax(0,1.6fr)_minmax(190px,1.2fr)_92px_190px_180px]";
 </script>
 
 <div class="space-y-4 text-[13px]">
@@ -196,25 +163,6 @@
     <a href="/links/new" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 font-medium text-on-accent hover:bg-accent-hover">
       <Icon name="plus" size={15} />New link
     </a>
-  </div>
-
-  <!-- quick create -->
-  <div class="rounded-xl border border-border bg-surface">
-    <div class="flex flex-wrap items-center gap-2.5 px-3 py-2.5 sm:flex-nowrap">
-      <span class="w-14 shrink-0 text-xs font-medium text-faint">Receive</span>
-      <div class="min-w-0 flex-1 basis-60">
-        <FolderField bind:value={quickFolder} {recents} title="Receive into" chooseVerb="Use" placeholder="Choose the folder uploads land in" onchange={rememberFolder} />
-      </div>
-      <button type="button" class="inline-flex h-8 shrink-0 items-center rounded-md bg-accent px-3 font-medium text-on-accent hover:bg-accent-hover disabled:opacity-40" disabled={!quickFolder || quickBusy} onclick={quickCreate}>
-        {quickBusy ? "Creating…" : "Create link"}
-      </button>
-    </div>
-    <div class="flex flex-wrap items-center gap-2.5 border-t border-border px-3 py-2.5">
-      <span class="w-14 shrink-0 text-xs font-medium text-faint">Send</span>
-      <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-2 px-3 font-medium text-text hover:bg-surface-3" onclick={() => goto("/links/new?type=download&pick=1")}>
-        <Icon name="file" size={15} />Choose files…
-      </button>
-    </div>
   </div>
 
   <!-- toolbar -->
@@ -256,7 +204,7 @@
       <div class="py-16 text-center">
         <div class="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-xl border border-border bg-surface text-faint"><Icon name="link" size={22} /></div>
         <div class="text-sm font-medium text-text">No links yet</div>
-        <p class="mt-1 text-muted">Pick a folder above and create one, or start from <a href="/links/new" class="text-accent-hover hover:underline">New link</a>.</p>
+        <p class="mt-1 text-muted">Start from <a href="/links/new" class="text-accent-hover hover:underline">New link</a>.</p>
       </div>
     {:else if !shown.length}
       <p class="py-14 text-center text-faint">No links match “{q}”.</p>
@@ -357,6 +305,7 @@
               {#if l.state === "ok"}
                 <ConfirmButton label="Revoke link" confirmLabel="Revoke" icon="revoke" onconfirm={() => revoke(l)} />
               {/if}
+              <ConfirmButton label="Delete link" confirmLabel="Delete forever" icon="trash" onconfirm={() => remove(l)} />
               <a href={editHref(l)} class="grid h-7 w-7 place-items-center rounded-md text-faint hover:bg-surface-3 hover:text-text" title="Edit" aria-label="Edit {l.name}"><Icon name="pencil" /></a>
             </div>
           </div>
@@ -373,6 +322,15 @@
                   {@const sync = l.folder?.sync}
                   <span class="text-faint">FioTransfer</span>
                   <span class="text-body">{sync ? (sync.upload?.folder_id || sync.exports?.folder_id ? "Synced, with a return folder" : "Synced") : "Not synced"}</span>
+                  {#if l.return_link}
+                    {@const ret = l.return_link}
+                    <span class="text-faint">Clients download</span>
+                    <button type="button" class="min-w-0 truncate text-left font-mono text-[11.5px] text-text hover:text-accent-hover" title="Copy link" onclick={() => copyWithToast(ret.public_url)}>{ret.public_url.replace(/^https?:\/\//, "")}</button>
+                  {/if}
+                {:else if l.return_for}
+                  {@const owner = links.find((x) => x.id === l.return_for)}
+                  <span class="text-faint">Follows</span>
+                  <a href="/upload-links/{l.return_for}" class="min-w-0 truncate text-body hover:text-accent-hover">{owner?.name ?? "its receive link"}<span class="text-faint"> · return folder</span></a>
                 {/if}
                 <span class="text-faint">Protection</span>
                 <span class="text-body">{[l.verify_email && "Email code", l.password_protected && "Password"].filter(Boolean).join(" · ") || "None"}</span>

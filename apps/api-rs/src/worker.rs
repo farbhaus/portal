@@ -7,6 +7,7 @@ use crate::state::AppState;
 
 pub async fn run(state: AppState) -> anyhow::Result<()> {
     tracing::info!("worker.startup");
+    crate::services::return_links::backfill(&state).await;
     let mut last_abandon = Instant::now();
     let mut last_retention = Instant::now();
     let mut last_reminders = Instant::now() - Duration::from_secs(10 * 60); // check once at startup

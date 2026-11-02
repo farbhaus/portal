@@ -205,13 +205,66 @@ pub fn validate_sync(raw: Option<&Value>, link_folder_id: &str) -> Result<Option
     Ok(Some(Value::Object(out)))
 }
 
+/// The folder IN comes down from (its lane's `folder_id`, else the link's own) and the return
+/// folder OUT goes up to, if the stored sync block names one.
+fn sync_folders<'a>(sync: &'a Value, link_folder_id: &'a str) -> (&'a str, Option<&'a str>) {
+    fn lane<'v>(sync: &'v Value, keys: [&str; 2]) -> Option<&'v str> {
+        keys.iter().find_map(|k| sync.get(*k)?.get("folder_id")?.as_str())
+    }
+    (lane(sync, ["download", "drive"]).unwrap_or(link_folder_id), lane(sync, ["upload", "exports"]))
+}
+
+/// A Frame.io folder name made usable as one folder on disk: separators and `%` become `-`,
+/// control characters go, at most 255 bytes. None when nothing usable is left.
+fn disk_name(name: &str) -> Option<String> {
+    let mut out: String = name
+        .chars()
+        .filter(|c| !c.is_control())
+        .map(|c| if matches!(c, '/' | '\\' | '%') { '-' } else { c })
+        .collect::<String>()
+        .trim()
+        .to_string();
+    while out.len() > 255 {
+        out.pop();
+    }
+    let out = out.trim().to_string();
+    (!out.is_empty() && out != "." && out != "..").then_some(out)
+}
+
+/// FioTransfer names the link's two folders on disk after their `local` names; Portal fills the
+/// missing ones with their Frame.io folders' names, so the folders on disk mirror Frame.io: the
+/// client's uploads come down into a folder named like the link's (unless its lane names another
+/// Frame.io folder), and the return folder's twin is named like the return folder. A name already
+/// there is kept. If both would be the same, the return one is left to FioTransfer's default.
+fn fill_local_names(sync: &mut Value, link_folder_name: &str, return_folder_name: Option<&str>) {
+    let Some(obj) = sync.as_object_mut() else { return };
+    let down_key = if obj.contains_key("drive") && !obj.contains_key("download") { "drive" } else { "download" };
+    let up_key = if obj.contains_key("exports") && !obj.contains_key("upload") { "exports" } else { "upload" };
+    let down = obj.entry(down_key).or_insert_with(|| json!({}));
+    if down.get("folder_id").is_none()
+        && down.get("local").is_none()
+        && let (Some(lane), Some(name)) = (down.as_object_mut(), disk_name(link_folder_name))
+    {
+        lane.insert("local".to_string(), json!(name));
+    }
+    let down_local = obj.get(down_key).and_then(|l| l.get("local")).and_then(|v| v.as_str()).map(str::to_string);
+    if let Some(lane) = obj.get_mut(up_key).and_then(|l| l.as_object_mut())
+        && lane.contains_key("folder_id")
+        && !lane.contains_key("local")
+        && let Some(name) = return_folder_name.and_then(disk_name)
+        && Some(&name) != down_local.as_ref()
+    {
+        lane.insert("local".to_string(), json!(name));
+    }
+}
+
 /// The columns every admin view of an upload link reads.
 pub const LINK_COLUMNS: &str = "SELECT l.id, l.token, l.name, l.expires_at, l.password_hash, l.max_file_size,
         l.verify_email, l.allowed_extensions, l.uploader_fields_required, l.revoked_at,
         l.brand_display_name, l.brand_subtitle, l.created_at, l.target_folder_id,
         l.target_folder_name, l.subfolder_template, l.folder,
-        l.notify_emails, l.remind_before_expiry
-   FROM links l WHERE l.kind = 'upload'";
+        l.notify_emails, l.remind_before_expiry, r.id AS return_link_id, r.token AS return_token
+   FROM links l LEFT JOIN links r ON r.return_for = l.id WHERE l.kind = 'upload'";
 
 /// Render one link's `UploadLinkOut`, or None if it doesn't exist.
 async fn fetch_out(state: &AppState, id: Uuid) -> Option<Value> {
@@ -228,9 +281,20 @@ async fn fetch_out(state: &AppState, id: Uuid) -> Option<Value> {
 pub fn effective_name(name: Option<String>, brand: Option<String>, folder: &Value) -> String {
     let nonempty = |v: Option<String>| v.filter(|s| !s.trim().is_empty());
     nonempty(name)
-        .or_else(|| nonempty(brand))
+        .or_else(|| job_folder_name(folder))
         .or_else(|| folder.get("folder_name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .or_else(|| nonempty(brand))
         .unwrap_or_else(|| "Untitled".to_string())
+}
+
+/// What an unnamed upload link is called: the first folder below the project (a client's job
+/// folder, whatever the link delivers into inside it), or the project itself when the link
+/// delivers into its root. FioTransfer names the link's folder on disk after it.
+fn job_folder_name(folder: &Value) -> Option<String> {
+    let path = folder.get("path")?.as_array()?;
+    let seg = path.get(1).or_else(|| path.first())?;
+    let name = seg.get("name")?.as_str()?.trim_end_matches(" (root)").trim();
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 pub fn render_row(state: &AppState, row: &sqlx::postgres::PgRow) -> Value {
@@ -270,6 +334,14 @@ pub fn render_row(state: &AppState, row: &sqlx::postgres::PgRow) -> Value {
         "revoked_at": revoked_at.map(|d| crate::pyfmt::iso(&d)),
         "created_at": crate::pyfmt::iso(&created_at),
     });
+    // The Send link for its return folder (services::return_links). Lists that read every column
+    // of `links` don't join it in and fill it themselves.
+    let return_id: Option<Uuid> = row.try_get("return_link_id").ok().flatten();
+    let return_token: Option<String> = row.try_get("return_token").ok().flatten();
+    out["return_link"] = match return_id.zip(return_token) {
+        Some((id, token)) => json!({ "id": id.to_string(), "public_url": format!("{base}/d/{token}") }),
+        None => Value::Null,
+    };
     link_options::render(row, &mut out);
     out
 }
@@ -295,6 +367,27 @@ pub async fn validated_folder(state: &AppState, raw: &Value) -> Result<Value, Re
         }
         Err(_) => return Err(detail(StatusCode::BAD_REQUEST, "Frame.io folder not found or inaccessible")),
     };
+    // The return folder's place in Frame.io (best-effort: None if Frame.io can't say).
+    let return_chain = match sync.as_ref().and_then(|s| sync_folders(s, &folder_id).1) {
+        Some(up) => state.frameio.folder_ancestry(&account_id, up).await.ok(),
+        None => None,
+    };
+    // It can't be inside the folder the client's uploads come down from: FioTransfer brings that
+    // folder down whole, so what goes up would come straight back down.
+    if let (Some(sync), Some(chain)) = (&sync, &return_chain)
+        && let (down, Some(up)) = sync_folders(sync, &folder_id)
+        && chain.iter().any(|f| f.id == down && f.id != up)
+    {
+        return Err(detail(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "The return folder can't be inside the folder the client's uploads come down from: what you add to it would come straight back down",
+        ));
+    }
+    let return_name = return_chain.as_ref().and_then(|c| c.last()).map(|f| f.name.clone());
+    let sync = sync.map(|mut sync| {
+        fill_local_names(&mut sync, &folder.name, return_name.as_deref());
+        sync
+    });
     let project_id = get("project_id").or(folder.project_id.clone()).unwrap_or_default();
     let project_name = get("project_name");
     let mut stored = json!({
@@ -397,6 +490,7 @@ pub async fn create_link(State(state): State<AppState>, admin: Admin, Json(body)
         .bind(admin.id)
         .bind(json!({ "upload_link_id": id.to_string(), "folder_id": folder.get("folder_id") }))
         .execute(&state.db).await;
+    crate::services::return_links::sync(&state, id).await;
     match fetch_out(&state, id).await {
         Some(v) => (StatusCode::CREATED, Json(v)).into_response(),
         None => not_found(),
@@ -511,6 +605,7 @@ pub async fn update_link(State(state): State<AppState>, _: Admin, Path(id): Path
     if verify == Some(true) {
         let _ = sqlx::query("UPDATE links SET uploader_fields_required = jsonb_set(COALESCE(uploader_fields_required, '{}'::jsonb), '{email}', 'true') WHERE id = $1").bind(id).execute(&state.db).await;
     }
+    crate::services::return_links::sync(&state, id).await;
     match fetch_out(&state, id).await {
         Some(v) => Json(v).into_response(),
         None => not_found(),
@@ -527,6 +622,7 @@ pub async fn revoke_link(State(state): State<AppState>, admin: Admin, Path(id): 
         let _ = sqlx::query("INSERT INTO audit_log (user_id, action, detail) VALUES ($1,'upload_link.revoked',$2)")
             .bind(admin.id).bind(json!({ "upload_link_id": id.to_string() })).execute(&state.db).await;
     }
+    crate::services::return_links::sync(&state, id).await;
     match fetch_out(&state, id).await {
         Some(v) => Json(v).into_response(),
         None => not_found(),
@@ -544,6 +640,7 @@ pub async fn restore_link(State(state): State<AppState>, admin: Admin, Path(id):
         let _ = sqlx::query("INSERT INTO audit_log (user_id, action, detail) VALUES ($1,'upload_link.restored',$2)")
             .bind(admin.id).bind(json!({ "upload_link_id": id.to_string() })).execute(&state.db).await;
     }
+    crate::services::return_links::sync(&state, id).await;
     match fetch_out(&state, id).await {
         Some(v) => Json(v).into_response(),
         None => not_found(),
@@ -646,11 +743,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn effective_name_prefers_own_then_title_then_folder() {
-        let folder = json!({ "folder_name": "Day 3" });
+    fn effective_name_prefers_own_then_the_job_folder() {
+        let folder = json!({ "folder_name": "RUSHES", "path": [
+            { "id": "r", "name": "ACME (root)" }, { "id": "j", "name": "2026_10_30_TestMcTest" }, { "id": "f", "name": "RUSHES" },
+        ] });
         assert_eq!(effective_name(Some("Cards".into()), Some("Send us".into()), &folder), "Cards");
-        assert_eq!(effective_name(Some("  ".into()), Some("Send us".into()), &folder), "Send us");
-        assert_eq!(effective_name(None, None, &folder), "Day 3");
+        // Unnamed: the job folder below the project, not the folder it delivers into or the title.
+        assert_eq!(effective_name(Some("  ".into()), Some("Send us".into()), &folder), "2026_10_30_TestMcTest");
+        // Delivering into the project root: the project's name.
+        let root = json!({ "folder_name": "ACME", "path": [{ "id": "r", "name": "ACME (root)" }] });
+        assert_eq!(effective_name(None, None, &root), "ACME");
+        // No breadcrumb: the folder's name, then the page title.
+        assert_eq!(effective_name(None, None, &json!({ "folder_name": "Day 3" })), "Day 3");
+        assert_eq!(effective_name(None, Some("Send us".into()), &Value::Null), "Send us");
         assert_eq!(effective_name(None, None, &Value::Null), "Untitled");
     }
 
@@ -806,6 +911,51 @@ mod tests {
         // IN moved elsewhere frees the link's own folder for OUT.
         let raw = json!({ "download": { "folder_id": OTHER }, "upload": { "folder_id": LINK } });
         assert!(validate_sync(Some(&raw), LINK).is_ok());
+    }
+
+    #[test]
+    fn local_names_mirror_the_frameio_folders() {
+        let mut sync = json!({ "upload": { "folder_id": "r" } });
+        fill_local_names(&mut sync, "RUSHES", Some("RENDER"));
+        assert_eq!(sync, json!({ "download": { "local": "RUSHES" }, "upload": { "folder_id": "r", "local": "RENDER" } }));
+        // The switch alone: only the client's uploads come down.
+        let mut sync = json!({});
+        fill_local_names(&mut sync, "RUSHES", None);
+        assert_eq!(sync, json!({ "download": { "local": "RUSHES" } }));
+        // Names already there are kept, older lanes included.
+        let mut sync = json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "local": "0_EXPORTS", "folder_id": "r" } });
+        fill_local_names(&mut sync, "RUSHES", Some("RENDER"));
+        assert_eq!(sync, json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "local": "0_EXPORTS", "folder_id": "r" } }));
+        // A lane bringing down another Frame.io folder isn't named after the link's.
+        let mut sync = json!({ "download": { "folder_id": "d" } });
+        fill_local_names(&mut sync, "RUSHES", None);
+        assert_eq!(sync, json!({ "download": { "folder_id": "d" } }));
+        // Same name on both sides: the return one is left to FioTransfer.
+        let mut sync = json!({ "upload": { "folder_id": "r" } });
+        fill_local_names(&mut sync, "MEDIA", Some("MEDIA"));
+        assert_eq!(sync, json!({ "download": { "local": "MEDIA" }, "upload": { "folder_id": "r" } }));
+    }
+
+    #[test]
+    fn disk_names_are_one_folder() {
+        assert_eq!(disk_name(" RENDER "), Some("RENDER".to_string()));
+        assert_eq!(disk_name("Grade 50/50 v2"), Some("Grade 50-50 v2".to_string()));
+        assert_eq!(disk_name("100%\\done"), Some("100--done".to_string()));
+        assert_eq!(disk_name("a\nb"), Some("ab".to_string()));
+        assert_eq!(disk_name(".."), None);
+        assert_eq!(disk_name("  "), None);
+        assert_eq!(disk_name(&"é".repeat(200)).map(|n| n.len()), Some(254));
+    }
+
+    #[test]
+    fn sync_folders_names_in_and_out() {
+        let link = "link";
+        assert_eq!(sync_folders(&json!({}), link), ("link", None));
+        assert_eq!(sync_folders(&json!({ "upload": { "folder_id": "r" } }), link), ("link", Some("r")));
+        assert_eq!(sync_folders(&json!({ "download": { "folder_id": "d" }, "upload": { "folder_id": "r" } }), link), ("d", Some("r")));
+        // Older lanes count the same way.
+        assert_eq!(sync_folders(&json!({ "drive": { "folder_id": "d" }, "exports": { "local": "0_EXPORTS", "folder_id": "r" } }), link), ("d", Some("r")));
+        assert_eq!(sync_folders(&json!({ "exports": { "local": "0_EXPORTS" } }), link), ("link", None));
     }
 
     #[test]

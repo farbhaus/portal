@@ -80,6 +80,7 @@ impl PortalServer {
 
 /// A link's `folder.sync` after switching FioTransfer on or off: null when off, else what it
 /// already stores (on-disk names, an older `exports` lane) with the return folder set or removed.
+/// A different return folder drops its lane's on-disk name; Portal names it after the new folder.
 fn with_sync(stored: Option<&Value>, enabled: bool, return_folder_id: Option<&str>) -> Value {
     if !enabled {
         return Value::Null;
@@ -92,6 +93,11 @@ fn with_sync(stored: Option<&Value>, enabled: bool, return_folder_id: Option<&st
                 let lane = obj.entry(key).or_insert_with(|| json!({}));
                 if !lane.is_object() {
                     *lane = json!({});
+                }
+                if lane.get("folder_id").and_then(|v| v.as_str()) != Some(id.trim()) {
+                    if let Some(l) = lane.as_object_mut() {
+                        l.remove("local");
+                    }
                 }
                 lane["folder_id"] = json!(id.trim());
             }
@@ -364,11 +370,14 @@ mod tests {
         assert_eq!(with_sync(None, true, None), json!({}));
         assert_eq!(with_sync(None, true, Some(ret)), json!({ "upload": { "folder_id": ret } }));
         assert_eq!(with_sync(Some(&json!({ "name": "Acme" })), false, None), Value::Null);
-        // An older link keeps its keys and names; only the return folder changes.
-        let old = json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "local": "0_EXPORTS" } });
+        // An older link keeps its keys and names; the same return folder keeps its name too.
+        let old = json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "local": "0_EXPORTS", "folder_id": ret } });
+        assert_eq!(with_sync(Some(&old), true, Some(ret)), old);
+        // A different return folder drops the old name; Portal names it after the new folder.
+        let other = "8008cf70-f28e-474d-a209-d67afb9fddb6";
         assert_eq!(
-            with_sync(Some(&old), true, Some(ret)),
-            json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "local": "0_EXPORTS", "folder_id": ret } })
+            with_sync(Some(&old), true, Some(other)),
+            json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "folder_id": other } })
         );
         assert_eq!(with_sync(Some(&old), true, None), json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" } }));
     }

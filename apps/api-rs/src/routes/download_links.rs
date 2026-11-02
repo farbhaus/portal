@@ -54,7 +54,7 @@ fn validate_source(source: &Value) -> Result<(), String> {
     Ok(())
 }
 
-fn generate_token() -> String {
+pub(crate) fn generate_token() -> String {
     use base64::Engine;
     let mut bytes = [0u8; 24];
     getrandom::fill(&mut bytes).expect("os random");
@@ -64,7 +64,7 @@ fn generate_token() -> String {
 /// The columns every admin view of a download link reads (the `kind = 'download'` rows of `links`).
 pub const LINK_COLUMNS: &str = "SELECT id, token, name, source, expires_at, password_hash, max_downloads,
         downloads_count, viewer_fields_required, verify_email, allow_preview, brand_display_name,
-        brand_subtitle, revoked_at, created_at, notify_emails, remind_before_expiry
+        brand_subtitle, revoked_at, created_at, notify_emails, remind_before_expiry, return_for
    FROM links WHERE kind = 'download'";
 
 /// The name the admin sees: its own, else the client-facing title, else what it shares.
@@ -107,6 +107,8 @@ pub fn render_row(state: &AppState, row: &sqlx::postgres::PgRow) -> Value {
         "brand_subtitle": row.get::<Option<String>, _>("brand_subtitle"),
         "revoked_at": revoked_at.map(|d| crate::pyfmt::iso(&d)),
         "created_at": crate::pyfmt::iso(&created_at),
+        // Set on the Send link Portal keeps for an upload link's return folder: that upload link.
+        "return_for": row.try_get::<Option<uuid::Uuid>, _>("return_for").ok().flatten().map(|u| u.to_string()),
     });
     crate::routes::link_options::render(row, &mut out);
     out

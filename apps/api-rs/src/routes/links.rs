@@ -145,11 +145,23 @@ pub async fn list_links(State(state): State<AppState>, _: Admin) -> Response {
         down_last_who.insert(r.get("download_link_id"), who(r.get("viewer_name"), r.get("viewer_email")));
     }
 
+    // Each upload link's Send link for its return folder (services::return_links).
+    let base = state.settings.base_url.trim_end_matches('/');
+    let return_links: HashMap<Uuid, Value> = rows
+        .iter()
+        .filter_map(|r| {
+            let upload: Uuid = r.try_get::<Option<Uuid>, _>("return_for").ok().flatten()?;
+            let token: String = r.get("token");
+            Some((upload, json!({ "id": r.get::<Uuid, _>("id").to_string(), "public_url": format!("{base}/d/{token}") })))
+        })
+        .collect();
+
     // ── render, newest first ────────────────────────────────────────────────
     let mut items: Vec<Value> = Vec::with_capacity(rows.len());
     for row in rows.iter().filter(|r| r.get::<String, _>("kind") == "upload") {
         let id: Uuid = row.get("id");
         let mut v = upload_links::render_row(&state, row);
+        v["return_link"] = return_links.get(&id).cloned().unwrap_or(Value::Null);
         let (count, bytes, last_at) = up_stats.get(&id).cloned().unwrap_or((0, 0, None));
         v["activity"] = json!({
             "count": count,

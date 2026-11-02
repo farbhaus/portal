@@ -55,6 +55,9 @@ export type UploadLink = LinkBase & {
   subfolder_template: string | null;
   // The project folder name FioTransfer reads and uses for the project's folder (null = none).
   turbosort: string | null;
+  // The Send link Portal keeps for the return folder (`folder.sync`), for the client to download
+  // what lands there. Null without a return folder.
+  return_link: { id: string; public_url: string } | null;
 };
 
 export type DownloadLink = LinkBase & {
@@ -64,6 +67,8 @@ export type DownloadLink = LinkBase & {
   downloads_count: number;
   viewer_fields_required: { name: boolean; email: boolean };
   allow_preview: boolean;
+  // Set when Portal keeps this link for an upload link's return folder: that upload link's id.
+  return_for: string | null;
 };
 
 export type LiveUpload = {

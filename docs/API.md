@@ -82,13 +82,24 @@ folder.
 | `sync.upload.folder_id` | The return folder `OUT` goes up to | No `OUT` |
 | `sync.download.folder_id` | Where `IN` comes from | The link's own folder |
 | `sync.name` | The project folder's name on disk | The link's name |
-| `sync.download.local`, `sync.upload.local` | Per-link names for `IN` / `OUT` | The names set in FioTransfer |
+| `sync.download.local`, `sync.upload.local` | The two folders' names on disk | Portal fills them (see below) |
 
 - Names are one folder name of at most 255 bytes: no `/`, `\`, `%`, control characters, `.` or `..`.
-- The return folder must differ from the folder `IN` comes from, and the two `local` names must
-  differ when both are set.
+- When a `sync` block is saved, Portal fills the missing `local` names with the Frame.io folders'
+  names, so the folders on disk mirror Frame.io: `download.local` = the link's folder (unless the
+  lane names another), `upload.local` = the return folder. Names already there are kept; if both
+  would match, the return one is left to FioTransfer's default.
+- The return folder can be any folder (typically one next to the link's folder), but not the
+  folder `IN` comes from or one inside it: FioTransfer brings that folder down whole, so `OUT`'s
+  files would come back into `IN`. The two `local` names must differ when both are set.
 - Files are only ever added, on either side; nothing is deleted.
 - On `PATCH`, a `folder` without a `sync` key keeps the stored block; `"sync": null` removes it.
+- With a return folder, Portal keeps a Send link on it (the folder and its subfolders) for you to
+  share with the client: the upload link's `return_link` (`{id, public_url}`). Its settings follow
+  the upload link — name, expiry, password, email code, the fields it asks for, page title and
+  notification recipients — as do revoke and restore, and it goes when the upload link is deleted.
+  Without a return folder it is revoked, keeping its URL for when one is set again. On the Send
+  link, `return_for` names its upload link.
 
 Older links may carry the earlier lanes, which are still accepted and stored as sent: `drive`
 (read as `download`), `exports` (read as `upload`) and `mode` (only `add_only`). A block may name

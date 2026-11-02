@@ -117,6 +117,11 @@ routes / upload engine / download links
   project folder name); they're kept as stored so FioTransfer's folders don't move. Validated by
   `validate_sync` in `routes/upload_links.rs`; the contract is in `docs/API.md`. Portal only
   stores and returns it for the external FioTransfer client — no Portal code moves files for it.
+  On save, missing `local` names are filled from the Frame.io folders' names (`fill_local_names`),
+  so FioTransfer's folders on disk mirror Frame.io (e.g. `…/RUSHES` and `…/RENDER`).
+  With a return folder, `services/return_links.rs` keeps a Send link on it (`links.return_for` →
+  the upload link; settings, revoke/restore follow the upload link; revoked, not deleted, when
+  the return folder goes) so the user has a URL to give the client.
 - Pickers (admin-only, under `/api/frameio`): list accounts/workspaces/projects/folders/files;
   cursor pagination via `links.next` → `after`, capped at `PICKER_MAX_ITEMS`.
 

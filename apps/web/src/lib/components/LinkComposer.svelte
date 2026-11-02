@@ -23,7 +23,7 @@
   import Icon from "./Icon.svelte";
   import Switch from "./Switch.svelte";
   import ConfirmButton from "./ConfirmButton.svelte";
-  import { createFolder, crumbNames, listFolders, resolvePath, type DownloadSource, type FolderRef, type Named } from "$lib/frameio";
+  import { crumbNames, defaultLinkName, listFolders, resolvePath, type DownloadSource, type FolderRef, type Named } from "$lib/frameio";
   import { expiresText, kindNoun, sourceSummary, type DownloadLink, type LinkSync, type UploadLink } from "$lib/links";
   import { copyWithToast, errorDetail, toast } from "$lib/toast.svelte";
   import { formatBytes, accentText } from "$lib/format";
@@ -82,17 +82,14 @@
   let maxSizeGb = $state("");
   let template = $state("");
   let syncOn = $state(false);
-  // The return folder: where what the user puts in OUT goes up to. None means no OUT. Chosen from
-  // the project's first level: the link's folder names the account, and the project's root
-  // folder is the parent the list shows (and a new folder is created in).
+  // The return folder: what the user adds to its twin on their machine goes up to it. None means
+  // nothing goes up. Any folder
+  // of the account; the picker opens in the folder the link's folder sits in (a client's job
+  // folder holding RUSHES and RENDER), and the folders next to the link's folder are one click.
   let returnFolder = $state<FolderRef | null>(null);
-  let syncRoot = $state<{ account_id: string; folder_id: string; name: string } | null>(null);
-  let children = $state<Named[] | null>(null);
-  let loadingFolders = $state(false);
+  let parentRef = $state<FolderRef | null>(null);
+  let siblings = $state<Named[] | null>(null);
   let syncError = $state<string | null>(null);
-  let newName = $state("");
-  let creating = $state(false);
-  let createIssue = $state<string | null>(null);
   let maxDownloads = $state("");
   let preview = $state(true);
   let preset = $state("");
@@ -147,7 +144,7 @@
         template = link.subfolder_template ?? "";
         const s = link.folder?.sync ?? null;
         syncOn = !!s;
-        // Only the id is stored; the name comes back once the project's folders are read.
+        // Only the id is stored; its breadcrumb is fetched once the composer is up.
         const ret = savedReturnId(s);
         returnFolder = ret ? { account_id: link.folder?.account_id ?? "", folder_id: ret } : null;
       } else {
@@ -161,7 +158,7 @@
     } else {
       folder = initialFolder;
       expiry = "7";
-      name = initialFolder ? (crumbNames(initialFolder).at(-1) ?? "") : "";
+      name = defaultLinkName(initialFolder);
     }
   }
   seed();
@@ -238,12 +235,12 @@
   function setKind(k: Kind) {
     if (editing || k === kind) return;
     kind = k;
-    if (!nameTouched) name = k === "upload" ? (crumbNames(folder).at(-1) ?? "") : (source?.label ?? "");
+    if (!nameTouched) name = k === "upload" ? defaultLinkName(folder) : (source?.label ?? "");
     if (k === "download" && !source) sourceOpen = true;
   }
 
   function onFolder(f: FolderRef) {
-    if (!nameTouched) name = crumbNames(f).at(-1) ?? "";
+    if (!nameTouched) name = defaultLinkName(f);
     rememberFolder(f);
   }
 
@@ -282,16 +279,12 @@
   }
 
   // ── the return folder (sync) ────────────────────────────────────────────
-  // The return folder is one folder of the project, so the row lists the folders directly inside
-  // the project root. A name that is not there yet can be typed and Portal creates it.
-  const FOLDER_NAME_RULE = "A folder name can't be empty, contain / \\ % or be . or ..";
-
   const folderKey = $derived(kind === "upload" && syncOn && folder ? `${folder.account_id}:${folder.folder_id}` : "");
   let folderSeq = 0;
 
   $effect(() => {
     const key = folderKey;
-    untrack(() => void loadProjectFolders(key));
+    untrack(() => void loadNearby(key));
   });
 
   const byName = (a: Named, b: Named) => a.name.localeCompare(b.name);
@@ -301,123 +294,75 @@
     return s?.upload?.folder_id ?? s?.exports?.folder_id ?? null;
   }
 
+  /** Breadcrumb ids of a folder, root first, ending at the folder itself. */
+  const pathIds = (f: Partial<FolderRef> | null | undefined) => (f?.path ?? []).map((s) => s.id);
+
   /**
-   * What the row offers: the project's children, minus the link's own folder (IN comes down from
-   * there, so OUT can't go up to it), plus a saved folder that is no longer in the list.
+   * Find the folder the link's folder sits in, and the folders next to it. The picked folder
+   * usually carries its breadcrumb; without one, ask Frame.io where it lives. A link that
+   * receives into a project's root has nothing above it: the picker opens in the root itself.
    */
-  const returnOptions = $derived.by((): Named[] => {
-    const list = (children ?? []).filter((c) => c.id !== folder?.folder_id);
-    const chosen = returnFolder;
-    if (chosen && !list.some((c) => c.id === chosen.folder_id)) {
-      return [...list, { id: chosen.folder_id, name: chosen.folder_name || "the saved folder" }];
-    }
-    return list;
-  });
-
-  /** Choose the return folder by id ("" = none). */
-  function selectReturn(id: string) {
-    const f = folder;
-    if (!f || !id) {
-      returnFolder = null;
-      return;
-    }
-    const name = returnOptions.find((c) => c.id === id)?.name ?? "";
-    returnFolder = { account_id: f.account_id, folder_id: id, folder_name: name || null };
-  }
-
-  /** The sync validator's rule for a folder name, applied before we ask Frame.io for one. */
-  function cleanFolderName(raw: string): string | null {
-    const v = raw.trim();
-    if (!v || v === "." || v === ".." || /[/\\%]/.test(v) || /[\u0000-\u001f]/.test(v)) return null;
-    return v;
-  }
-
-  async function loadProjectFolders(key: string) {
+  async function loadNearby(key: string) {
     const f = folder;
     if (!key || !f) {
-      syncRoot = null;
-      children = null;
+      parentRef = null;
+      siblings = null;
       syncError = null;
-      loadingFolders = false;
       return;
     }
     const my = ++folderSeq;
-    loadingFolders = true;
     syncError = null;
     try {
-      // The first level hangs off the project root. The picked folder usually carries its
-      // breadcrumb; without one, ask Frame.io where the folder lives.
-      let root = f.path?.length ? f.path[0].id : "";
-      if (!root) root = (await resolvePath(f.account_id, f.folder_id)).root_folder_id ?? "";
+      const path = f.path?.length ? f.path : (await resolvePath(f.account_id, f.folder_id)).path;
       if (my !== folderSeq) return;
-      if (!root) root = f.folder_id;
-      const moved = !!syncRoot && syncRoot.folder_id !== root;
-      if (moved || syncRoot?.folder_id !== root) {
-        syncRoot = { account_id: f.account_id, folder_id: root, name: crumbNames(f)[0] ?? f.project_name ?? "this project" };
+      if (path.length < 2) {
+        parentRef = null;
+        siblings = [];
+        return;
       }
-      if (moved) {
-        // Another project: the chosen folder belongs to the one we just left.
-        returnFolder = null;
-        newName = "";
-        createIssue = null;
-      }
-      const kids = await listFolders(f.account_id, root);
+      const above = path.slice(0, -1);
+      const parent = above[above.length - 1];
+      parentRef = { ...f, folder_id: parent.id, folder_name: parent.name, path: above, sync: null };
+      const kids = await listFolders(f.account_id, parent.id);
       if (my !== folderSeq) return;
-      children = [...kids].sort(byName);
-      // A saved return folder learns its name from the list.
-      const chosen = returnFolder;
-      const named = chosen && !chosen.folder_name ? children.find((c) => c.id === chosen.folder_id) : null;
-      if (chosen && named) returnFolder = { ...chosen, folder_name: named.name };
+      siblings = kids.filter((c) => c.id !== f.folder_id).sort(byName);
     } catch (e) {
       if (my !== folderSeq) return;
-      children = [];
-      syncError = e instanceof Error ? e.message : "Could not read the project's folders from Frame.io";
-    } finally {
-      if (my === folderSeq) loadingFolders = false;
+      siblings = [];
+      syncError = e instanceof Error ? e.message : "Could not read the folders around this one from Frame.io";
     }
   }
 
-  /** Make the typed folder under the project root, then use it. A sibling of that name wins. */
-  async function createReturnFolder() {
-    const name = cleanFolderName(newName);
-    const root = syncRoot;
-    if (!name) {
-      createIssue = FOLDER_NAME_RULE;
-      return;
-    }
-    if (!root || creating) return;
-    createIssue = null;
-    const twin = returnOptions.find((c) => c.name === name);
-    if (twin) {
-      // Same name, same parent: that is the folder meant, so select it instead of a duplicate.
-      selectReturn(twin.id);
-      newName = "";
-      return;
-    }
-    creating = true;
-    try {
-      const made = await createFolder(root.account_id, root.folder_id, name);
-      children = [...(children ?? []), made].sort(byName);
-      selectReturn(made.id);
-      newName = "";
-      // Read the level back, so the list is Frame.io's answer and not our guess.
-      void refreshFolders();
-    } catch (e) {
-      createIssue = e instanceof Error ? e.message : "Could not create the folder";
-    } finally {
-      creating = false;
-    }
+  // A saved return folder is only an id: fetch its breadcrumb once, to show where it is.
+  $effect(() => {
+    const r = returnFolder;
+    if (!r || r.path?.length) return;
+    untrack(() => {
+      void resolvePath(r.account_id, r.folder_id)
+        .then((p) => {
+          if (returnFolder?.folder_id === r.folder_id) returnFolder = { type: "frameio", ...p };
+        })
+        .catch(() => {});
+    });
+  });
+
+  function pickSibling(c: Named) {
+    if (!parentRef) return;
+    returnFolder = { ...parentRef, folder_id: c.id, folder_name: c.name, path: [...(parentRef.path ?? []), { id: c.id, name: c.name }] };
   }
 
-  async function refreshFolders() {
-    const root = syncRoot;
-    if (!root) return;
-    try {
-      children = [...(await listFolders(root.account_id, root.folder_id))].sort(byName);
-    } catch {
-      // Keep what we have: the folder exists, this list is only the mirror.
-    }
-  }
+  /**
+   * Where the return folder can't be. Not the folder the client's uploads come down from, and
+   * not inside it: FioTransfer brings that folder down whole, so what goes up would come back.
+   */
+  const returnIssue = $derived.by((): string | null => {
+    const r = returnFolder;
+    if (kind !== "upload" || !syncOn || !r || !folder) return null;
+    if (r.folder_id === folder.folder_id) return "That's the folder the link receives into. Pick one next to it.";
+    if (pathIds(r).slice(0, -1).includes(folder.folder_id))
+      return "That folder is inside the one the link receives into, so what you add to it would come straight back down with the client's uploads. Pick one next to it.";
+    return null;
+  });
 
   /**
    * On-disk names an existing link was saved with, from before the switch. The composer doesn't
@@ -428,10 +373,11 @@
     const out: string[] = [];
     const project = s?.name ?? up?.turbosort;
     if (project) out.push(`folder “${project}”`);
+    // Names Portal filled from Frame.io match their folders; only older, hand-picked ones show.
     const inName = s?.download?.local ?? s?.drive?.local;
-    if (inName) out.push(`IN as “${inName}”`);
+    if (inName && inName !== crumbNames(up?.folder).at(-1)) out.push(`client uploads in “${inName}”`);
     const outName = s?.upload?.local ?? s?.exports?.local;
-    if (outName) out.push(`OUT as “${outName}”`);
+    if (outName && returnFolder?.folder_name && outName !== returnFolder.folder_name) out.push(`return folder as “${outName}”`);
     return out;
   });
 
@@ -524,26 +470,43 @@
   /**
    * `folder.sync` as the API stores it, or null when the switch is off. Whatever the link already
    * stores rides along untouched (on-disk names, an older lane), so changing the return folder
-   * never moves a folder FioTransfer has already made. No return folder means no OUT at all.
+   * never moves a folder FioTransfer has already made. No return folder means nothing goes up.
+   *
+   * The two folders on the user's machine are named like their Frame.io folders: the server
+   * fills a lane's `local` from Frame.io when it is missing. So when the link's folder or its
+   * return folder changes, that lane's old name is dropped here and the server names it afresh.
    */
   function syncPayload(): LinkSync | null {
     if (!syncOn) return null;
-    const s: LinkSync = { ...(up?.folder?.sync ?? {}) };
-    // An older link keeps its return lane under `exports`.
-    const key = s.exports && !s.upload ? "exports" : "upload";
-    if (returnFolder) s[key] = { ...(s[key] ?? {}), folder_id: returnFolder.folder_id };
-    else {
+    const saved = up?.folder?.sync ?? null;
+    const s: LinkSync = { ...(saved ?? {}) };
+    // An older link keeps its lanes under `drive` and `exports`.
+    const downKey = s.drive && !s.download ? "drive" : "download";
+    const upKey = s.exports && !s.upload ? "exports" : "upload";
+    const lane = s[downKey];
+    if (lane?.local && !lane.folder_id && folder?.folder_id !== up?.folder?.folder_id) {
+      const { local: _old, ...rest } = lane;
+      s[downKey] = rest;
+    }
+    if (!returnFolder) {
       delete s.upload;
       delete s.exports;
+    } else if (returnFolder.folder_id !== savedReturnId(saved)) {
+      const { local: _old, ...rest } = s[upKey] ?? {};
+      s[upKey] = { ...rest, folder_id: returnFolder.folder_id };
     }
     return s;
   }
 
-  /** Whether the switch or the return folder differs from what the link stores. */
+  /**
+   * Whether the sync block needs sending: the switch or the return folder changed, or the link's
+   * folder did (the name of the client's-uploads folder follows it).
+   */
   function syncChanged(): boolean {
     const saved = up?.folder?.sync ?? null;
     if (syncOn !== !!saved) return true;
-    return syncOn && (returnFolder?.folder_id ?? null) !== savedReturnId(saved);
+    if (!syncOn) return false;
+    return (returnFolder?.folder_id ?? null) !== savedReturnId(saved) || folder?.folder_id !== up?.folder?.folder_id;
   }
 
   function body(): Record<string, unknown> {
@@ -596,6 +559,10 @@
     }
     if (pwMode === "set" && !password) {
       error = "Enter a password, or turn the password off.";
+      return;
+    }
+    if (returnIssue) {
+      error = returnIssue;
       return;
     }
     saving = true;
@@ -654,7 +621,7 @@
     title = "";
     password = "";
     pwMode = "none";
-    name = kind === "upload" ? (crumbNames(folder).at(-1) ?? "") : "";
+    name = kind === "upload" ? defaultLinkName(folder) : "";
     if (kind === "download") source = null;
   }
 
@@ -720,6 +687,18 @@
             <Icon name="copy" size={15} />Copy
           </button>
         </div>
+        {#if created.kind === "upload" && (created as UploadLink).return_link}
+          {@const ret = (created as UploadLink).return_link!}
+          <div class="grid w-full max-w-xl gap-1.5">
+            <span class="text-xs text-faint">Clients download from the return folder at</span>
+            <div class="flex items-center gap-2 rounded-lg border border-border bg-surface-2/60 py-1.5 pr-1.5 pl-3">
+              <button type="button" class="min-w-0 flex-1 truncate text-left font-mono text-[13px] text-text hover:text-accent-hover" title="Copy link" onclick={() => copyWithToast(ret.public_url)}>{ret.public_url.replace(/^https?:\/\//, "")}</button>
+              <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-2 px-3 font-medium text-text hover:bg-surface-3" onclick={() => copyWithToast(ret.public_url)}>
+                <Icon name="copy" size={15} />Copy
+              </button>
+            </div>
+          </div>
+        {/if}
         <p class="max-w-xl text-muted">
           {#if created.kind === "upload"}
             Receives into {crumbNames((created as UploadLink).folder).join(" / ")}.
@@ -758,6 +737,12 @@
 
       <div class="px-5 pt-4 pb-2 sm:px-7">
         {#if error}<p class="mb-3 rounded-md bg-danger/10 px-3 py-2 text-danger">{error}</p>{/if}
+        {#if editing && down?.return_for}
+          <p class="mb-3 flex items-center gap-3 rounded-md bg-surface-2 px-3 py-2 text-muted">
+            <span class="flex-1">Portal keeps this link for a receive link's return folder. Its settings follow that link, so change them there.</span>
+            <a href="/upload-links/{down.return_for}" class="font-medium text-accent-hover hover:underline">Open the receive link</a>
+          </p>
+        {/if}
         {#if editing && link?.state === "revoked"}
           <p class="mb-3 flex items-center gap-3 rounded-md bg-surface-2 px-3 py-2 text-muted">
             <span class="flex-1">This link is revoked. Clients see a closed page.</span>
@@ -828,7 +813,6 @@
           <div class={label}><label for="lc-name">Name</label></div>
           <div class="grid grid-cols-[minmax(0,1fr)] gap-1.5">
             <input id="lc-name" class={input} bind:value={name} oninput={() => (nameTouched = true)} placeholder={kind === "upload" ? "e.g. Day 3 camera cards" : "e.g. Grade v4 selects"} autocomplete="off" />
-            <div class="text-xs text-faint">Only you see this. It's how the link shows up in your list.</div>
           </div>
         </div>
 
@@ -958,12 +942,12 @@
                 <div class="flex items-center gap-3">
                   <div class="min-w-0 flex-1">
                     <b class="block font-medium text-text">Sync to FioTransfer</b>
-                    <small class="block text-xs text-faint">Gives this link a folder in FioTransfer: uploads arrive in IN, and anything put in OUT is sent to the return folder.</small>
+                    <small class="block text-xs text-faint">FioTransfer gives this link a folder on your machine with the same folders as Frame.io: what the client uploads comes down, and what you add to the return folder goes up.</small>
                   </div>
                   <Switch bind:checked={syncOn} label="Sync to FioTransfer" />
                 </div>
                 {#if !syncOn && !up?.folder?.sync && up?.turbosort}
-                  <p class="text-xs text-faint">FioTransfer still syncs this link the older way, as one folder named <span class="font-mono">{up.turbosort}</span>. Turn this on to use IN and OUT instead.</p>
+                  <p class="text-xs text-faint">FioTransfer still syncs this link the older way, as one folder named <span class="font-mono">{up.turbosort}</span>. Turn this on to mirror its Frame.io folders instead.</p>
                 {:else if syncOn && keptNames.length}
                   <p class="text-xs text-faint">Keeps the names it was saved with: {keptNames.join(", ")}.</p>
                 {/if}
@@ -973,7 +957,7 @@
               <div class={line}>
                 <div class={label}><label for="lc-sync-return">Return folder</label></div>
                 {#if !folder}
-                  <p class="text-xs text-faint">Choose the folder uploads land in first: the return folder is one of that project's folders.</p>
+                  <p class="text-xs text-faint">Choose the folder uploads land in first: the return folder usually sits next to it.</p>
                 {:else}
                   <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
                     {#if syncError}
@@ -981,47 +965,42 @@
                         {syncError}{#if /not connected/i.test(syncError)}. <a href="/settings" class="font-medium underline">Connect Frame.io in Settings</a>{/if}
                       </p>
                     {/if}
-                    <select id="lc-sync-return" class="{input} max-w-none" value={returnFolder?.folder_id ?? ""} disabled={loadingFolders} onchange={(e) => selectReturn(e.currentTarget.value)}>
-                      {#if loadingFolders && !children}
-                        <option value="">Loading the project's folders…</option>
-                      {:else}
-                        <option value="">No return folder</option>
-                        {#each returnOptions as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+                    <div class="flex min-w-0 items-center gap-1.5">
+                      <div class="min-w-0 flex-1">
+                        <FolderField id="lc-sync-return" bind:value={returnFolder} startAt={parentRef ?? folder} title="Return folder" chooseVerb="Use" placeholder="No return folder: choose where your files go up to" />
+                      </div>
+                      {#if returnFolder}
+                        <button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-faint hover:bg-surface-3 hover:text-text" title="No return folder" aria-label="No return folder" onclick={() => (returnFolder = null)}><Icon name="x" /></button>
                       {/if}
-                    </select>
-                    <div class="flex min-w-0 flex-wrap items-center gap-1.5">
-                      <input
-                        class="{input} max-w-56"
-                        bind:value={newName}
-                        placeholder="or type a new folder name"
-                        aria-label="New return folder name"
-                        autocomplete="off"
-                        spellcheck="false"
-                        onkeydown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            void createReturnFolder();
-                          }
-                        }}
-                      />
-                      <button type="button" class="h-8 rounded-md border border-border px-3 font-medium text-text hover:bg-surface-3 disabled:cursor-default disabled:opacity-40" disabled={!cleanFolderName(newName) || creating} onclick={createReturnFolder}>
-                        {creating ? "Creating…" : "Create"}
-                      </button>
                     </div>
-                    {#if newName.trim() && !cleanFolderName(newName)}
-                      <div class="text-xs text-danger">{FOLDER_NAME_RULE}</div>
+                    {#if siblings?.length}
+                      <div class="flex flex-wrap items-center gap-1.5 text-xs text-faint">
+                        <span class="mr-0.5">Next to {crumbNames(folder).at(-1)}</span>
+                        {#each siblings as c (c.id)}
+                          <button type="button" class="{chip(returnFolder?.folder_id === c.id)} h-6 px-2.5 text-xs" onclick={() => pickSibling(c)}>{c.name}</button>
+                        {/each}
+                      </div>
                     {/if}
-                    {#if createIssue}
-                      <div class="text-xs text-danger">{createIssue}</div>
+                    {#if returnIssue}
+                      <div class="text-xs text-danger">{returnIssue}</div>
                     {/if}
                     <p class="text-xs text-faint">
                       {#if returnFolder}
-                        What you put in OUT goes up to <span class="font-mono">{syncRoot?.name ?? "the project"} / {returnFolder.folder_name || "that folder"}</span>.
+                        What you add to <span class="font-mono">{returnFolder.folder_name || "it"}</span> on your machine goes up to <span class="font-mono">{crumbNames(returnFolder).join(" / ") || "the saved folder"}</span>.
                       {:else}
-                        No OUT: only what the client uploads comes down.
+                        Nothing goes up: only what the client uploads comes down.
                       {/if}
                       Files are only ever added, never deleted, on either side.
                     </p>
+                    {#if returnFolder && up?.return_link && returnFolder.folder_id === savedReturnId(up.folder?.sync)}
+                      <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                        Clients download it at
+                        <button type="button" class="min-w-0 truncate font-mono text-[11.5px] text-text hover:text-accent-hover" title="Copy link" onclick={() => copyWithToast(up!.return_link!.public_url)}>{up.return_link.public_url.replace(/^https?:\/\//, "")}</button>
+                        <button type="button" class="font-medium text-accent-hover hover:underline" onclick={() => copyWithToast(up!.return_link!.public_url)}>Copy</button>
+                      </div>
+                    {:else if returnFolder}
+                      <p class="text-xs text-faint">Saving makes a Send link for this folder, with this link's settings, for you to share with the client.</p>
+                    {/if}
                   </div>
                 {/if}
               </div>
