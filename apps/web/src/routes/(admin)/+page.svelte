@@ -115,8 +115,8 @@
     };
     const kindName = { upload: "Received", download: "Sent" } as const;
     const lines = [
-      ["When", "Type", "Name", "Who", "Files", "Bytes", "Status"].join(","),
-      ...r.items.map((i) => [i.at, kindName[i.kind], i.label, i.kind === "download" && i.via ? `${i.who ?? ""} via ${i.via}` : i.who, i.files ?? "", i.bytes ?? "", statusWord(i)].map(cell).join(",")),
+      ["When", "Type", "Name", "Project", "Who", "Files", "Bytes", "Status"].join(","),
+      ...r.items.map((i) => [i.at, kindName[i.kind], i.label, i.project ?? "", i.kind === "download" && i.via ? `${i.who ?? ""} via ${i.via}` : i.who, i.files ?? "", i.bytes ?? "", statusWord(i)].map(cell).join(",")),
     ];
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const a = document.createElement("a");
@@ -227,7 +227,7 @@
           >
             <span class="grid h-[30px] w-[30px] place-items-center rounded-md border border-border bg-surface-2 text-body"><Icon name={kindIcon[i.kind]} /></span>
             <span class="min-w-0">
-              <span class="block truncate text-text" title={i.label ?? ""}>{i.label ?? "—"}</span>
+              <span class="block truncate text-text" title={[i.label, i.project].filter(Boolean).join(" · ")}>{i.label ?? "—"}{#if i.project}<span class="text-faint"> · {i.project}</span>{/if}</span>
               <span class="block truncate text-xs text-faint sm:hidden">{i.who ?? ""}</span>
             </span>
             <span class="hidden min-w-0 truncate text-muted sm:block" title={i.who ?? ""}>{i.who ?? "—"}{#if i.kind === "download" && i.via}<span class="text-faint"> · {i.via}</span>{/if}</span>

@@ -88,6 +88,7 @@ pub async fn resolve_link(
     let flag = |k: &str| fields.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
     Json(json!({
         "state": link_state_of(row.get("revoked_at"), row.get("expires_at")),
+        "expires_at": row.get::<Option<DateTime<Utc>>, _>("expires_at").map(|d| crate::pyfmt::iso(&d)),
         "display_name": display_name,
         "subtitle": subtitle,
         "logo_url": brand.logo_url,

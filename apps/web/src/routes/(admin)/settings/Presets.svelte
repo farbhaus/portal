@@ -73,6 +73,6 @@
       <ConfirmButton label="Delete preset" confirmLabel="Delete" icon="trash" onconfirm={() => remove(p)} />
     </div>
   {:else}
-    <p class="px-5 py-4 text-muted">No presets yet. In the link composer, set things up the way you like and choose “Save these settings as a preset”.</p>
+    <p class="px-5 py-4 text-muted">No presets yet.</p>
   {/each}
 </div>

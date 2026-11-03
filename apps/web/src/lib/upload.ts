@@ -27,6 +27,7 @@ export async function startSession(
     name?: string;
     email?: string;
     message?: string;
+    project?: string;
     password?: string;
     code?: string;
     // Size of the whole batch, so the dashboard's "Uploading now" shows the real total from the

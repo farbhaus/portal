@@ -13,6 +13,7 @@
     type FolderProgress,
   } from "$lib/download";
   import { childFolders, crumbs, filesIn, hasFolders, subtree } from "$lib/filetree";
+  import { expiryDate } from "$lib/format";
   import {
     downloadAllAsZip,
     isZipUnavailable,
@@ -467,6 +468,7 @@
             </div>
           {/if}
         {/if}
+        {#if link.expires_at}<p class="-mt-3 text-center text-xs text-faint">Expires on {expiryDate(link.expires_at)}</p>{/if}
       </Card>
     {/if}
 

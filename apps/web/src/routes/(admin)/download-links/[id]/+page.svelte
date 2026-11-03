@@ -31,7 +31,7 @@
         <span class="text-right text-xs text-muted" title={whenFull(e.started_at)}>{timeAgo(e.started_at)}</span>
       </div>
     {:else}
-      <p class="px-5 py-8 text-center text-faint">Nobody has downloaded anything yet.</p>
+      <p class="px-5 py-8 text-center text-faint">No downloads yet.</p>
     {/each}
   </section>
 </div>

@@ -66,6 +66,7 @@ pub async fn export_subject(
         "uploader_name": s.get::<Option<String>, _>("uploader_name"),
         "uploader_email": s.get::<Option<String>, _>("uploader_email"),
         "uploader_message": s.get::<Option<String>, _>("uploader_message"),
+        "uploader_project": s.get::<Option<String>, _>("uploader_project"),
         "status": s.get::<String, _>("status"),
         "total_bytes": s.get::<Option<i64>, _>("total_bytes"),
         "started_at": iso(s.get("started_at")),
@@ -113,7 +114,7 @@ pub async fn erase_subject(State(state): State<AppState>, admin: Admin, Json(bod
 
     if mode == "anonymize" {
         if !up_ids.is_empty() {
-            let _ = sqlx::query("UPDATE upload_sessions SET uploader_name=NULL, uploader_email=NULL, uploader_message=NULL, updated_at=now() WHERE id = ANY($1)")
+            let _ = sqlx::query("UPDATE upload_sessions SET uploader_name=NULL, uploader_email=NULL, uploader_message=NULL, uploader_project=NULL, updated_at=now() WHERE id = ANY($1)")
                 .bind(&up_ids).execute(&state.db).await;
         }
         if !dl_ids.is_empty() {

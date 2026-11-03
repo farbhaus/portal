@@ -396,7 +396,7 @@
         <div class="flex gap-2"><input class="{input} font-mono text-xs opacity-80" value={redirectUriPattern} readonly aria-label="Redirect URI pattern" /><button type="button" class={btn} onclick={() => copyWithToast(redirectUriPattern, "Copied")}><Icon name="copy" size={14} />Copy</button></div>
       </SetRow>
       <div class="flex items-center gap-3 border-t border-border px-5 py-3">
-        {#if frameio.connected}<span class="flex-1 text-xs text-faint">Changing these may mean disconnecting and connecting again.</span>{:else}<span class="flex-1"></span>{/if}
+        <span class="flex-1"></span>
         <button type="button" class={primary} disabled={savingFrameioCfg} onclick={saveFrameioConfig}>{savingFrameioCfg ? "Saving…" : "Save credentials"}</button>
       </div>
       <details class="border-t border-border px-5 py-3" open={!frameio.connected}>
@@ -415,7 +415,7 @@
     <!-- Email -->
     {#snippet emailBody()}
       <SetRow label="Status">
-        <span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full {email.configured ? 'bg-success' : 'bg-faint'}"></span><span class={email.configured ? "text-text" : "text-muted"}>{email.configured ? "Sending email" : "Not set up. Leave the server empty to keep email off."}</span></span>
+        <span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full {email.configured ? 'bg-success' : 'bg-faint'}"></span><span class={email.configured ? "text-text" : "text-muted"}>{email.configured ? "Sending email" : "Not set up"}</span></span>
       </SetRow>
       <SetRow label="SMTP server" for="s-host">
         <div class="flex gap-2"><input id="s-host" class={input} bind:value={smtpHost} placeholder="smtp.example.com" /><input type="number" class="{input} w-24" bind:value={smtpPort} min="1" max="65535" aria-label="Port" /></div>
@@ -439,7 +439,7 @@
         <button type="button" class={primary} disabled={savingEmail} onclick={saveEmail}>{savingEmail ? "Saving…" : "Save email settings"}</button>
       </div>
     {/snippet}
-    {@render card("email", "Email", "Used for upload notifications, verification codes, receipts, reminders and sending links to clients.", emailBody)}
+    {@render card("email", "Email", null, emailBody)}
 
     <!-- Branding -->
     {#snippet brandBody()}
@@ -465,10 +465,10 @@
         <button type="button" class={primary} disabled={savingBrand} onclick={saveBrand}>{savingBrand ? "Saving…" : "Save brand"}</button>
       </div>
     {/snippet}
-    {@render card("branding", "Branding", "The name, colour and logo on every link's page and emails.", brandBody)}
+    {@render card("branding", "Branding", null, brandBody)}
 
     {#snippet presetsBody()}<Presets presets={data.presets} />{/snippet}
-    {@render card("presets", "Link presets", "Saved from the link composer. Apply one when you create a link.", presetsBody)}
+    {@render card("presets", "Link presets", null, presetsBody)}
 
     <!-- Security -->
     {#snippet securityBody()}
@@ -541,7 +541,7 @@
         </div>
       </SetRow>
     {/snippet}
-    {@render card("privacy", "Data & privacy requests", "Handle a client's request to see or delete what Portal stores about them.", privacyBody)}
+    {@render card("privacy", "Data & privacy requests", null, privacyBody)}
   </div>
 </div>
 
@@ -559,7 +559,7 @@
     </div>
   {:else if totpStep === "codes"}
     <div class="space-y-3 text-sm">
-      <p class="text-muted">Two-factor is on. Keep these recovery codes somewhere safe; each works once if you lose your authenticator.</p>
+      <p class="text-muted">Save these recovery codes. Each works once.</p>
       <ul class="grid grid-cols-2 gap-1 rounded-md border border-border bg-surface-2 p-3 font-mono text-xs">
         {#each recoveryCodes as c (c)}<li>{c}</li>{/each}
       </ul>

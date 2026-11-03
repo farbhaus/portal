@@ -37,16 +37,6 @@ export function crumbNames(f: Partial<FolderRef> | null | undefined): string[] {
   return [f.project_name, f.folder_name ?? f.folder_id].filter((x): x is string => !!x);
 }
 
-/**
- * What a receive link is called by default: the first folder below the project (a client's job
- * folder, whatever the link delivers into inside it), or the project itself when the link
- * delivers into its root. FioTransfer names the link's folder on disk after it.
- */
-export function defaultLinkName(f: Partial<FolderRef> | null | undefined): string {
-  const names = crumbNames(f);
-  return names[1] ?? names[0] ?? "";
-}
-
 export function folderLabel(f: Partial<FolderRef> | null | undefined): string {
   return crumbNames(f).join(" / ");
 }

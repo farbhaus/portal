@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { fly } from "svelte/transition";
   import { Button, Card, CopyButton, PoweredByPortal } from "$lib/components";
-  import { formatBytes } from "$lib/format";
+  import { expiryDate, formatBytes } from "$lib/format";
   import {
     abandonSession,
     clearPendingUpload,
@@ -32,6 +32,7 @@
   let name = $state("");
   let email = $state("");
   let message = $state("");
+  let project = $state("");
   let password = $state("");
   let code = $state("");
   let codeSent = $state(false);
@@ -172,6 +173,7 @@
     const r = link.uploader_fields_required;
     if (r.name && !name.trim()) return "Please enter your name.";
     if (r.email && !email.trim()) return "Please enter your email.";
+    if (r.project && !project.trim()) return "Please enter the project.";
     if (r.message && !message.trim()) return "Please enter a message.";
     if (link.password_required && !password) return "Please enter the password.";
     return null;
@@ -241,6 +243,7 @@
           name: name || undefined,
           email: email || undefined,
           message: message || undefined,
+          project: project.trim() || undefined,
           password: password || undefined,
           code: code || undefined,
           total_bytes: totalBytes,
@@ -367,7 +370,7 @@
           </div>
         {/if}
 
-        {#if link.uploader_fields_required.name || link.uploader_fields_required.email || link.uploader_fields_required.message || link.password_required}
+        {#if link.uploader_fields_required.name || link.uploader_fields_required.email || link.uploader_fields_required.message || link.uploader_fields_required.project || link.password_required}
           <div class="space-y-3">
             {#if link.uploader_fields_required.name}
               <input bind:value={name} placeholder="Your name" disabled={phase === "uploading"} class={inputCls} />
@@ -380,6 +383,9 @@
                   <p class="mt-1 flex items-center gap-1.5 text-xs text-success">✓ Email verified</p>
                 {/if}
               </div>
+            {/if}
+            {#if link.uploader_fields_required.project}
+              <input bind:value={project} placeholder="Project" disabled={phase === "uploading"} class={inputCls} />
             {/if}
             {#if link.uploader_fields_required.message}
               <textarea bind:value={message} placeholder="Message" disabled={phase === "uploading"} class={inputCls}></textarea>
@@ -484,11 +490,6 @@
                 </div>
               {/each}
             </div>
-            {#if phase === "select"}
-              <p class="mt-2 text-center text-xs text-faint">
-                Add more files or folders above — everything uploads together.
-              </p>
-            {/if}
           </div>
         {/if}
 
@@ -510,6 +511,7 @@
             Upload {items.length > 0 ? `${items.length} file${items.length === 1 ? "" : "s"} (${formatBytes(totalBytes)})` : ""}
           </Button>
         {/if}
+        {#if phase !== "uploading" && link.expires_at}<p class="-mt-3 text-center text-xs text-faint">Expires on {expiryDate(link.expires_at)}</p>{/if}
       </Card>
     {/if}
 

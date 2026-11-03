@@ -157,7 +157,7 @@
           oninput={onInput}
           onkeydown={onKey}
           class="h-12 min-w-0 flex-1 bg-transparent text-sm text-text outline-none placeholder:text-faint"
-          placeholder="Find a link or a Frame.io folder, or start something"
+          placeholder="Search links and folders"
           aria-label="Search"
           autocomplete="off"
           spellcheck="false"

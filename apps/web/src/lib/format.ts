@@ -14,6 +14,12 @@ export function formatBytes(n: number): string {
   return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
 }
 
+// The day a link closes, as its client page shows it ("Expires on 10 November 2026"), in the
+// viewer's own time zone.
+export function expiryDate(at: string | Date): string {
+  return new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+}
+
 // Pick readable foreground text (near-black or white) for a hex accent background, by luminance.
 export function accentText(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16);
