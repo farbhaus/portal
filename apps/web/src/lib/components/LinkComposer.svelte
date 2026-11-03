@@ -23,11 +23,11 @@
   import Icon from "./Icon.svelte";
   import Switch from "./Switch.svelte";
   import ConfirmButton from "./ConfirmButton.svelte";
-  import { crumbNames, defaultLinkName, listFolders, resolvePath, type DownloadSource, type FolderRef, type Named } from "$lib/frameio";
+  import { crumbNames, resolvePath, type DownloadSource, type FolderRef } from "$lib/frameio";
   import { expiresText, kindNoun, sourceSummary, type DownloadLink, type LinkSync, type UploadLink } from "$lib/links";
   import { copyWithToast, errorDetail, toast } from "$lib/toast.svelte";
-  import { formatBytes, accentText } from "$lib/format";
-  import { UPLOAD_TOKENS } from "$lib/tokens";
+  import { expiryDate, formatBytes, accentText } from "$lib/format";
+  import { UPLOAD_TOKENS, templateAsks } from "$lib/tokens";
   import { rememberFolder } from "$lib/recents";
 
   type Kind = "upload" | "download";
@@ -77,18 +77,17 @@
   let askName = $state(false);
   let askEmail = $state(false);
   let askMessage = $state(false);
+  let askProject = $state(false);
   let types = $state<Set<TypeGroup | "any">>(new Set(["any"]));
   let customExt = $state<string[]>([]);
   let maxSizeGb = $state("");
   let template = $state("");
   let syncOn = $state(false);
   // The return folder: what the user adds to its twin on their machine goes up to it. None means
-  // nothing goes up. Any folder
-  // of the account; the picker opens in the folder the link's folder sits in (a client's job
-  // folder holding RUSHES and RENDER), and the folders next to the link's folder are one click.
+  // nothing goes up. Any folder of the account; the picker opens in the folder the link's folder
+  // sits in (a client's job folder holding RUSHES and RENDER).
   let returnFolder = $state<FolderRef | null>(null);
   let parentRef = $state<FolderRef | null>(null);
-  let siblings = $state<Named[] | null>(null);
   let syncError = $state<string | null>(null);
   let maxDownloads = $state("");
   let preview = $state(true);
@@ -125,9 +124,12 @@
       remind = link.remind_before_expiry;
       if (link.kind === "upload") {
         folder = link.folder;
-        askName = link.uploader_fields_required.name;
+        // What the template asks for shows as asked; only the rest are the link's own choice.
+        const needs = templateAsks(link.subfolder_template);
+        askName = link.uploader_fields_required.name && !needs.name;
         askEmail = link.uploader_fields_required.email && !link.verify_email;
         askMessage = link.uploader_fields_required.message;
+        askProject = link.uploader_fields_required.project && !needs.project;
         const ext = link.allowed_extensions;
         if (!ext?.length) {
           types = new Set(["any"]);
@@ -157,7 +159,6 @@
     } else {
       folder = initialFolder;
       expiry = "7";
-      name = defaultLinkName(initialFolder);
     }
   }
   seed();
@@ -184,16 +185,10 @@
     if (expiry === "custom") return customDate ? new Date(`${customDate}T23:59:00`) : null;
     return endOfDay(Number(expiry));
   });
-  const fmtDay = (d: Date) => d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-  const expiryHelp = $derived.by(() => {
-    if (expiresAt === "keep") return link?.expires_at ? (link.state === "expired" ? `Expired ${fmtDay(new Date(link.expires_at))}. Pick a new length to reopen it.` : `Closes ${fmtDay(new Date(link.expires_at))}.`) : "";
-    if (expiresAt === null) return expiry === "custom" ? "Pick the last day it should work." : "Stays open until you revoke it.";
-    return `Closes ${fmtDay(expiresAt)} at 23:59.`;
-  });
-  const expiryShort = $derived.by(() => {
-    if (expiresAt === "keep") return link ? `Open ${expiresText(link)}` : "";
-    if (expiresAt === null) return expiry === "custom" ? "" : "No expiry";
-    return `Open until ${fmtDay(expiresAt)}`;
+  // What the client page says about the end: "Expires on …", or nothing for a link that stays open.
+  const clientExpiry = $derived.by(() => {
+    const end = expiresAt === "keep" ? link?.expires_at : expiresAt;
+    return end ? `Expires on ${expiryDate(end)}` : "";
   });
 
   const allowedExtensions = $derived.by((): string[] | null => {
@@ -218,22 +213,24 @@
       day: pad(d.getDate()),
       time: `${pad(d.getHours())}h${pad(d.getMinutes())}`,
       uploader_name: "Ana Ribeiro",
+      project: "Harbour Lights",
     };
     const parts = template.trim() ? template.replace(/\{(\w+)\}/g, (m, k) => vals[k] ?? m).split("/").map((x) => x.trim()).filter(Boolean) : [];
     return [crumbNames(folder).at(-1) ?? "Folder", ...parts];
   });
+  // The fields the Organize template fills folders from: asked whatever their chips say.
+  const tplAsks = $derived(kind === "upload" ? templateAsks(template) : { name: false, project: false });
 
 
   // ── interactions ────────────────────────────────────────────────────────
   function setKind(k: Kind) {
     if (editing || k === kind) return;
     kind = k;
-    if (!nameTouched) name = k === "upload" ? defaultLinkName(folder) : (source?.label ?? "");
+    if (!nameTouched) name = k === "upload" ? "" : (source?.label ?? "");
     if (k === "download" && !source) sourceOpen = true;
   }
 
   function onFolder(f: FolderRef) {
-    if (!nameTouched) name = defaultLinkName(f);
     rememberFolder(f);
   }
 
@@ -280,8 +277,6 @@
     untrack(() => void loadNearby(key));
   });
 
-  const byName = (a: Named, b: Named) => a.name.localeCompare(b.name);
-
   /** The return folder a stored sync block names, under its name or the older `exports`. */
   function savedReturnId(s: LinkSync | null | undefined): string | null {
     return s?.upload?.folder_id ?? s?.exports?.folder_id ?? null;
@@ -291,15 +286,14 @@
   const pathIds = (f: Partial<FolderRef> | null | undefined) => (f?.path ?? []).map((s) => s.id);
 
   /**
-   * Find the folder the link's folder sits in, and the folders next to it. The picked folder
-   * usually carries its breadcrumb; without one, ask Frame.io where it lives. A link that
-   * receives into a project's root has nothing above it: the picker opens in the root itself.
+   * Find the folder the link's folder sits in. The picked folder usually carries its breadcrumb;
+   * without one, ask Frame.io where it lives. A link that receives into a project's root has
+   * nothing above it: the picker opens in the root itself.
    */
   async function loadNearby(key: string) {
     const f = folder;
     if (!key || !f) {
       parentRef = null;
-      siblings = null;
       syncError = null;
       return;
     }
@@ -310,19 +304,14 @@
       if (my !== folderSeq) return;
       if (path.length < 2) {
         parentRef = null;
-        siblings = [];
         return;
       }
       const above = path.slice(0, -1);
       const parent = above[above.length - 1];
       parentRef = { ...f, folder_id: parent.id, folder_name: parent.name, path: above, sync: null };
-      const kids = await listFolders(f.account_id, parent.id);
-      if (my !== folderSeq) return;
-      siblings = kids.filter((c) => c.id !== f.folder_id).sort(byName);
     } catch (e) {
       if (my !== folderSeq) return;
-      siblings = [];
-      syncError = e instanceof Error ? e.message : "Could not read the folders around this one from Frame.io";
+      syncError = e instanceof Error ? e.message : "Could not read this folder from Frame.io";
     }
   }
 
@@ -339,11 +328,6 @@
     });
   });
 
-  function pickSibling(c: Named) {
-    if (!parentRef) return;
-    returnFolder = { ...parentRef, folder_id: c.id, folder_name: c.name, path: [...(parentRef.path ?? []), { id: c.id, name: c.name }] };
-  }
-
   /**
    * Where the return folder can't be. Not the folder the client's uploads come down from, and
    * not inside it: FioTransfer brings that folder down whole, so what goes up would come back.
@@ -351,27 +335,9 @@
   const returnIssue = $derived.by((): string | null => {
     const r = returnFolder;
     if (kind !== "upload" || !syncOn || !r || !folder) return null;
-    if (r.folder_id === folder.folder_id) return "That's the folder the link receives into. Pick one next to it.";
-    if (pathIds(r).slice(0, -1).includes(folder.folder_id))
-      return "That folder is inside the one the link receives into, so what you add to it would come straight back down with the client's uploads. Pick one next to it.";
+    if (r.folder_id === folder.folder_id) return "Can't be the folder the link receives into.";
+    if (pathIds(r).slice(0, -1).includes(folder.folder_id)) return "Can't be inside the folder the link receives into.";
     return null;
-  });
-
-  /**
-   * On-disk names an existing link was saved with, from before the switch. The composer doesn't
-   * set them, but keeps them, so FioTransfer keeps using the folders it already made.
-   */
-  const keptNames = $derived.by((): string[] => {
-    const s = up?.folder?.sync;
-    const out: string[] = [];
-    const project = s?.name ?? up?.turbosort;
-    if (project) out.push(`folder “${project}”`);
-    // Names Portal filled from Frame.io match their folders; only older, hand-picked ones show.
-    const inName = s?.download?.local ?? s?.drive?.local;
-    if (inName && inName !== crumbNames(up?.folder).at(-1)) out.push(`client uploads in “${inName}”`);
-    const outName = s?.upload?.local ?? s?.exports?.local;
-    if (outName && returnFolder?.folder_name && outName !== returnFolder.folder_name) out.push(`send folder as “${outName}”`);
-    return out;
   });
 
   // ── presets ─────────────────────────────────────────────────────────────
@@ -388,7 +354,7 @@
       expiry: presetExpiry(),
       otp,
       password: pwMode === "set" || pwMode === "keep",
-      ask: { name: askName, email: askEmail, message: askMessage },
+      ask: { name: askName, email: askEmail, message: askMessage, project: askProject },
       subtitle: subtitle.trim(),
       notify_emails: notifyEmails.trim(),
       remind,
@@ -428,6 +394,7 @@
     askName = !!st.ask?.name;
     askEmail = !!st.ask?.email;
     askMessage = !!st.ask?.message;
+    askProject = !!st.ask?.project;
     if (typeof st.subtitle === "string" && st.subtitle) subtitle = st.subtitle;
     notifyEmails = typeof st.notify_emails === "string" ? st.notify_emails : "";
     remind = !!st.remind;
@@ -525,7 +492,7 @@
         const { sync: _stored, ...where } = folder;
         b.folder = { ...where, ...(changed ? { sync } : {}) };
       }
-      b.uploader_fields_required = { name: askName, email: askEmail || otp, message: askMessage };
+      b.uploader_fields_required = { name: askName || tplAsks.name, email: askEmail || otp, message: askMessage, project: askProject || tplAsks.project };
       b.allowed_extensions = allowedExtensions;
       b.max_file_size = maxSizeGb ? Math.round(parseFloat(maxSizeGb) * 1e9) : null;
       b.subfolder_template = template.trim() || null;
@@ -614,7 +581,7 @@
     title = "";
     password = "";
     pwMode = "none";
-    name = kind === "upload" ? defaultLinkName(folder) : "";
+    name = "";
     if (kind === "download") source = null;
   }
 
@@ -683,7 +650,7 @@
         {#if created.kind === "upload" && (created as UploadLink).return_link}
           {@const ret = (created as UploadLink).return_link!}
           <div class="grid w-full max-w-xl gap-1.5">
-            <span class="text-xs text-faint">Clients download from the send folder at</span>
+            <span class="text-xs text-faint">Send folder link</span>
             <div class="flex items-center gap-2 rounded-lg border border-border bg-surface-2/60 py-1.5 pr-1.5 pl-3">
               <button type="button" class="min-w-0 flex-1 truncate text-left font-mono text-[13px] text-text hover:text-accent-hover" title="Copy link" onclick={() => copyWithToast(ret.public_url)}>{ret.public_url.replace(/^https?:\/\//, "")}</button>
               <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-2 px-3 font-medium text-text hover:bg-surface-3" onclick={() => copyWithToast(ret.public_url)}>
@@ -692,14 +659,6 @@
             </div>
           </div>
         {/if}
-        <p class="max-w-xl text-muted">
-          {#if created.kind === "upload"}
-            Receives into {crumbNames((created as UploadLink).folder).join(" / ")}.
-          {:else}
-            Sends {source?.label ?? "the files you picked"}.
-          {/if}
-          {expiryShort}{otp ? ", email code on" : ""}{pwMode === "set" ? ", password protected" : ""}.
-        </p>
         <div class="flex flex-wrap gap-2">
           <a href={created.public_url} target="_blank" rel="noopener" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-2 px-3 font-medium text-text hover:bg-surface-3">
             <Icon name="open" size={15} />Open client page
@@ -732,20 +691,20 @@
         {#if error}<p class="mb-3 rounded-md bg-danger/10 px-3 py-2 text-danger">{error}</p>{/if}
         {#if editing && down?.return_for}
           <p class="mb-3 flex items-center gap-3 rounded-md bg-surface-2 px-3 py-2 text-muted">
-            <span class="flex-1">Portal keeps this link for a receive link's send folder. Its settings follow that link, so change them there.</span>
+            <span class="flex-1">Managed by its receive link.</span>
             <a href="/upload-links/{down.return_for}" class="font-medium text-accent-hover hover:underline">Open the receive link</a>
           </p>
         {/if}
         {#if editing && link?.state === "revoked"}
           <p class="mb-3 flex items-center gap-3 rounded-md bg-surface-2 px-3 py-2 text-muted">
-            <span class="flex-1">This link is revoked. Clients see a closed page.</span>
+            <span class="flex-1">This link is revoked.</span>
             <button type="button" class="font-medium text-accent-hover hover:underline" onclick={restore}>Restore</button>
           </p>
         {/if}
 
         {#if !editing}
           <div class="mb-1 grid grid-cols-1 gap-2.5 sm:grid-cols-2" role="radiogroup" aria-label="Link type">
-            {#each [{ k: "upload", icon: "receive", t: "Receive files", s: "Clients upload into Frame.io" }, { k: "download", icon: "send", t: "Send files", s: "Clients download from Frame.io" }] as o (o.k)}
+            {#each [{ k: "upload", icon: "receive", t: "Receive files" }, { k: "download", icon: "send", t: "Send files" }] as o (o.k)}
               <button
                 type="button"
                 role="radio"
@@ -754,7 +713,7 @@
                 class="flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors {kind === o.k ? 'border-accent/50 bg-accent-soft' : 'border-border bg-surface-2/40 hover:border-border-strong'}"
               >
                 <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg {kind === o.k ? 'bg-accent text-on-accent' : 'bg-surface-3 text-body'}"><Icon name={o.icon as "receive" | "send"} size={18} /></span>
-                <span><b class="block text-[13.5px] font-semibold text-text">{o.t}</b><small class="block text-xs text-faint">{o.s}</small></span>
+                <b class="text-[13.5px] font-semibold text-text">{o.t}</b>
               </button>
             {/each}
           </div>
@@ -794,7 +753,6 @@
                   <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-success"></span>
                   <span class="min-w-0 [overflow-wrap:anywhere]">
                     {sourceSummary(source.source as DownloadLink["source"])}
-                    {#if source.source.type === "folder"}<span class="text-faint">· clients get what's in it when they open the link</span>{/if}
                   </span>
                 </div>
               {/if}
@@ -831,7 +789,6 @@
             {#if expiry === "custom"}
               <input type="date" class="{input} max-w-48" bind:value={customDate} aria-label="Last day" />
             {/if}
-            <div class="text-xs text-faint">{expiryHelp}</div>
             {#if expiry !== "never"}
               <label class="flex items-center gap-2 text-muted">
                 <input type="checkbox" bind:checked={remind} />
@@ -853,9 +810,7 @@
             <div class="flex items-center gap-3">
               <div class="min-w-0 flex-1">
                 <b class="block font-medium text-text">Password</b>
-                {#if pwMode === "keep" || pwMode === "clear"}
-                  <small class="block text-xs text-faint">{pwMode === "keep" ? "A password is set." : "The password will be removed when you save."}</small>
-                {/if}
+                {#if pwMode === "clear"}<small class="block text-xs text-faint">Removed when you save</small>{/if}
               </div>
               {#if pwMode === "keep"}
                 <button type="button" class="text-xs font-medium text-muted hover:text-text" onclick={() => { pwMode = "set"; password = passphrase(); }}>Change</button>
@@ -878,9 +833,10 @@
             {/if}
             <div class="flex flex-wrap items-center gap-1.5">
               <span class="mr-1 text-xs text-faint">Ask for</span>
-              <button type="button" class="{chip(askName)} h-6 px-2.5 text-xs" onclick={() => (askName = !askName)}>Name</button>
+              <button type="button" class="{chip(askName || tplAsks.name)} h-6 px-2.5 text-xs disabled:cursor-default" disabled={tplAsks.name} title={tplAsks.name ? "Used in Organize" : undefined} onclick={() => (askName = !askName)}>Name</button>
               <button type="button" class="{chip(askEmail || otp)} h-6 px-2.5 text-xs disabled:cursor-default" disabled={otp} title={otp ? "Needed for the email code" : undefined} onclick={() => (askEmail = !askEmail)}>Email</button>
               {#if kind === "upload"}
+                <button type="button" class="{chip(askProject || tplAsks.project)} h-6 px-2.5 text-xs disabled:cursor-default" disabled={tplAsks.project} title={tplAsks.project ? "Used in Organize" : undefined} onclick={() => (askProject = !askProject)}>Project</button>
                 <button type="button" class="{chip(askMessage)} h-6 px-2.5 text-xs" onclick={() => (askMessage = !askMessage)}>Message</button>
               {/if}
             </div>
@@ -898,9 +854,7 @@
                   {/each}
                   <button type="button" aria-pressed={types.has("any")} class={chip(types.has("any"))} onclick={() => toggleType("any")}>Anything</button>
                 </div>
-                <div class="text-xs text-faint">
-                  {#if allowedExtensions}Accepts {allowedExtensions.map((e) => `.${e}`).join(" ")}{:else}Every file type is accepted.{/if}
-                </div>
+                {#if allowedExtensions}<div class="text-xs text-faint">Accepts {allowedExtensions.map((e) => `.${e}`).join(" ")}</div>{/if}
               </div>
             </div>
             <div class={line}>
@@ -934,9 +888,7 @@
                   <Switch bind:checked={syncOn} label="Sync with FioTransfer" />
                 </div>
                 {#if !syncOn && !up?.folder?.sync && up?.turbosort}
-                  <p class="text-xs text-faint">FioTransfer still syncs this link the older way, as one folder named <span class="font-mono">{up.turbosort}</span>. Turn this on to mirror its Frame.io folders instead.</p>
-                {:else if syncOn && keptNames.length}
-                  <p class="text-xs text-faint">Keeps the names it was saved with: {keptNames.join(", ")}.</p>
+                  <p class="text-xs text-faint">Synced the older way, as <span class="font-mono">{up.turbosort}</span></p>
                 {/if}
               </div>
             </div>
@@ -944,7 +896,7 @@
               <div class={line}>
                 <div class={label}><label for="lc-sync-return">Send folder</label></div>
                 {#if !folder}
-                  <p class="text-xs text-faint">Choose the folder uploads land in first: the send folder usually sits next to it.</p>
+                  <p class="text-xs text-faint">Choose the receive folder first</p>
                 {:else}
                   <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
                     {#if syncError}
@@ -960,14 +912,6 @@
                         <button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-faint hover:bg-surface-3 hover:text-text" title="No send folder" aria-label="No send folder" onclick={() => (returnFolder = null)}><Icon name="x" /></button>
                       {/if}
                     </div>
-                    {#if siblings?.length}
-                      <div class="flex flex-wrap items-center gap-1.5 text-xs text-faint">
-                        <span class="mr-0.5">Next to {crumbNames(folder).at(-1)}</span>
-                        {#each siblings as c (c.id)}
-                          <button type="button" class="{chip(returnFolder?.folder_id === c.id)} h-6 px-2.5 text-xs" onclick={() => pickSibling(c)}>{c.name}</button>
-                        {/each}
-                      </div>
-                    {/if}
                     {#if returnIssue}
                       <div class="text-xs text-danger">{returnIssue}</div>
                     {/if}
@@ -977,8 +921,6 @@
                         <button type="button" class="min-w-0 truncate font-mono text-[11.5px] text-text hover:text-accent-hover" title="Copy link" onclick={() => copyWithToast(up!.return_link!.public_url)}>{up.return_link.public_url.replace(/^https?:\/\//, "")}</button>
                         <button type="button" class="font-medium text-accent-hover hover:underline" onclick={() => copyWithToast(up!.return_link!.public_url)}>Copy</button>
                       </div>
-                    {:else if returnFolder}
-                      <p class="text-xs text-faint">Saving makes a Send link for this folder, with this link's settings, for you to share with the client.</p>
                     {/if}
                   </div>
                 {/if}
@@ -997,7 +939,6 @@
               <div class="flex items-center gap-3">
                 <div class="min-w-0 flex-1">
                   <b class="block font-medium text-text">Show thumbnails</b>
-                  <small class="block text-xs text-faint">Turn off for unreleased material</small>
                 </div>
                 <Switch bind:checked={preview} label="Show thumbnails" />
               </div>
@@ -1091,8 +1032,9 @@
         <div class="text-base font-semibold break-words text-text">{title.trim() || (kind === "upload" ? "Send us your files" : "Your files are ready")}</div>
         {#if subtitle.trim()}<div class="-mt-1.5 text-muted">{subtitle}</div>{/if}
         {#if pwMode === "set" || pwMode === "keep"}<div class="flex h-8 items-center rounded-md border border-border px-2.5 text-left text-faint">Password</div>{/if}
-        {#if askName}<div class="flex h-8 items-center rounded-md border border-border px-2.5 text-left text-faint">Your name</div>{/if}
+        {#if askName || tplAsks.name}<div class="flex h-8 items-center rounded-md border border-border px-2.5 text-left text-faint">Your name</div>{/if}
         {#if askEmail || otp}<div class="flex h-8 items-center rounded-md border border-border px-2.5 text-left text-faint">Email</div>{/if}
+        {#if kind === "upload" && (askProject || tplAsks.project)}<div class="flex h-8 items-center rounded-md border border-border px-2.5 text-left text-faint">Project</div>{/if}
         {#if kind === "upload" && askMessage}<div class="flex h-8 items-center rounded-md border border-border px-2.5 text-left text-faint">Message</div>{/if}
         {#if otp}<div class="-mt-1 text-[11.5px] text-faint">We'll email you a 6-digit code</div>{/if}
         {#if kind === "upload"}
@@ -1119,7 +1061,7 @@
             Download all{source?.bytes ? ` · ${formatBytes(source.bytes)}` : ""}
           </div>
         {/if}
-        {#if expiryShort}<div class="text-[11px] text-faint">{expiryShort}</div>{/if}
+        {#if clientExpiry}<div class="-mt-1 text-[11px] text-faint">{clientExpiry}</div>{/if}
       </div>
     </div>
     {#if editing && link}

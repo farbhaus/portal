@@ -302,8 +302,10 @@ pub fn render_row(state: &AppState, row: &sqlx::postgres::PgRow) -> Value {
     let expires_at: Option<DateTime<Utc>> = row.get("expires_at");
     let revoked_at: Option<DateTime<Utc>> = row.get("revoked_at");
     let verify_email: bool = row.get("verify_email");
-    let fields: Option<Value> = row.get("uploader_fields_required");
-    let fields = fields.unwrap_or_else(|| json!({}));
+    let fields = crate::services::upload_paths::with_template_asks(
+        row.get("uploader_fields_required"),
+        row.get::<Option<String>, _>("subfolder_template").as_deref(),
+    );
     let flag = |k: &str| fields.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
     let email = flag("email") || verify_email;
     let folder: Value = row.get::<Option<Value>, _>("folder").unwrap_or(Value::Null);
@@ -324,7 +326,7 @@ pub fn render_row(state: &AppState, row: &sqlx::postgres::PgRow) -> Value {
         "password_protected": row.get::<Option<String>, _>("password_hash").is_some(),
         "max_file_size": row.get::<Option<i64>, _>("max_file_size"),
         "allowed_extensions": row.get::<Option<Value>, _>("allowed_extensions").unwrap_or(Value::Null),
-        "uploader_fields_required": { "name": flag("name"), "email": email, "message": flag("message") },
+        "uploader_fields_required": { "name": flag("name"), "email": email, "message": flag("message"), "project": flag("project") },
         "verify_email": verify_email,
         "target_folder_id": row.get::<Option<String>, _>("target_folder_id"),
         "target_folder_name": row.get::<Option<String>, _>("target_folder_name"),
@@ -689,7 +691,7 @@ pub async fn sessions(State(state): State<AppState>, _: Admin, Path(id): Path<Uu
     }
     let limit = q.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(10).clamp(1, 100);
     let rows = sqlx::query(
-        "SELECT id, uploader_name, uploader_email, status, frameio_asset_ids, total_bytes, uploaded_bytes,
+        "SELECT id, uploader_name, uploader_email, uploader_project, status, frameio_asset_ids, total_bytes, uploaded_bytes,
                 started_at, completed_at, last_activity_at, created_at
            FROM upload_sessions
           WHERE upload_link_id = $1
@@ -712,6 +714,7 @@ pub async fn sessions(State(state): State<AppState>, _: Admin, Path(id): Path<Uu
                 "id": r.get::<Uuid, _>("id").to_string(),
                 "uploader_name": r.get::<Option<String>, _>("uploader_name"),
                 "uploader_email": r.get::<Option<String>, _>("uploader_email"),
+                "uploader_project": r.get::<Option<String>, _>("uploader_project"),
                 "status": r.get::<String, _>("status"),
                 "files": files.len(),
                 "total_bytes": r.get::<Option<i64>, _>("total_bytes").or(if planned > 0 { Some(planned) } else { None }),

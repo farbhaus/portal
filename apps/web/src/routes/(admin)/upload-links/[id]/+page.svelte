@@ -23,10 +23,11 @@
       <span class="text-xs text-faint">{sessions.length ? `Latest ${sessions.length}` : ""}</span>
     </div>
     {#each sessions as s (s.id)}
+      {@const detail = [s.uploader_project, s.uploader_name ? s.uploader_email : null].filter(Boolean).join(" · ")}
       <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 border-b border-border px-5 py-2.5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_80px_120px_140px]">
         <div class="min-w-0">
           <div class="truncate font-medium text-text">{s.uploader_name || s.uploader_email || "Someone"}</div>
-          {#if s.uploader_name && s.uploader_email}<div class="truncate text-xs text-faint">{s.uploader_email}</div>{/if}
+          {#if detail}<div class="truncate text-xs text-faint">{detail}</div>{/if}
         </div>
         <span class="tnum hidden text-muted sm:block">{s.files} file{s.files === 1 ? "" : "s"}</span>
         <span class="tnum hidden text-muted sm:block">{s.total_bytes != null ? formatBytes(s.total_bytes) : "—"}</span>

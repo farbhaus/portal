@@ -187,7 +187,7 @@ fn file_list_html(files: &[UploadedFile]) -> String {
 #[allow(clippy::too_many_arguments)] // mirrors Python's keyword-only render_upload_completion
 pub fn render_upload_completion(
     link_name: &str, uploader_name: Option<&str>, uploader_email: Option<&str>, uploader_message: Option<&str>,
-    files: &[UploadedFile], total_bytes: i64, duration_seconds: f64, brand: &EmailBrand,
+    uploader_project: Option<&str>, files: &[UploadedFile], total_bytes: i64, duration_seconds: f64, brand: &EmailBrand,
 ) -> (String, String, String) {
     let count = files.len();
     let plural = if count != 1 { "s" } else { "" };
@@ -198,8 +198,12 @@ pub fn render_upload_completion(
         format!("Uploader name:    {}", dash(uploader_name)),
         format!("Uploader email:   {}", dash(uploader_email)),
         format!("Message:          {}", dash(uploader_message)),
-        String::new(), format!("Files ({count}):"),
     ];
+    // Only links that ask for a project have one.
+    if let Some(p) = uploader_project {
+        lines.push(format!("Project:          {p}"));
+    }
+    lines.extend([String::new(), format!("Files ({count}):")]);
     lines.extend(file_lines(files));
     lines.push(String::new());
     lines.push(format!("Total:    {}", format_bytes(total_bytes)));
@@ -208,12 +212,13 @@ pub fn render_upload_completion(
 
     let body_html = format!(
         "<p style=\"margin:0 0 16px\">A new upload completed on <strong>{}</strong>.</p>\
-<table role=\"presentation\" style=\"border-collapse:collapse;margin:0 0 16px;width:100%\">{}{}{}</table>\
+<table role=\"presentation\" style=\"border-collapse:collapse;margin:0 0 16px;width:100%\">{}{}{}{}</table>\
 <p style=\"margin:0 0 4px;font-weight:600;color:#18181b\">Files ({count})</p>\
 {file_list}\
 <table role=\"presentation\" style=\"border-collapse:collapse;width:100%\">{}{}</table>",
         escape(link_name), meta_row("Uploader", &dash(uploader_name)), meta_row("Email", &dash(uploader_email)),
-        meta_row("Message", &dash(uploader_message)), meta_row("Total", &format_bytes(total_bytes)),
+        meta_row("Message", &dash(uploader_message)), uploader_project.map(|p| meta_row("Project", p)).unwrap_or_default(),
+        meta_row("Total", &format_bytes(total_bytes)),
         meta_row("Duration", &format_duration(duration_seconds)),
         file_list = file_list_html(files),
     );
@@ -225,10 +230,12 @@ pub fn render_upload_completion(
 /// `to`: the link's own notification addresses; empty means the app's notify address.
 pub async fn send_upload_completion(
     config: &EmailConfig, to: &[String], link_name: &str, uploader_name: Option<&str>, uploader_email: Option<&str>,
-    uploader_message: Option<&str>, files: &[UploadedFile], total_bytes: i64, duration_seconds: f64, brand: &EmailBrand,
+    uploader_message: Option<&str>, uploader_project: Option<&str>, files: &[UploadedFile], total_bytes: i64, duration_seconds: f64,
+    brand: &EmailBrand,
 ) {
     if !config.configured() { return; }
-    let (subject, text, html) = render_upload_completion(link_name, uploader_name, uploader_email, uploader_message, files, total_bytes, duration_seconds, brand);
+    let (subject, text, html) =
+        render_upload_completion(link_name, uploader_name, uploader_email, uploader_message, uploader_project, files, total_bytes, duration_seconds, brand);
     let fallback = [config.resolved_notify_email()];
     for addr in if to.is_empty() { &fallback[..] } else { to } {
         let _ = send_email(config, addr, &subject, &text, Some(&html)).await;
@@ -406,6 +413,16 @@ mod tests {
         assert!(html.contains("&lt;b&gt;.wav")); // file names are escaped in the HTML part
         let (one, _, _) = render_upload_receipt("X", &files[..1], 1, &brand());
         assert_eq!(one, "Delivered to X: 1 file");
+    }
+
+    #[test]
+    fn completion_names_the_project_only_when_given() {
+        let files = vec![UploadedFile { name: "A001.mov".into(), size: Some(2048) }];
+        let (_, text, html) = render_upload_completion("Cards", Some("Ana"), None, None, Some("Harbour <Lights>"), &files, 2048, 3.0, &brand());
+        assert!(text.contains("Message:          —\nProject:          Harbour <Lights>\n\nFiles (1):"));
+        assert!(html.contains("Harbour &lt;Lights&gt;"));
+        let (_, text, html) = render_upload_completion("Cards", Some("Ana"), None, None, None, &files, 2048, 3.0, &brand());
+        assert!(!text.contains("Project:") && !html.contains("Project"));
     }
 
     #[test]

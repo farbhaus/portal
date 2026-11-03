@@ -3,6 +3,7 @@ import type { PageLoad } from "./$types";
 
 export type PublicDownload = {
   state: "ok" | "expired" | "revoked";
+  expires_at: string | null;
   display_name: string;
   subtitle: string | null;
   logo_url: string | null;

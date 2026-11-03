@@ -353,7 +353,7 @@
                 {:else if l.kind === "upload"}
                   {#each d.sessions ?? [] as s (s.id)}
                     <div class="grid h-8 grid-cols-[minmax(0,1fr)_56px_150px_96px] items-center gap-2.5 border-b border-border px-3 text-xs last:border-b-0">
-                      <span class="truncate text-text">{who(s.uploader_name, s.uploader_email)}</span>
+                      <span class="truncate text-text">{who(s.uploader_name, s.uploader_email)}{#if s.uploader_project}<span class="text-faint"> · {s.uploader_project}</span>{/if}</span>
                       <span class="tnum truncate text-muted">{s.files} file{s.files === 1 ? "" : "s"}</span>
                       <span class="tnum truncate text-muted">{s.status === "in_progress" && s.uploaded_bytes != null ? `${formatBytes(s.uploaded_bytes)} of ` : ""}{s.total_bytes != null ? formatBytes(s.total_bytes) : "—"}</span>
                       <span class="truncate text-right {s.status === 'in_progress' ? 'text-accent-hover' : s.status === 'abandoned' ? 'text-warning' : 'text-muted'}">
@@ -361,7 +361,7 @@
                       </span>
                     </div>
                   {:else}
-                    <div class="px-3 py-3 text-faint">No uploads yet. Copy the link and send it to the client.</div>
+                    <div class="px-3 py-3 text-faint">No uploads yet.</div>
                   {/each}
                 {:else}
                   {#each d.events ?? [] as e, i (i)}
@@ -371,7 +371,7 @@
                       <span class="truncate text-right text-muted" title={whenFull(e.started_at)}>{timeAgo(e.started_at)}</span>
                     </div>
                   {:else}
-                    <div class="px-3 py-3 text-faint">Nobody has downloaded anything yet.</div>
+                    <div class="px-3 py-3 text-faint">No downloads yet.</div>
                   {/each}
                 {/if}
               </div>

@@ -16,7 +16,7 @@ use crate::common::{lockout, ratelimit};
 use crate::services::runtime_config::{email_brand, get_email_config, link_brand};
 use crate::storage::frameio_backend::FrameioStorageBackend;
 use crate::storage::{DestinationConfig, UploadSession as StorageUploadSession};
-use crate::services::upload_paths::render_session_prefix;
+use crate::services::upload_paths::{render_session_prefix, with_template_asks, Uploader};
 use crate::state::AppState;
 use crate::verify;
 
@@ -82,11 +82,11 @@ pub async fn resolve_link(
     let brand = link_brand(&state.db, &state.settings).await;
     let display_name = or_else(row.get("brand_display_name"), brand.name).unwrap_or_else(|| "Upload".to_string());
     let branding_subtitle = or_else(row.get("brand_subtitle"), None);
-    let fields: Option<Value> = row.get("uploader_fields_required");
-    let fields = fields.unwrap_or_else(|| json!({}));
+    let fields = with_template_asks(row.get("uploader_fields_required"), row.get::<Option<String>, _>("subfolder_template").as_deref());
     let flag = |k: &str| fields.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
     Json(json!({
         "state": link_state_of(row.get("revoked_at"), row.get("expires_at")),
+        "expires_at": row.get::<Option<DateTime<Utc>>, _>("expires_at").map(|d| crate::pyfmt::iso(&d)),
         "display_name": display_name,
         "subtitle": branding_subtitle,
         "logo_url": brand.logo_url,
@@ -94,7 +94,7 @@ pub async fn resolve_link(
         "password_required": row.get::<Option<String>, _>("password_hash").is_some(),
         "max_file_size": row.get::<Option<i64>, _>("max_file_size"),
         "allowed_extensions": row.get::<Option<Value>, _>("allowed_extensions").unwrap_or(Value::Null),
-        "uploader_fields_required": { "name": flag("name"), "email": flag("email"), "message": flag("message") },
+        "uploader_fields_required": { "name": flag("name"), "email": flag("email"), "message": flag("message"), "project": flag("project") },
         "verify_email": row.get::<bool, _>("verify_email"),
     }))
     .into_response()
@@ -261,10 +261,11 @@ pub async fn start_session(
             return detail_response(StatusCode::FORBIDDEN, "Incorrect password");
         }
     }
-    let required: Value = row.get::<Option<Value>, _>("uploader_fields_required").unwrap_or_else(|| json!({}));
+    let required = with_template_asks(row.get("uploader_fields_required"), row.get::<Option<String>, _>("subfolder_template").as_deref());
     let name = body.get("name").and_then(|v| v.as_str());
     let email = body.get("email").and_then(|v| v.as_str());
     let message = body.get("message").and_then(|v| v.as_str());
+    let project = body.get("project").and_then(|v| v.as_str());
     // Size of the whole batch the uploader selected. Known up front in the browser, so the
     // dashboard can show the real total for an in-flight upload rather than summing the files
     // registered so far (which grows as the upload progresses).
@@ -275,7 +276,7 @@ pub async fn start_session(
             _ => return detail_response(StatusCode::UNPROCESSABLE_ENTITY, "total_bytes must be a non-negative integer"),
         },
     };
-    let provided = [("name", name), ("email", email), ("message", message)];
+    let provided = [("name", name), ("email", email), ("message", message), ("project", project)];
     let missing: Vec<&str> = provided
         .iter()
         .filter(|(k, v)| required.get(k).and_then(|x| x.as_bool()).unwrap_or(false) && v.is_none())
@@ -305,10 +306,10 @@ pub async fn start_session(
     let link_id: Uuid = row.get("id");
     // upload_sessions.status has no DB default.
     let inserted = sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO upload_sessions (upload_link_id, uploader_name, uploader_email, uploader_message, status, started_at, total_bytes)
-         VALUES ($1,$2,$3,$4,'in_progress',now(),$5) RETURNING id",
+        "INSERT INTO upload_sessions (upload_link_id, uploader_name, uploader_email, uploader_message, uploader_project, status, started_at, total_bytes)
+         VALUES ($1,$2,$3,$4,$5,'in_progress',now(),$6) RETURNING id",
     )
-    .bind(link_id).bind(name).bind(email).bind(message).bind(total_bytes)
+    .bind(link_id).bind(name).bind(email).bind(message).bind(project).bind(total_bytes)
     .fetch_one(&state.db).await;
     match inserted {
         Ok(id) => {
@@ -372,9 +373,11 @@ pub async fn request_file_upload(
             return detail_response(StatusCode::BAD_REQUEST, "File exceeds the maximum allowed size");
         }
     let uploader_name: Option<String> = session.get("uploader_name");
+    let uploader_project: Option<String> = session.get("uploader_project");
+    let uploader = Uploader { name: uploader_name.as_deref().unwrap_or(""), project: uploader_project.as_deref().unwrap_or("") };
     let started_at: Option<DateTime<Utc>> = session.get("started_at");
     let template: Option<String> = row.get("subfolder_template");
-    let prefix = render_session_prefix(template.as_deref(), uploader_name.as_deref().unwrap_or(""), started_at.map(|d| d.with_timezone(&chrono::Local)));
+    let prefix = render_session_prefix(template.as_deref(), &uploader, started_at.map(|d| d.with_timezone(&chrono::Local)));
     let effective_path = if prefix.is_empty() { path.to_string() } else { format!("{prefix}/{path}") };
 
     let dest_cfg: Value = row.get("link_folder");
@@ -464,6 +467,7 @@ pub async fn complete_session(
     let uploader_name: Option<String> = session.get("uploader_name");
     let uploader_email: Option<String> = session.get("uploader_email");
     let uploader_message: Option<String> = session.get("uploader_message");
+    let uploader_project: Option<String> = session.get("uploader_project");
 
     // The uploader's email, if this browser proved it owns it: a verified link plus the matching
     // device-trust cookie. Gates both sliding the trust window and the delivery receipt — never
@@ -522,7 +526,7 @@ pub async fn complete_session(
         tokio::spawn(async move {
             crate::notify::send_upload_completion(
                 &email_config, &notify_to, &link_name, uploader_name.as_deref(), uploader_email.as_deref(), uploader_message.as_deref(),
-                &files, total, duration, &brand,
+                uploader_project.as_deref(), &files, total, duration, &brand,
             ).await;
             if let Some(to) = receipt_to {
                 crate::notify::send_upload_receipt(&email_config, &to, &link_name, &files, total, &brand).await;

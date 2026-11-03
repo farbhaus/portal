@@ -35,7 +35,6 @@
         {#each data.actions as a (a)}<option value={a} selected={data.action === a}>{words(a)}</option>{/each}
       </select>
     </div>
-    <p class="mt-1 text-faint">What was done in the admin, and by whom: links, settings, sign-ins.</p>
   </div>
 
   <div class="overflow-hidden rounded-xl border border-border bg-surface">

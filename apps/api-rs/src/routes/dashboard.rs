@@ -46,7 +46,7 @@ pub async fn history(State(state): State<AppState>, _: Admin, Query(q): Query<Hi
 
     if want("upload") {
         let rows = sqlx::query(
-            "SELECT s.id, s.uploader_name, s.uploader_email, s.uploaded_bytes, s.total_bytes,
+            "SELECT s.id, s.uploader_name, s.uploader_email, s.uploader_project, s.uploaded_bytes, s.total_bytes,
                     s.status, s.started_at, s.completed_at, s.last_activity_at, s.created_at,
                     s.frameio_asset_ids, l.id AS link_id,
                     COALESCE(NULLIF(l.name, ''), l.brand_display_name) AS brand_display_name
@@ -54,7 +54,7 @@ pub async fn history(State(state): State<AppState>, _: Admin, Query(q): Query<Hi
               WHERE (s.status = 'completed'
                      OR (s.status = 'abandoned' AND s.frameio_asset_ids IS NOT NULL
                          AND jsonb_array_length(s.frameio_asset_ids) > 0))
-                AND ($2::text IS NULL OR concat_ws(' ', l.name, l.brand_display_name, s.uploader_name, s.uploader_email) ILIKE $2)
+                AND ($2::text IS NULL OR concat_ws(' ', l.name, l.brand_display_name, s.uploader_name, s.uploader_email, s.uploader_project) ILIKE $2)
               ORDER BY COALESCE(s.completed_at, s.last_activity_at, s.started_at, s.created_at) DESC
               LIMIT $1",
         )
@@ -82,6 +82,7 @@ pub async fn history(State(state): State<AppState>, _: Admin, Query(q): Query<Hi
                 "kind": "upload",
                 "label": brand.unwrap_or_else(|| "Upload".to_string()),
                 "who": who(row.get("uploader_name"), row.get("uploader_email")),
+                "project": row.get::<Option<String>, _>("uploader_project"),
                 "bytes": size,
                 "files": files,
                 "status": if completed { "completed" } else { "incomplete" },

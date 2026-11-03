@@ -490,7 +490,7 @@
 <Modal bind:open={shareOpen} title="Create Frame.io share link">
   {#if shareResult}
     <div class="space-y-3 text-sm">
-      <p class="text-muted">Share created — this is a Frame.io review page, separate from a Portal download link.</p>
+      <p class="text-muted">Frame.io share created.</p>
       {#if shareResult.short_url}
         <div class="rounded-md border border-border bg-surface-2 px-3 py-2">
           <CopyButton value={shareResult.short_url} />

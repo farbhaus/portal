@@ -126,6 +126,18 @@ fn path_id<'a>(name: &str, value: &'a str) -> Result<&'a str, ErrorData> {
     }
 }
 
+/// `ask_for` as the API's `uploader_fields_required`, refusing a field the upload page doesn't have.
+fn uploader_fields(ask_for: &[String]) -> Result<Value, ErrorData> {
+    let mut fields = json!({ "name": false, "email": false, "message": false, "project": false });
+    for f in ask_for {
+        match fields.get_mut(f.trim()) {
+            Some(v) => *v = json!(true),
+            None => return Err(ErrorData::invalid_params(format!("ask_for: unknown field {f:?} (name, email, message, project)"), None)),
+        }
+    }
+    Ok(fields)
+}
+
 fn pretty(value: Value) -> Result<String, ErrorData> {
     serde_json::to_string_pretty(&value)
         .map_err(|e| ErrorData::internal_error(format!("Could not encode response: {e}"), None))
@@ -180,7 +192,12 @@ struct CreateUploadLink {
     password: Option<String>,
     max_file_size: Option<i64>,
     allowed_extensions: Option<Vec<String>>,
+    /// Folders the uploads land in below the link's folder, e.g. `{project}/{date}`. Tokens:
+    /// date, year, month, day, time, uploader_name, project. A template using uploader_name or
+    /// project asks the client for it.
     subfolder_template: Option<String>,
+    /// What the upload page asks the client for, any of: name, email, message, project.
+    ask_for: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -243,6 +260,7 @@ impl PortalServer {
             ("max_file_size", p.max_file_size.map(|v| json!(v))),
             ("allowed_extensions", p.allowed_extensions.map(|v| json!(v))),
             ("subfolder_template", p.subfolder_template.map(Value::String)),
+            ("uploader_fields_required", p.ask_for.as_deref().map(uploader_fields).transpose()?),
         ];
         for (key, value) in optional {
             if let Some(value) = value {
@@ -389,7 +407,7 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{path_id, with_sync};
+    use super::{path_id, uploader_fields, with_sync};
     use serde_json::{json, Value};
 
     #[test]
@@ -408,6 +426,13 @@ mod tests {
             json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "folder_id": other } })
         );
         assert_eq!(with_sync(Some(&old), true, None), json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" } }));
+    }
+
+    #[test]
+    fn ask_for_names_the_upload_page_fields() {
+        let asked = uploader_fields(&["name".into(), " project ".into()]).unwrap();
+        assert_eq!(asked, json!({ "name": true, "email": false, "message": false, "project": true }));
+        assert!(uploader_fields(&["phone".into()]).is_err());
     }
 
     #[test]

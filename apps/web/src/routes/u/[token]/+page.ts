@@ -3,6 +3,7 @@ import type { PageLoad } from "./$types";
 
 export type PublicLink = {
   state: "ok" | "expired" | "revoked";
+  expires_at: string | null;
   display_name: string;
   subtitle: string | null;
   logo_url: string | null;
@@ -10,7 +11,7 @@ export type PublicLink = {
   password_required: boolean;
   max_file_size: number | null;
   allowed_extensions: string[] | null;
-  uploader_fields_required: { name: boolean; email: boolean; message: boolean };
+  uploader_fields_required: { name: boolean; email: boolean; message: boolean; project: boolean };
   verify_email: boolean;
 };
 

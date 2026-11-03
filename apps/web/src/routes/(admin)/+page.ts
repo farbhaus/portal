@@ -21,6 +21,7 @@ export type HistoryItem = {
   kind: "upload" | "download";
   label: string | null;
   who: string | null;
+  project?: string | null;
   bytes: number | null;
   files?: number;
   status: string;

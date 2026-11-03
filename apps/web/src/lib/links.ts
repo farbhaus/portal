@@ -51,7 +51,7 @@ export type UploadLink = LinkBase & {
   folder: FolderRef | null;
   max_file_size: number | null;
   allowed_extensions: string[] | null;
-  uploader_fields_required: { name: boolean; email: boolean; message: boolean };
+  uploader_fields_required: { name: boolean; email: boolean; message: boolean; project: boolean };
   subfolder_template: string | null;
   // The project folder name FioTransfer reads and uses for the project's folder (null = none).
   turbosort: string | null;
@@ -96,6 +96,7 @@ export type UploadSessionRow = {
   id: string;
   uploader_name: string | null;
   uploader_email: string | null;
+  uploader_project: string | null;
   status: string;
   files: number;
   total_bytes: number | null;

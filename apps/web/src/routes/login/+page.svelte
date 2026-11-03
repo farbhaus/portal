@@ -80,7 +80,6 @@
         <img src="/api/branding/logo" alt="" class="mx-auto mb-2 h-12 object-contain" onerror={() => (logoOk = false)} />
       {/if}
       <h1 class="text-xl font-semibold">Portal</h1>
-      <p class="text-sm text-muted">Sign in to the admin dashboard.</p>
     </div>
 
     {#if error}
