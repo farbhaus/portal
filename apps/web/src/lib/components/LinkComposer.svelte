@@ -24,7 +24,7 @@
   import Switch from "./Switch.svelte";
   import ConfirmButton from "./ConfirmButton.svelte";
   import { crumbNames, resolvePath, type DownloadSource, type FolderRef } from "$lib/frameio";
-  import { expiresText, kindNoun, sourceSummary, type DownloadLink, type LinkSync, type UploadLink } from "$lib/links";
+  import { kindNoun, sourceSummary, type DownloadLink, type LinkSync, type UploadLink } from "$lib/links";
   import { copyWithToast, errorDetail, toast } from "$lib/toast.svelte";
   import { expiryDate, formatBytes, accentText } from "$lib/format";
   import { UPLOAD_TOKENS, templateAsks } from "$lib/tokens";
@@ -185,6 +185,12 @@
     if (expiry === "custom") return customDate ? new Date(`${customDate}T23:59:00`) : null;
     return endOfDay(Number(expiry));
   });
+  // The chip that keeps an edited link's end date: the date itself, with the year when it isn't this one.
+  function savedDay(at: string): string {
+    const d = new Date(at);
+    const year = d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" as const } : {};
+    return d.toLocaleDateString(undefined, { day: "numeric", month: "short", ...year });
+  }
   // What the client page says about the end: "Expires on …", or nothing for a link that stays open.
   const clientExpiry = $derived.by(() => {
     const end = expiresAt === "keep" ? link?.expires_at : expiresAt;
@@ -780,7 +786,7 @@
           <div class="grid grid-cols-[minmax(0,1fr)] gap-2">
             <div class="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Expiry">
               {#if editing && link?.expires_at}
-                <button type="button" role="radio" aria-checked={expiry === "keep"} class={chip(expiry === "keep")} onclick={() => (expiry = "keep")}>Keep {expiresText(link)}</button>
+                <button type="button" role="radio" aria-checked={expiry === "keep"} class={chip(expiry === "keep")} onclick={() => (expiry = "keep")}>{savedDay(link.expires_at)}</button>
               {/if}
               {#each [["1", "1 day"], ["7", "7 days"], ["30", "30 days"], ["never", "Never"], ["custom", "Pick a date…"]] as [v, l] (v)}
                 <button type="button" role="radio" aria-checked={expiry === v} class={chip(expiry === v)} onclick={() => (expiry = v as Expiry)}>{l}</button>
