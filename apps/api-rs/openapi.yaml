@@ -127,7 +127,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     patch:
       summary: Update an upload link
-      description: Only keys present in the body are applied. A `folder` without a `sync` key keeps the stored sync; `sync` null removes it.
+      description: Only keys present in the body are applied. A `folder` without a `sync` key keeps the stored sync; `sync` null removes it, and the link's `turbosort` with it unless the body sets one.
       requestBody:
         required: true
         content:
@@ -168,6 +168,34 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/UploadLink" }
+  /api/settings/fiotransfer:
+    get:
+      summary: The Imports and Exports folder names synced links start with
+      responses:
+        "200":
+          description: The names in use (Settings, else the defaults)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FiotransferNames" }
+    post:
+      summary: Set the Imports and Exports folder names
+      description: An empty or missing name goes back to its default. Links keep the names they were saved with.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                imports_folder: { type: string, nullable: true }
+                exports_folder: { type: string, nullable: true }
+      responses:
+        "200":
+          description: The names now in use
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FiotransferNames" }
+        "422": { description: "Not one folder name each, or the same name twice" }
   /api/frameio/status:
     get:
       summary: Frame.io connection status
@@ -328,28 +356,40 @@ components:
           allOf: [{ $ref: "#/components/schemas/LinkSync" }]
           nullable: true
           description: Upload links only. On PATCH, a folder without this key keeps the stored block; null removes it.
+    FiotransferNames:
+      type: object
+      properties:
+        imports_folder: { type: string, example: 1_DRIVE }
+        exports_folder: { type: string, example: 0_EXPORTS }
+        defaults:
+          type: object
+          properties:
+            imports_folder: { type: string }
+            exports_folder: { type: string }
     LinkSync:
       type: object
       description: |
-        "Sync with FioTransfer" for an upload link: its presence is the switch, and `{}` is enough.
-        Portal only stores it; the FioTransfer client reads it from `GET /api/upload-links` and
-        gives the link a folder on the user's disk. Client uploads come down into IN; what the user
-        puts in OUT goes up to the return folder. Nothing is ever deleted. Older links may carry
-        `drive` (read as `download`), `exports` (read as `upload`) and `mode`; a direction comes
-        under one key only.
+        "Sync this project's folders with FioTransfer" for an upload link. Portal only stores it;
+        the FioTransfer client reads it from `GET /api/upload-links` and keeps the link's project
+        folder (`turbosort`) on the user's machine with up to two one-way folders: Imports
+        (`drive`) bring what the client sends down, Exports (`exports`) take what the user puts in
+        theirs up to `exports.folder_id`. A lane that is absent is off; at least one is on. Nothing
+        is ever deleted. Stored with `mode: add_only` always. Portal 2.2's `download`, `upload`,
+        `name` and `{}` are accepted on input and stored in this shape (`name` as the link's
+        `turbosort`, `{}` as Imports with its defaults); a lane comes under one of its names only.
       properties:
-        name: { type: string, description: "The project folder's name on disk; defaults to the link's name. One folder name of at most 255 bytes: no / \\ % or control characters, not . or .." }
-        download: { $ref: "#/components/schemas/LinkSyncLane" }
-        upload: { $ref: "#/components/schemas/LinkSyncLane" }
-        drive: { $ref: "#/components/schemas/LinkSyncLane" }
-        exports: { $ref: "#/components/schemas/LinkSyncLane" }
         mode: { type: string, enum: [add_only] }
+        drive:
+          allOf: [{ $ref: "#/components/schemas/LinkSyncLane" }]
+          description: "Imports. `folder_id`: where they come down from (default: the link's own folder)."
+        exports:
+          allOf: [{ $ref: "#/components/schemas/LinkSyncLane" }]
+          description: "Exports. `folder_id` (required): where they go up to; not the folder Imports come down from, nor inside it."
     LinkSyncLane:
       type: object
-      description: "`download`: where IN comes from (default: the link's own folder). `upload`: the return folder OUT goes up to; without `folder_id` there is no OUT. It can't be IN's folder or inside it."
       properties:
         folder_id: { type: string, format: uuid, description: A Frame.io folder }
-        local: { type: string, description: "The folder's name on disk. When missing, Portal fills it on save with the Frame.io folder's name (the link's folder for download, the return folder for upload). One folder name of at most 255 bytes: no / \\ % or control characters, not . or ..; the two must differ." }
+        local: { type: string, description: "The folder's name on disk, inside the project folder. Default: the Imports/Exports name from Settings (`/api/settings/fiotransfer`). One folder name of at most 255 bytes: no / \\ % or control characters, not . or ..; the two must differ, ignoring case." }
     UploadLinkCreate:
       type: object
       required: [folder]
@@ -359,7 +399,8 @@ components:
         turbosort:
           type: string
           nullable: true
-          description: Older project folder name FioTransfer reads when `sync.name` is absent (one folder name; null or "" clears it). Prefer `folder.sync.name`.
+          description: The project folder on the user's machine that holds the link's Imports and Exports (one folder name). A synced link always has one; without it Portal uses the job folder the Imports sit in. Without a `sync`, FioTransfer mirrors it both ways.
+        send_link: { type: boolean, default: true, description: Keep a Send link on the Exports folder for the client. }
         expires_at: { type: string, format: date-time, nullable: true }
         password: { type: string, nullable: true }
         verify_email: { type: boolean, default: false }
@@ -382,6 +423,7 @@ components:
         name: { type: string, nullable: true }
         folder: { $ref: "#/components/schemas/Folder" }
         turbosort: { type: string, nullable: true }
+        send_link: { type: boolean }
         password: { type: string, nullable: true }
         verify_email: { type: boolean }
         max_file_size: { type: integer, nullable: true }
@@ -408,10 +450,11 @@ components:
         state: { type: string, enum: [ok, expired, revoked] }
         folder: { $ref: "#/components/schemas/Folder" }
         turbosort: { type: string, nullable: true }
+        send_link: { type: boolean, description: Whether Portal keeps a Send link on the Exports folder. }
         return_link:
           type: object
           nullable: true
-          description: The Send link Portal keeps for the return folder (`folder.sync`), for the client to download from; its settings follow this link.
+          description: The Send link Portal keeps for the Exports folder (`folder.sync.exports`), for the client to download from; its settings follow this link.
           properties:
             id: { type: string, format: uuid }
             public_url: { type: string, format: uri }

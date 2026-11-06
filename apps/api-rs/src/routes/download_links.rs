@@ -278,6 +278,12 @@ pub async fn restore_link(State(state): State<AppState>, admin: Admin, axum::ext
 
 pub async fn delete_link(State(state): State<AppState>, admin: Admin, axum::extract::Path(id): axum::extract::Path<uuid::Uuid>) -> Response {
     if fetch_out(&state, id).await.is_none() { return not_found(); }
+    // A Send link Portal keeps for an upload link's Exports folder stays deleted: the upload link
+    // stops asking for one (its "Send link" switch goes off).
+    let _ = sqlx::query(
+        "UPDATE links SET send_link = false WHERE id = (SELECT return_for FROM links WHERE id = $1)",
+    )
+    .bind(id).execute(&state.db).await;
     let _ = sqlx::query("DELETE FROM links WHERE id = $1").bind(id).execute(&state.db).await;
     let _ = sqlx::query("INSERT INTO audit_log (user_id, action, detail) VALUES ($1,'download_link.deleted',$2)")
         .bind(admin.id).bind(json!({ "download_link_id": id.to_string() })).execute(&state.db).await;

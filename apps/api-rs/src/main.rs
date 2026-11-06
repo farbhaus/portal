@@ -144,6 +144,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/settings/frameio-config", get(routes::settings::frameio_config_status).post(routes::settings::update_frameio_config))
         .route("/settings/email", get(routes::settings::email_status).post(routes::settings::update_email))
         .route("/settings/email/test", post(routes::settings::send_email_test))
+        .route("/settings/fiotransfer", get(routes::settings::fiotransfer_status).post(routes::settings::update_fiotransfer))
         .route("/settings/password", post(routes::settings::change_password))
         .route("/settings/totp/begin", post(routes::security::totp_begin))
         .route("/settings/totp/enable", post(routes::security::totp_enable))

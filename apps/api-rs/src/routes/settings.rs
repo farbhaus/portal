@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use sqlx::Row;
 
 use crate::auth::{Admin, SessionAdmin};
+use crate::services::fiotransfer::{clean_folder_name, lane_names, DEFAULT_EXPORTS, DEFAULT_IMPORTS};
 use crate::state::AppState;
 
 pub async fn email_status(State(state): State<AppState>, _: Admin) -> Response {
@@ -157,6 +158,63 @@ pub async fn update_frameio_config(State(state): State<AppState>, admin: Admin, 
     let _ = sqlx::query("INSERT INTO audit_log (user_id, action) VALUES ($1,'settings.frameio_config_updated')")
         .bind(admin.id).execute(&state.db).await;
     super::settings::frameio_config_status(State(state), admin).await
+}
+
+/// `GET /api/settings/fiotransfer`: the names FioTransfer's Imports and Exports folders get when a
+/// link doesn't name its own, so one naming convention covers every link.
+pub async fn fiotransfer_status(State(state): State<AppState>, _: Admin) -> Response {
+    let names = lane_names(&state.db).await;
+    Json(json!({
+        "imports_folder": names.imports,
+        "exports_folder": names.exports,
+        "defaults": { "imports_folder": DEFAULT_IMPORTS, "exports_folder": DEFAULT_EXPORTS },
+    }))
+    .into_response()
+}
+
+/// `POST /api/settings/fiotransfer` `{imports_folder, exports_folder}`: set both names. An empty or
+/// missing one goes back to its default. Links keep the names they were saved with.
+pub async fn update_fiotransfer(State(state): State<AppState>, admin: Admin, Json(body): Json<Value>) -> Response {
+    let read = |key: &str, field: &str| -> Result<Option<String>, Response> {
+        match body.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(s)) if s.trim().is_empty() => Ok(None),
+            Some(Value::String(s)) => clean_folder_name(field, s)
+                .map(Some)
+                .map_err(|m| crate::error::detail(StatusCode::UNPROCESSABLE_ENTITY, &m)),
+            Some(_) => Err(crate::error::detail(StatusCode::UNPROCESSABLE_ENTITY, &format!("{field} must be a string"))),
+        }
+    };
+    let imports = match read("imports_folder", "The Imports folder") {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let exports = match read("exports_folder", "The Exports folder") {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let effective = |v: &Option<String>, d: &str| v.clone().unwrap_or_else(|| d.to_string()).to_lowercase();
+    if effective(&imports, DEFAULT_IMPORTS) == effective(&exports, DEFAULT_EXPORTS) {
+        return crate::error::detail(StatusCode::UNPROCESSABLE_ENTITY, "The Imports and Exports folders need different names");
+    }
+    let Some(id) = ensure_app_settings(&state).await else {
+        return crate::error::detail(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error");
+    };
+    let saved = sqlx::query(
+        "UPDATE app_settings SET fiotransfer_imports_folder=$1, fiotransfer_exports_folder=$2, updated_at=now() WHERE id=$3",
+    )
+    .bind(&imports)
+    .bind(&exports)
+    .bind(id)
+    .execute(&state.db)
+    .await;
+    if let Err(e) = saved {
+        tracing::error!("settings.fiotransfer_update_failed: {e}");
+        return crate::error::detail(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error");
+    }
+    let _ = sqlx::query("INSERT INTO audit_log (user_id, action) VALUES ($1,'settings.fiotransfer_updated')")
+        .bind(admin.id).execute(&state.db).await;
+    fiotransfer_status(State(state), admin).await
 }
 
 pub async fn change_password(State(state): State<AppState>, SessionAdmin(admin): SessionAdmin, Json(body): Json<Value>) -> Response {

@@ -13,7 +13,7 @@
 
 <div class="space-y-6">
   {#key data.link.id}
-    <LinkComposer mode="edit" link={data.link} {recents} branding={data.branding} emailConfigured={data.emailConfigured} presets={data.presets} defaultNotify={data.defaultNotify} />
+    <LinkComposer mode="edit" link={data.link} {recents} branding={data.branding} emailConfigured={data.emailConfigured} presets={data.presets} defaultNotify={data.defaultNotify} laneNames={data.laneNames} projectFolders={data.projectFolders} />
   {/key}
 
   <section class="overflow-hidden rounded-xl border border-border bg-surface text-[13px] lg:mr-[364px]">

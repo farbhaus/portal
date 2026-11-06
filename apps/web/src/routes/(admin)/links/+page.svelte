@@ -321,7 +321,15 @@
                 {#if l.kind === "upload"}
                   {@const sync = l.folder?.sync}
                   <span class="text-faint">FioTransfer</span>
-                  <span class="text-body">{sync ? (sync.upload?.folder_id || sync.exports?.folder_id ? "Synced, with a send folder" : "Synced") : "Not synced"}</span>
+                  <span class="min-w-0 break-words text-body">
+                    {#if sync}
+                      {[sync.drive && "Imports", sync.exports && "Exports"].filter(Boolean).join(" and ")}{#if l.turbosort}<span class="text-faint"> · in </span><span class="font-mono text-[11.5px]">{l.turbosort}</span>{/if}
+                    {:else if l.turbosort}
+                      Mirrored both ways<span class="text-faint"> · as </span><span class="font-mono text-[11.5px]">{l.turbosort}</span>
+                    {:else}
+                      Not synced
+                    {/if}
+                  </span>
                   {#if l.return_link}
                     {@const ret = l.return_link}
                     <span class="text-faint">Clients download</span>

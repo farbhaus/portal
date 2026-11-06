@@ -42,14 +42,21 @@ export type BrandingStatus = {
   brand_accent_color: string | null;
 };
 
+export type FiotransferStatus = {
+  imports_folder: string;
+  exports_folder: string;
+  defaults: { imports_folder: string; exports_folder: string };
+};
+
 export const load: PageLoad = async ({ fetch }) => {
-  const [emailRes, frameioRes, frameioConfigRes, securityRes, brandingRes, presetsRes] = await Promise.all([
+  const [emailRes, frameioRes, frameioConfigRes, securityRes, brandingRes, presetsRes, fiotransferRes] = await Promise.all([
     fetch("/api/settings/email"),
     fetch("/api/frameio/status"),
     fetch("/api/settings/frameio-config"),
     fetch("/api/settings/security"),
     fetch("/api/settings/branding"),
     fetch("/api/link-presets"),
+    fetch("/api/settings/fiotransfer"),
   ]);
   const email: EmailStatus = emailRes.ok
     ? await emailRes.json()
@@ -75,5 +82,7 @@ export const load: PageLoad = async ({ fetch }) => {
     ? await brandingRes.json()
     : { has_logo: false, logo_updated_at: null, brand_display_name: null, brand_accent_color: null };
   const presets: Preset[] = presetsRes.ok ? await presetsRes.json() : [];
-  return { email, frameio, frameioConfig, security, branding, presets };
+  const lanes = { imports_folder: "1_DRIVE", exports_folder: "0_EXPORTS" };
+  const fiotransfer: FiotransferStatus = fiotransferRes.ok ? await fiotransferRes.json() : { ...lanes, defaults: lanes };
+  return { email, frameio, frameioConfig, security, branding, presets, fiotransfer };
 };

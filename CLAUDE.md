@@ -109,19 +109,24 @@ routes / upload engine / download links
   link stores as `links.folder`. Upload and download links share one `links` table (`kind` =
   `upload` | `download`; migration `e1f2a3b4c5d6` merged the old `upload_links`/`download_links`
   and dropped `destinations`).
-- An upload link's `folder` may also carry `sync`: the "Sync with FioTransfer" switch (`{}` is
-  enough). FioTransfer gives the link a folder on the user's disk; client uploads come down into
-  `IN`, and `OUT` goes up to the return folder `sync.upload.folder_id`. Optional `name`,
-  `download.folder_id` and `local` names override its defaults. Older links may store the earlier
-  lanes (`drive` = download, `exports` = upload, `mode`) and a link-level `turbosort` (the older
-  project folder name); they're kept as stored so FioTransfer's folders don't move. Validated by
-  `validate_sync` in `routes/upload_links.rs`; the contract is in `docs/API.md`. Portal only
-  stores and returns it for the external FioTransfer client — no Portal code moves files for it.
-  On save, missing `local` names are filled from the Frame.io folders' names (`fill_local_names`),
-  so FioTransfer's folders on disk mirror Frame.io (e.g. `…/RUSHES` and `…/RENDER`).
-  With a return folder, `services/return_links.rs` keeps a Send link on it (`links.return_for` →
-  the upload link; settings, revoke/restore follow the upload link; revoked, not deleted, when
-  the return folder goes) so the user has a URL to give the client.
+- An upload link's `folder` may also carry `sync` — "Sync this project's folders with
+  FioTransfer" — in the shape every FioTransfer reads (Chaos's original contract): a link-level
+  `turbosort` project folder plus `sync = {mode: "add_only", drive?, exports?}`. `drive` is
+  Imports (client files come down into `<turbosort>/<drive.local>`, from `drive.folder_id` or the
+  link's own folder); `exports` is Exports (`<turbosort>/<exports.local>` goes up to the required
+  `exports.folder_id`). A missing lane is off. Missing `local` names come from Settings →
+  FioTransfer (`app_settings.fiotransfer_imports_folder`/`_exports_folder`, default
+  `1_DRIVE`/`0_EXPORTS`, `services/fiotransfer.rs`), so a naming convention is set once; a synced
+  link without a `turbosort` gets the job folder its Imports sit in (`default_project_folder`).
+  Validated by `validate_sync` in `routes/upload_links.rs`; the contract is in `docs/API.md`.
+  Portal 2.2/2.3's `{}`/`download`/`upload`/`name` spellings are still accepted on input and
+  stored in this shape (migration `d6e7f8a9b0c1` rewrote the rows they saved) — never send them.
+  Turning the sync off clears `turbosort` too (a `turbosort` without `sync` is a two-way mirror).
+  Portal only stores and returns it for the external FioTransfer client — no Portal code moves
+  files for it. With an Exports folder, `services/return_links.rs` keeps a Send link on it
+  (`links.return_for` → the upload link; settings, revoke/restore follow the upload link; revoked,
+  not deleted, when the Exports folder goes; off with `links.send_link`, which deleting the Send
+  link clears) so the user has a URL to give the client.
 - Pickers (admin-only, under `/api/frameio`): list accounts/workspaces/projects/folders/files;
   cursor pagination via `links.next` → `after`, capped at `PICKER_MAX_ITEMS`.
 

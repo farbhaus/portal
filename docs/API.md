@@ -52,27 +52,32 @@ curl -X POST https://portal.example.com/api/upload-links \
       "workspace_id": "…",
       "project_id": "…",
       "folder_id": "…",
-      "sync": {}
-    }
+      "sync": { "drive": {}, "exports": { "folder_id": "…" } }
+    },
+    "turbosort": "ACME_SPRING_SPOT"
   }'
 ```
 
 The response includes `public_url` (the client-facing link).
 
-### Sync with FioTransfer (`folder.sync`)
+### Sync with FioTransfer (`folder.sync`, `turbosort`)
 
-An upload link can carry a `sync` block inside its `folder`. Its presence is the "Sync to
-FioTransfer" switch, and `{}` is enough. The return folder (`upload.folder_id`) is what the link
-screen calls the **send folder**. Portal only stores and returns it: the FioTransfer client
-reads `GET /api/upload-links` and gives each synced link a folder on the user's disk. What the
-client uploads comes down into its `IN` folder; what the user puts in `OUT` goes up to the return
-folder.
+"Sync this project's folders with FioTransfer". Portal only stores and returns it; the FioTransfer
+client reads `GET /api/upload-links` and keeps a project folder on the user's machine,
+`<root>/<turbosort>`, holding up to two one-way folders:
+
+- **Imports** (`drive`): what the client sends comes down into `<turbosort>/<drive.local>`.
+- **Exports** (`exports`): what the user puts in `<turbosort>/<exports.local>` goes up to
+  `exports.folder_id`.
 
 ```json
+"turbosort": "ACME_SPOT",
 "folder": {
-  "type": "frameio", "account_id": "…", "folder_id": "…",
+  "type": "frameio", "account_id": "…", "folder_id": "…", "turbosort": "ACME_SPOT",
   "sync": {
-    "upload": { "folder_id": "<return folder: OUT goes up here>" }
+    "mode": "add_only",
+    "drive":   { "local": "1_DRIVE" },
+    "exports": { "local": "0_EXPORTS", "folder_id": "<the Frame.io folder Exports go up to>" }
   }
 }
 ```
@@ -80,32 +85,39 @@ folder.
 | Field | Meaning | If absent |
 |---|---|---|
 | `sync` | The link is synced | Not synced |
-| `sync.upload.folder_id` | The return folder `OUT` goes up to | No `OUT` |
-| `sync.download.folder_id` | Where `IN` comes from | The link's own folder |
-| `sync.name` | The project folder's name on disk | The link's name |
-| `sync.download.local`, `sync.upload.local` | The two folders' names on disk | Portal fills them (see below) |
+| `turbosort` (link field) | The project folder on the user's machine | The job folder the Imports sit in (see below) |
+| `sync.drive` | Imports are on | Nothing comes down |
+| `sync.drive.folder_id` | Where Imports come down from | The link's own folder |
+| `sync.exports` | Exports are on | Nothing goes up |
+| `sync.exports.folder_id` | Where Exports go up to | Required when `exports` is sent |
+| `sync.drive.local`, `sync.exports.local` | The two folders' names on disk | The Imports/Exports names from Settings |
+| `sync.mode` | Files are only ever added, never deleted | Always stored as `add_only` |
 
-- Names are one folder name of at most 255 bytes: no `/`, `\`, `%`, control characters, `.` or `..`.
-- When a `sync` block is saved, Portal fills the missing `local` names with the Frame.io folders'
-  names, so the folders on disk mirror Frame.io: `download.local` = the link's folder (unless the
-  lane names another), `upload.local` = the return folder. Names already there are kept; if both
-  would match, the return one is left to FioTransfer's default.
-- The return folder can be any folder (typically one next to the link's folder), but not the
-  folder `IN` comes from or one inside it: FioTransfer brings that folder down whole, so `OUT`'s
-  files would come back into `IN`. The two `local` names must differ when both are set.
-- Files are only ever added, on either side; nothing is deleted.
-- On `PATCH`, a `folder` without a `sync` key keeps the stored block; `"sync": null` removes it.
-- With a return folder, Portal keeps a Send link on it (the folder and its subfolders) for you to
+- Names are one folder name of at most 255 bytes: no `/`, `\`, `%`, control characters, `.` or
+  `..`. The two `local` names must differ (ignoring case).
+- **Settings → FioTransfer** sets the Imports and Exports names a lane gets when it doesn't name
+  its own (`GET`/`POST /api/settings/fiotransfer`, `{imports_folder, exports_folder}`; default
+  `1_DRIVE` and `0_EXPORTS`). Links keep the names they were saved with.
+- A synced link always has a `turbosort`. Without one, Portal names it after the job folder the
+  Imports sit in: the folder above the link's folder when that is named like the Imports setting
+  (`ACME / 1_DRIVE` → `ACME`), else the first folder below the project, else the project.
+- The Exports folder can't be the folder Imports come down from or one inside it: FioTransfer
+  brings that folder down whole, so what goes up would come straight back down.
+- On `PATCH`, a `folder` without a `sync` key keeps the stored block; `"sync": null` removes it
+  and clears `turbosort` too, unless the same request sets one. A `turbosort` without a `sync` is
+  one folder FioTransfer mirrors both ways (the oldest kind of link).
+- With an Exports folder, Portal keeps a Send link on it (the folder and its subfolders) for you to
   share with the client: the upload link's `return_link` (`{id, public_url}`). Its settings follow
   the upload link — name, expiry, password, email code, the fields it asks for, page title and
   notification recipients — as do revoke and restore, and it goes when the upload link is deleted.
-  Without a return folder it is revoked, keeping its URL for when one is set again. On the Send
-  link, `return_for` names its upload link.
+  Without an Exports folder it is revoked, keeping its URL for when one is set again. On the Send
+  link, `return_for` names its upload link. `send_link: false` on the upload link turns it off;
+  deleting the Send link does that too, so it doesn't come back.
 
-Older links may carry the earlier lanes, which are still accepted and stored as sent: `drive`
-(read as `download`), `exports` (read as `upload`) and `mode` (only `add_only`). A block may name
-a direction once, under either key. The link-level `turbosort` field is the older project folder
-name, read when `sync.name` is absent; the admin UI no longer sets it.
+Portal 2.2 and 2.3 wrote this block as `{}`, `download`, `upload` and `name`. Those are still
+accepted and stored in the shape above: `download` as `drive`, `upload` as `exports`, `name` as
+the link's `turbosort`, and `{}` (no lane named) as Imports with its defaults. A lane may be sent
+under one of its two names only. Migration `d6e7f8a9b0c1` rewrote links saved that way.
 
 ## Other resources
 
