@@ -8,25 +8,35 @@ import { formatBytes } from "$lib/format";
 export type LinkState = "ok" | "expired" | "revoked";
 
 /**
- * "Sync with FioTransfer", stored inside an upload link's `folder` JSON. Portal only stores it; the
- * FioTransfer client reads it from `GET /api/upload-links` and gives the link a folder on the
- * user's disk: what the client uploads comes down into IN, and what the user puts in OUT goes up
- * to the return folder (`upload.folder_id`; without one there is no OUT). Its presence is the
- * switch, so `{}` is a whole sync. Nothing is ever deleted, on either side.
+ * "Sync this project's folders with FioTransfer", stored inside an upload link's `folder` JSON.
+ * Portal only stores it; FioTransfer reads it from `GET /api/upload-links` and keeps two one-way
+ * folders inside the link's project folder (`turbosort`) on the user's machine:
  *
- * `name` and the `local` names override the on-disk names; the composer never sets them but keeps
- * them. `drive`, `exports` and `mode` are the older lanes (read as `download` and `upload`), kept
- * as stored on the links that have them.
+ * - `drive` is Imports: what the client sends comes down into `local`, from `folder_id` (else the
+ *   link's own folder). Absent, nothing comes down.
+ * - `exports` is Exports: what the user puts in `local` goes up to `folder_id`. Absent, nothing
+ *   goes up.
+ *
+ * Nothing is ever deleted, on either side (`add_only`). A missing `local` gets the Imports/Exports
+ * name from Settings.
  */
 export type LinkSyncLane = { local?: string | null; folder_id?: string | null };
 export type LinkSync = {
-  name?: string | null;
-  download?: LinkSyncLane | null;
-  upload?: LinkSyncLane | null;
   mode?: "add_only";
   drive?: LinkSyncLane | null;
   exports?: LinkSyncLane | null;
 };
+
+/** The Imports and Exports folder names from Settings (`GET /api/settings/fiotransfer`). */
+export type LaneNames = { imports: string; exports: string };
+export const DEFAULT_LANE_NAMES: LaneNames = { imports: "1_DRIVE", exports: "0_EXPORTS" };
+
+/** A Frame.io folder name as one folder on disk: separators, `%` and control characters become `-`. */
+export function diskName(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  const s = name.replace(/[/\\%\u0000-\u001f\u007f]/g, "-").trim();
+  return /^\.*$/.test(s) ? "" : s.slice(0, 255);
+}
 
 type LinkBase = {
   id: string;
@@ -53,10 +63,12 @@ export type UploadLink = LinkBase & {
   allowed_extensions: string[] | null;
   uploader_fields_required: { name: boolean; email: boolean; message: boolean; project: boolean };
   subfolder_template: string | null;
-  // The project folder name FioTransfer reads and uses for the project's folder (null = none).
+  // The project folder on the user's machine: FioTransfer keeps the link's Imports and Exports in
+  // it. Always set on a synced link. Set without a `sync`, FioTransfer mirrors it both ways.
   turbosort: string | null;
-  // The Send link Portal keeps for the return folder (`folder.sync`), for the client to download
-  // what lands there. Null without a return folder.
+  // Whether Portal keeps a Send link on the Exports folder.
+  send_link: boolean;
+  // That Send link, for the client to download what lands there. Null without one.
   return_link: { id: string; public_url: string } | null;
 };
 

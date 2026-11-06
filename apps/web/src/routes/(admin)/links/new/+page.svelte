@@ -16,4 +16,6 @@
   emailConfigured={data.emailConfigured}
   presets={data.presets}
   defaultNotify={data.defaultNotify}
+  laneNames={data.laneNames}
+  projectFolders={data.projectFolders}
 />

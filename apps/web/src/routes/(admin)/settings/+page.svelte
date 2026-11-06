@@ -23,12 +23,48 @@
 
   const sections = [
     ["frameio", "Frame.io"],
+    ["fiotransfer", "FioTransfer"],
     ["email", "Email"],
     ["branding", "Branding"],
     ["presets", "Link presets"],
     ["security", "Sign-in & security"],
     ["privacy", "Data & privacy"],
   ];
+
+  // --- FioTransfer -----------------------------------------------------------
+  // The names a synced link's Imports and Exports folders get unless the link names its own, so a
+  // naming convention is set once. Links keep the names they were saved with.
+  const fiotransfer = $derived(data.fiotransfer);
+  let importsName = $state("");
+  let exportsName = $state("");
+  let savingLanes = $state(false);
+  let lanesSeeded = false;
+  $effect(() => {
+    void fiotransfer;
+    if (!lanesSeeded) {
+      lanesSeeded = true;
+      importsName = fiotransfer.imports_folder;
+      exportsName = fiotransfer.exports_folder;
+    }
+  });
+  async function saveLanes() {
+    savingLanes = true;
+    try {
+      const res = await fetch("/api/settings/fiotransfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imports_folder: importsName.trim() || null, exports_folder: exportsName.trim() || null }),
+      });
+      if (!res.ok) return toast(await errorDetail(res, "Could not save"), { kind: "error" });
+      const out = await res.json();
+      importsName = out.imports_folder;
+      exportsName = out.exports_folder;
+      toast("Folder names saved");
+      await invalidateAll();
+    } finally {
+      savingLanes = false;
+    }
+  }
 
   // --- Frame.io --------------------------------------------------------------
   let disconnecting = $state(false);
@@ -411,6 +447,20 @@
       </details>
     {/snippet}
     {@render card("frameio", "Frame.io", null, frameioBody)}
+
+    <!-- FioTransfer -->
+    {#snippet fiotransferBody()}
+      <SetRow label="Imports folder" for="s-imports" help="Where the client's files come down to, inside each project folder.">
+        <input id="s-imports" class="{input} max-w-60 font-mono text-xs" bind:value={importsName} placeholder={fiotransfer.defaults.imports_folder} autocomplete="off" spellcheck="false" />
+      </SetRow>
+      <SetRow label="Exports folder" for="s-exports" help="What goes up to Frame.io from each project folder. A link finds its Exports by this name in Frame.io.">
+        <input id="s-exports" class="{input} max-w-60 font-mono text-xs" bind:value={exportsName} placeholder={fiotransfer.defaults.exports_folder} autocomplete="off" spellcheck="false" />
+      </SetRow>
+      <div class="flex justify-end border-t border-border px-5 py-3">
+        <button type="button" class={primary} disabled={savingLanes} onclick={saveLanes}>{savingLanes ? "Saving…" : "Save names"}</button>
+      </div>
+    {/snippet}
+    {@render card("fiotransfer", "FioTransfer", "The folder names new synced links start with. Each link can still name its own; links you've saved keep theirs.", fiotransferBody)}
 
     <!-- Email -->
     {#snippet emailBody()}

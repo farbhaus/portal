@@ -79,33 +79,37 @@ impl PortalServer {
 }
 
 /// A link's `folder.sync` after switching FioTransfer on or off: null when off, else what it
-/// already stores (on-disk names, an older `exports` lane) with the return folder set or removed.
-/// A different return folder drops its lane's on-disk name; Portal names it after the new folder.
-fn with_sync(stored: Option<&Value>, enabled: bool, return_folder_id: Option<&str>) -> Value {
+/// already stores with the asked-for lanes changed. `imports` turns Imports (`drive`) on or off
+/// (omitted: as stored, and on for a link that wasn't synced); `exports_on: Some(false)` turns
+/// Exports off; `exports_folder_id` sets the folder Exports go up to. Names on disk are kept, so
+/// a folder FioTransfer already made doesn't move; Portal fills a missing one from Settings.
+fn with_sync(stored: Option<&Value>, enabled: bool, imports: Option<bool>, exports_on: Option<bool>, exports_folder_id: Option<&str>) -> Value {
     if !enabled {
         return Value::Null;
     }
+    let was_synced = stored.is_some_and(|v| v.is_object());
     let mut sync = stored.filter(|v| v.is_object()).cloned().unwrap_or_else(|| json!({}));
-    if let Some(obj) = sync.as_object_mut() {
-        let key = if obj.contains_key("exports") && !obj.contains_key("upload") { "exports" } else { "upload" };
-        match return_folder_id {
-            Some(id) => {
-                let lane = obj.entry(key).or_insert_with(|| json!({}));
-                if !lane.is_object() {
-                    *lane = json!({});
-                }
-                if lane.get("folder_id").and_then(|v| v.as_str()) != Some(id.trim()) {
-                    if let Some(l) = lane.as_object_mut() {
-                        l.remove("local");
-                    }
-                }
-                lane["folder_id"] = json!(id.trim());
-            }
-            None => {
-                obj.remove("upload");
-                obj.remove("exports");
-            }
+    let Some(obj) = sync.as_object_mut() else { return sync };
+    match imports {
+        Some(false) => {
+            obj.remove("drive");
         }
+        Some(true) => {
+            obj.entry("drive").or_insert_with(|| json!({}));
+        }
+        None if !was_synced => {
+            obj.insert("drive".to_string(), json!({}));
+        }
+        None => {}
+    }
+    if exports_on == Some(false) {
+        obj.remove("exports");
+    } else if let Some(id) = exports_folder_id.map(str::trim).filter(|s| !s.is_empty()) {
+        let lane = obj.entry("exports").or_insert_with(|| json!({}));
+        if !lane.is_object() {
+            *lane = json!({});
+        }
+        lane["folder_id"] = json!(id);
     }
     sync
 }
@@ -152,19 +156,28 @@ struct LinkId {
 struct UpdateLink {
     link_id: String,
     /// Fields to PATCH. Only supplied keys change. "Sync with FioTransfer" rides in `folder`: send
-    /// the link's `folder` with a `sync` block (`{}` to sync it, `{"upload":{"folder_id":"…"}}` to
-    /// add a return folder), or `sync: null` to stop. `set_fiotransfer_sync` does this for you.
+    /// the link's `folder` with a `sync` block (`{"drive":{}}` for Imports,
+    /// `{"exports":{"folder_id":"…"}}` for Exports, both for both), or `sync: null` to stop.
+    /// `turbosort` is the project folder. `set_fiotransfer_sync` does this for you.
     fields: Value,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SetFiotransferSync {
     link_id: String,
-    /// true gives the link a folder in FioTransfer; false stops syncing it.
+    /// true syncs the link's project folders with FioTransfer; false stops syncing it.
     enabled: bool,
-    /// The send folder: the Frame.io folder the user's files go up to, which Portal shares with a
-    /// Send link. Omit for none.
-    return_folder_id: Option<String>,
+    /// Imports: what the client sends comes down to the user's machine. Omit to keep it as it is
+    /// (on for a link that wasn't synced).
+    imports: Option<bool>,
+    /// false turns Exports off.
+    exports: Option<bool>,
+    /// Exports: the Frame.io folder the user's exports go up to (Portal shares it with a Send
+    /// link). Setting it turns Exports on.
+    #[serde(alias = "return_folder_id")]
+    exports_folder_id: Option<String>,
+    /// The project folder on the user's machine (`turbosort`). Omit for the job folder.
+    project_folder: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -181,11 +194,15 @@ struct CreateUploadLink {
     workspace_id: String,
     project_id: String,
     folder_id: String,
-    /// true gives the link a folder in FioTransfer: what the client uploads comes down to it.
+    /// true syncs the link's project folders with FioTransfer: Imports (what the client uploads
+    /// comes down), and Exports when `exports_folder_id` is given.
     sync: Option<bool>,
-    /// The send folder the user's files go up to (implies `sync`). Omit for none.
-    return_folder_id: Option<String>,
-    /// The older project folder name FioTransfer reads when `sync.name` is absent.
+    /// false leaves Imports off (an Exports-only link). Default on.
+    imports: Option<bool>,
+    /// The Frame.io folder the user's exports go up to (implies `sync`). Omit for no Exports.
+    #[serde(alias = "return_folder_id")]
+    exports_folder_id: Option<String>,
+    /// The project folder on the user's machine. Omit for the job folder the link receives in.
     turbosort: Option<String>,
     /// RFC 3339 timestamp.
     expires_at: Option<String>,
@@ -250,8 +267,8 @@ impl PortalServer {
                 "folder_id": p.folder_id,
             }
         });
-        if p.sync.unwrap_or(false) || p.return_folder_id.is_some() {
-            body["folder"]["sync"] = with_sync(None, true, p.return_folder_id.as_deref());
+        if p.sync.unwrap_or(false) || p.exports_folder_id.is_some() {
+            body["folder"]["sync"] = with_sync(None, true, p.imports, None, p.exports_folder_id.as_deref());
         }
         let optional = [
             ("turbosort", p.turbosort.map(Value::String)),
@@ -284,7 +301,7 @@ impl PortalServer {
         )
     }
 
-    #[tool(description = "Set or clear (null) an upload link's project folder name (turbosort), the older folder name FioTransfer reads when sync.name is absent.")]
+    #[tool(description = "Set an upload link's project folder name (turbosort): the folder FioTransfer keeps its Imports and Exports in. null goes back to the job folder.")]
     async fn set_project_folder(
         &self,
         Parameters(p): Parameters<SetProjectFolder>,
@@ -301,7 +318,7 @@ impl PortalServer {
         )
     }
 
-    #[tool(description = "Turn Sync with FioTransfer on or off for an upload link, with an optional send folder.")]
+    #[tool(description = "Turn Sync with FioTransfer on or off for an upload link, and set its Imports, Exports folder and project folder.")]
     async fn set_fiotransfer_sync(
         &self,
         Parameters(p): Parameters<SetFiotransferSync>,
@@ -312,8 +329,12 @@ impl PortalServer {
         let mut folder = link.get("folder").filter(|f| f.is_object()).cloned().ok_or_else(|| {
             ErrorData::invalid_params("That upload link has no Frame.io folder to sync", None)
         })?;
-        folder["sync"] = with_sync(folder.get("sync"), p.enabled, p.return_folder_id.as_deref());
-        pretty(self.call(reqwest::Method::PATCH, &path, Some(json!({ "folder": folder })), &[]).await?)
+        folder["sync"] = with_sync(folder.get("sync"), p.enabled, p.imports, p.exports, p.exports_folder_id.as_deref());
+        let mut body = json!({ "folder": folder });
+        if let Some(name) = p.project_folder {
+            body["turbosort"] = json!(name);
+        }
+        pretty(self.call(reqwest::Method::PATCH, &path, Some(body), &[]).await?)
     }
 
     #[tool(description = "Delete an upload link.")]
@@ -412,20 +433,29 @@ mod tests {
 
     #[test]
     fn sync_switch_keeps_what_the_link_stores() {
-        let ret = "6f4121b3-628d-4b7a-91ea-8b1ac4a3f0a3";
-        assert_eq!(with_sync(None, true, None), json!({}));
-        assert_eq!(with_sync(None, true, Some(ret)), json!({ "upload": { "folder_id": ret } }));
-        assert_eq!(with_sync(Some(&json!({ "name": "Acme" })), false, None), Value::Null);
-        // An older link keeps its keys and names; the same return folder keeps its name too.
-        let old = json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "local": "0_EXPORTS", "folder_id": ret } });
-        assert_eq!(with_sync(Some(&old), true, Some(ret)), old);
-        // A different return folder drops the old name; Portal names it after the new folder.
+        let exp = "6f4121b3-628d-4b7a-91ea-8b1ac4a3f0a3";
+        // A link that wasn't synced gets Imports, and Exports when a folder is given.
+        assert_eq!(with_sync(None, true, None, None, None), json!({ "drive": {} }));
+        assert_eq!(with_sync(None, true, None, None, Some(exp)), json!({ "drive": {}, "exports": { "folder_id": exp } }));
+        assert_eq!(with_sync(None, true, Some(false), None, Some(exp)), json!({ "exports": { "folder_id": exp } }));
+        assert_eq!(with_sync(Some(&json!({ "drive": {} })), false, None, None, None), Value::Null);
+        // A stored link keeps its lanes and names; a new Exports folder keeps the name on disk.
+        let old = json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "local": "0_EXPORTS", "folder_id": exp } });
+        assert_eq!(with_sync(Some(&old), true, None, None, None), old);
         let other = "8008cf70-f28e-474d-a209-d67afb9fddb6";
         assert_eq!(
-            with_sync(Some(&old), true, Some(other)),
-            json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "folder_id": other } })
+            with_sync(Some(&old), true, None, None, Some(other)),
+            json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" }, "exports": { "local": "0_EXPORTS", "folder_id": other } })
         );
-        assert_eq!(with_sync(Some(&old), true, None), json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" } }));
+        // Lanes turn off one at a time.
+        assert_eq!(with_sync(Some(&old), true, None, Some(false), None), json!({ "mode": "add_only", "drive": { "local": "1_DRIVE" } }));
+        assert_eq!(
+            with_sync(Some(&old), true, Some(false), None, None),
+            json!({ "mode": "add_only", "exports": { "local": "0_EXPORTS", "folder_id": exp } })
+        );
+        // An Exports-only link stays that way unless Imports is asked for.
+        let exports_only = json!({ "mode": "add_only", "exports": { "local": "0_EXPORTS", "folder_id": exp } });
+        assert_eq!(with_sync(Some(&exports_only), true, None, None, None), exports_only);
     }
 
     #[test]
